@@ -1109,6 +1109,46 @@ _resolve_rill_source() {
 # User-added lines outside the markers are preserved.
 #
 # Usage: _generate_vault_gitignore <vault_path>
+
+_ensure_guard_hook() {
+    local vault="$1"
+    local settings_file="$vault/.claude/settings.json"
+    mkdir -p "$vault/.claude"
+
+    # The correct hook format for Claude Code
+    local guard_entry='{"matcher":"Edit|Write","hooks":[{"type":"command","command":"rill guard $TOOL_INPUT_PATH"}]}'
+
+    if [ ! -f "$settings_file" ]; then
+        # Create new settings with guard hook
+        echo "{\"hooks\":{\"PreToolUse\":[$guard_entry]}}" | jq '.' > "$settings_file"
+        return 0
+    fi
+
+    # Check if guard hook already exists in correct format
+    if jq -e '.hooks.PreToolUse[]? | select(.hooks[]? | .command | test("rill guard"))' "$settings_file" &>/dev/null; then
+        return 0  # already present and correct
+    fi
+
+    # Remove old-format guard entries (matcher as object, or top-level command)
+    local tmp; tmp="$(mktemp)"
+    jq '
+      if .hooks.PreToolUse then
+        .hooks.PreToolUse |= map(
+          select(
+            (.command // "" | test("rill guard") | not) and
+            ((.hooks // []) | map(select(.command | test("rill guard"))) | length == 0)
+          )
+        )
+      else . end
+    ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
+
+    # Add correct-format guard hook
+    tmp="$(mktemp)"
+    jq --argjson entry "$guard_entry" '
+      .hooks.PreToolUse = ((.hooks.PreToolUse // []) + [$entry])
+    ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
+}
+
 _generate_vault_gitignore() {
     local vault="$1"
     local gitignore="$vault/.gitignore"
@@ -1844,6 +1884,9 @@ EOF
 
         # Regenerate .gitignore for this vault (D009-6)
         _generate_vault_gitignore "$vpath"
+
+        # Ensure guard hook in settings.json (D009-7)
+        _ensure_guard_hook "$vpath"
 
         echo "  ✓ $vname: $file_count files updated"
         ((updated++))
