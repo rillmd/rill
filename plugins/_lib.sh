@@ -2,7 +2,7 @@
 # plugins/_lib.sh — Shared library for Rill plugins
 #
 # Source this file from adapter.sh:
-#   source "$(dirname "$0")/../_lib.sh"
+#   source "${RILL_HOME}/plugins/_lib.sh"
 
 set -euo pipefail
 
