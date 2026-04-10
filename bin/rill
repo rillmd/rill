@@ -31,10 +31,12 @@ resolve_rill_home() {
         return 0
     fi
 
-    # 2. cwd walk-up: find the nearest ancestor containing a .rill/ marker
+    # 2. cwd walk-up: find the nearest ancestor containing a .rill/version marker
+    #    (checks .rill/version, not just .rill/, to avoid matching the global
+    #    registry at ~/.rill/ which also has that directory name)
     local walk="$PWD"
     while [ -n "$walk" ] && [ "$walk" != "/" ]; do
-        if [ -d "$walk/.rill" ]; then
+        if [ -f "$walk/.rill/version" ]; then
             echo "$walk"
             return 0
         fi
