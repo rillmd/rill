@@ -1862,25 +1862,53 @@ EOF
             continue
         fi
 
+        # Rebuild managed-files.txt from source (picks up new files)
         local managed_file="$vpath/.rill/managed-files.txt"
-        if [ ! -f "$managed_file" ]; then
-            echo "  ⚠ Skipping '$vname': managed-files.txt not found" >&2
-            ((skipped++))
-            ((i++))
-            continue
-        fi
+        : > "$managed_file"  # clear
 
         local file_count=0
-        while IFS= read -r rel; do
-            [ -z "$rel" ] && continue
-            if [ -f "$rill_source/$rel" ]; then
+
+        # Rules: .claude/rules/rill-*.md
+        local src rel
+        for src in "$rill_source"/.claude/rules/rill-*.md; do
+            [ -f "$src" ] || continue
+            rel="${src#"$rill_source"/}"
+            mkdir -p "$vpath/$(dirname "$rel")"
+            cp "$src" "$vpath/$rel"
+            echo "$rel" >> "$managed_file"
+            ((file_count++))
+        done
+
+        # Skills: .claude/commands/ (*.md and *.sh)
+        local found_skills
+        found_skills="$(find "$rill_source/.claude/commands" \( -name '*.md' -o -name '*.sh' \) 2>/dev/null || true)"
+        if [ -n "$found_skills" ]; then
+            echo "$found_skills" | while IFS= read -r src; do
+                [ -f "$src" ] || continue
+                rel="${src#"$rill_source"/}"
                 mkdir -p "$vpath/$(dirname "$rel")"
-                cp "$rill_source/$rel" "$vpath/$rel"
+                cp "$src" "$vpath/$rel"
+                echo "$rel" >> "$managed_file"
+            done
+        fi
+
+        # Subdirectory CLAUDE.md (container schemas)
+        local subdir_claude
+        for subdir_claude in \
+            inbox/CLAUDE.md inbox/journal/CLAUDE.md inbox/meetings/CLAUDE.md \
+            inbox/tweets/CLAUDE.md inbox/web-clips/CLAUDE.md inbox/sources/CLAUDE.md \
+            knowledge/notes/CLAUDE.md knowledge/people/CLAUDE.md \
+            knowledge/orgs/CLAUDE.md knowledge/projects/CLAUDE.md \
+            workspace/CLAUDE.md tasks/CLAUDE.md pages/CLAUDE.md \
+            reports/daily/CLAUDE.md reports/newsletter/CLAUDE.md \
+            SPEC.md; do
+            if [ -f "$rill_source/$subdir_claude" ]; then
+                mkdir -p "$vpath/$(dirname "$subdir_claude")"
+                cp "$rill_source/$subdir_claude" "$vpath/$subdir_claude"
+                echo "$subdir_claude" >> "$managed_file"
                 ((file_count++))
-            else
-                echo "  ⚠ Source file missing: $rel" >&2
             fi
-        done < "$managed_file"
+        done
 
         # Regenerate .gitignore for this vault (D009-6)
         _generate_vault_gitignore "$vpath"
