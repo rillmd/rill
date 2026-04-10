@@ -1,0 +1,2571 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Rill — Personal voice journal CLI
+# Usage: rill <command> [args]
+
+# Resolve RILL_HOME (the vault root)
+#
+# Hybrid resolution order (design D1, workspace 008):
+#   1. $RILL_HOME env var              — override (tests, CI, explicit override)
+#   2. cwd walk-up for .rill/          — project-local (inside a vault)
+#   3. ~/.rill/vaults.json default     — quick-capture from anywhere
+#   4. BASH_SOURCE walk (legacy)       — migration-period fallback
+#   5. error                           — prompts the user to `rill init`
+#
+# Historical note (2026-04-08): before env var support, if a user had
+# ~/.local/bin/rill as a symlink to their real repo, calling `rill` from any
+# cwd (e.g., a test vault) would resolve RILL_HOME to the real repo and write
+# files there — causing silent test contamination. The env var check is the
+# primary defense; test/skills/*.sh set RILL_HOME=$VAULT_DIR before calling
+# claude -p. See ADR-073 and tasks/investigate-rill-mkfile-test-environment-behavior.md.
+#
+# The legacy fallback (step 4) is intentionally kept during the migration
+# period so that the current monorepo (which has no .rill/ and no
+# vaults.json yet) continues to work. It will be removed in Phase 4 of
+# the RILL_HOME implementation workspace.
+resolve_rill_home() {
+    # 1. Honor $RILL_HOME if already set and valid
+    if [ -n "${RILL_HOME:-}" ] && [ -d "$RILL_HOME" ]; then
+        echo "$RILL_HOME"
+        return 0
+    fi
+
+    # 2. cwd walk-up: find the nearest ancestor containing a .rill/ marker
+    local walk="$PWD"
+    while [ -n "$walk" ] && [ "$walk" != "/" ]; do
+        if [ -d "$walk/.rill" ]; then
+            echo "$walk"
+            return 0
+        fi
+        walk="$(dirname "$walk")"
+    done
+
+    # 3. Global default vault from ~/.rill/vaults.json
+    local registry="$HOME/.rill/vaults.json"
+    if [ -f "$registry" ] && command -v jq &>/dev/null; then
+        local default_name default_path
+        default_name="$(jq -r '.default // empty' "$registry" 2>/dev/null || true)"
+        if [ -n "$default_name" ]; then
+            default_path="$(jq -r --arg n "$default_name" \
+                '.vaults[] | select(.name == $n) | .path' \
+                "$registry" 2>/dev/null || true)"
+            if [ -n "$default_path" ] && [ -d "$default_path" ]; then
+                echo "$default_path"
+                return 0
+            fi
+        fi
+    fi
+
+    # 4. Legacy fallback: walk BASH_SOURCE symlinks to find the script's
+    #    physical location, then return its parent directory. Retained so
+    #    the current monorepo (no .rill/, no vaults.json) keeps working.
+    #    TODO(Phase 4): remove after monorepo migration.
+    local source="${BASH_SOURCE[0]}"
+    while [ -L "$source" ]; do
+        local link_dir
+        link_dir="$(cd -P "$(dirname "$source")" && pwd)"
+        source="$(readlink "$source")"
+        [[ "$source" != /* ]] && source="$link_dir/$source"
+    done
+    local bin_dir legacy_root
+    bin_dir="$(cd -P "$(dirname "$source")" && pwd)"
+    legacy_root="$(dirname "$bin_dir")"
+    # Only accept the legacy path if it looks like a Rill repo (has inbox/).
+    # This prevents stray resolution when bin/rill is installed to a location
+    # like ~/.local/bin whose parent directory is unrelated.
+    if [ -d "$legacy_root/inbox" ]; then
+        echo "$legacy_root"
+        return 0
+    fi
+
+    # 5. No vault found — surface a helpful error to stderr.
+    cat >&2 <<'EOF'
+rill: Rill vault not found.
+  Tried:
+    1. $RILL_HOME environment variable       (not set or not a directory)
+    2. Walking up from current directory     (no .rill/ marker found)
+    3. Default vault in ~/.rill/vaults.json  (not registered)
+    4. Legacy bin/rill parent directory      (no inbox/ sibling)
+
+  Fix:
+    - Run 'rill init' inside a directory to create a new vault, or
+    - Set RILL_HOME to point to an existing vault.
+EOF
+    return 1
+}
+
+# Resolve RILL_HOME, tolerating failure so that `rill help` and `rill init`
+# can run in an uninitialized environment. Commands that actually need a
+# resolved vault will fail naturally when they try to access derived paths
+# like $JOURNAL_DIR (which will be "/inbox/journal" when $RILL_HOME is empty).
+RILL_HOME="$(resolve_rill_home || true)"
+JOURNAL_DIR="$RILL_HOME/inbox/journal"
+WEBCLIPS_DIR="$RILL_HOME/inbox/web-clips"
+TWEETS_DIR="$RILL_HOME/inbox/tweets"
+MEETINGS_DIR="$RILL_HOME/inbox/meetings"
+SOURCES_DIR="$RILL_HOME/inbox/sources"
+PLUGINS_DIR="$RILL_HOME/plugins"
+COMMANDS_DIR="$RILL_HOME/.claude/commands"
+EDITOR="${EDITOR:-vim}"
+
+# Generate timestamp-based filename, handling collisions
+generate_filename() {
+    local base
+    base="$(date +%Y-%m-%d-%H%M%S)"
+    local filepath="$JOURNAL_DIR/$base.md"
+
+    if [ -f "$filepath" ]; then
+        # Collision at second level: append counter
+        local counter=1
+        while [ -f "$JOURNAL_DIR/${base}-${counter}.md" ]; do
+            ((counter++))
+        done
+        filepath="$JOURNAL_DIR/${base}-${counter}.md"
+    fi
+
+    echo "$filepath"
+}
+
+# Generate frontmatter
+frontmatter() {
+    local now
+    now="$(date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/')"
+    cat <<EOF
+---
+created: $now
+---
+
+EOF
+}
+
+# Create a journal entry from text, return relative path
+_create_entry() {
+    local text="$*"
+    local filepath
+    filepath="$(generate_filename)"
+    {
+        frontmatter
+        echo "$text"
+    } > "$filepath"
+    echo "${filepath#$RILL_HOME/}"
+}
+
+# Commands
+
+cmd_log() {
+    if [ $# -gt 0 ]; then
+        # Inline mode: rill log "text"
+        local created
+        created="$(_create_entry "$@")"
+        echo "Created: $created"
+    else
+        # Editor mode: rill log (no args)
+        local filepath
+        filepath="$(generate_filename)"
+        local tmpfile
+        tmpfile="$(mktemp)"
+        frontmatter > "$tmpfile"
+        $EDITOR "$tmpfile"
+
+        # Check if user actually wrote something
+        local body
+        body="$(sed '/^---$/,/^---$/d' "$tmpfile" | sed '/^[[:space:]]*$/d')"
+        if [ -z "$body" ]; then
+            echo "Empty entry, discarded."
+            rm -f "$tmpfile"
+            return 0
+        fi
+
+        mv "$tmpfile" "$filepath"
+        echo "Created: ${filepath#$RILL_HOME/}"
+    fi
+}
+
+cmd_push() {
+    cd "$RILL_HOME"
+
+    # git-crypt lock safety check (ADR-047)
+    if [ -d "$RILL_HOME/.git/git-crypt" ]; then
+        local test_file
+        test_file=$(ls knowledge/people/*.md 2>/dev/null | head -1)
+        if [ -n "$test_file" ] && head -c 9 "$test_file" | grep -q "GITCRYPT"; then
+            echo "⚠️  git-crypt is locked. Run: git-crypt unlock <key>"
+            return 1
+        fi
+    fi
+
+    git add -A
+    local msg
+    msg="journal: $(date '+%Y-%m-%d %H:%M')"
+    if git diff --cached --quiet; then
+        echo "Nothing to push."
+        return 0
+    fi
+    git commit -m "$msg"
+    git push
+    echo "Pushed."
+}
+
+cmd_status() {
+    local count="${1:-10}"
+    echo "=== Recent journal entries ==="
+    if [ -d "$JOURNAL_DIR" ]; then
+        local files
+        files="$(ls -1t "$JOURNAL_DIR"/*.md 2>/dev/null | head -n "$count")"
+        if [ -z "$files" ]; then
+            echo "(no entries yet)"
+            return 0
+        fi
+        while IFS= read -r f; do
+            local name
+            name="$(basename "$f")"
+            # Show first non-frontmatter, non-empty line as preview
+            local preview
+            preview="$(sed '/^---$/,/^---$/d' "$f" | sed '/^[[:space:]]*$/d' | head -1)"
+            if [ ${#preview} -gt 80 ]; then
+                preview="${preview:0:77}..."
+            fi
+            printf "  %-24s %s\n" "$name" "$preview"
+        done <<< "$files"
+    else
+        echo "(journal directory not found)"
+    fi
+
+    echo ""
+    echo "=== Stats ==="
+    local journal_count topics_count knowledge_count
+    journal_count="$(find "$JOURNAL_DIR" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+    topics_count="$(find "$RILL_HOME/workspace/thinks" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+    knowledge_count="$(find "$RILL_HOME/knowledge/notes" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+    local task_count
+    task_count="$(find "$RILL_HOME/tasks" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+    echo "  journal: $journal_count  thinks: $topics_count  knowledge: $knowledge_count  tasks: $task_count"
+}
+
+cmd_edit() {
+    local latest
+    latest="$(ls -1t "$JOURNAL_DIR"/*.md 2>/dev/null | head -1)"
+    if [ -z "$latest" ]; then
+        echo "No journal entries found."
+        return 1
+    fi
+    echo "Editing: ${latest#$RILL_HOME/}"
+    $EDITOR "$latest"
+}
+
+cmd_interactive() {
+    local count=0
+    local start_time
+    start_time="$(date +%s)"
+
+    _interactive_summary() {
+        local elapsed=$(( $(date +%s) - start_time ))
+        local mins=$(( elapsed / 60 ))
+        local secs=$(( elapsed % 60 ))
+        local duration
+        if [ "$mins" -gt 0 ]; then
+            duration="${mins}m${secs}s"
+        else
+            duration="${secs}s"
+        fi
+        echo ""
+        echo "---"
+        echo "Session: $count entries in $duration"
+    }
+
+    trap '_interactive_summary; exit 0' INT
+
+    echo "rill interactive mode (unlimited input)"
+    echo "Type or speak, then blank line to save. Ctrl+C to quit."
+    echo ""
+
+    while true; do
+        local text=""
+        local first_line=true
+
+        while true; do
+            local prompt
+            if $first_line; then
+                prompt="rill> "
+            else
+                prompt="   .. "
+            fi
+
+            local line
+            # -e uses readline (bypasses terminal canonical mode 1024-byte limit)
+            if ! IFS= read -e -r -p "$prompt" line; then
+                # EOF (Ctrl+D)
+                if [ -z "$text" ]; then
+                    _interactive_summary
+                    return 0
+                fi
+                # Submit accumulated text
+                break
+            fi
+
+            # Blank line = end of entry
+            if [ -z "$line" ]; then
+                break
+            fi
+
+            # Exit commands (only when no text accumulated yet)
+            if [ -z "$text" ]; then
+                case "$line" in
+                    exit|quit|q) _interactive_summary; return 0 ;;
+                esac
+            fi
+
+            if [ -n "$text" ]; then
+                text+=$'\n'"$line"
+            else
+                text="$line"
+            fi
+            first_line=false
+        done
+
+        # Skip empty entries
+        [ -z "$text" ] && continue
+
+        ((count++))
+        local created
+        created="$(_create_entry "$text")"
+        echo "  -> $created (#$count)"
+        echo ""
+    done
+}
+
+cmd_clip() {
+    if [ $# -eq 0 ]; then
+        echo "Usage: rill clip <URL>"
+        return 1
+    fi
+
+    local url="$1"
+
+    # Validate URL format
+    if [[ ! "$url" =~ ^https?:// ]]; then
+        echo "Error: Invalid URL. Must start with http:// or https://"
+        return 1
+    fi
+
+    # Strip tracking params (?s=, &t=, etc.) from URLs
+    url="$(echo "$url" | sed 's/[?&]s=[^&]*//g' | sed 's/[?&]t=[^&]*//g' | sed 's/[?&]ref_src=[^&]*//g' | sed 's/[?&]ref_url=[^&]*//g' | sed 's/\?$//')"
+
+    # Check if URL is a tweet (x.com or twitter.com)
+    if [[ "$url" =~ ^https?://(x\.com|twitter\.com)/([^/]+)/status/([0-9]+) ]]; then
+        _clip_tweet "$url" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"
+        return $?
+    fi
+
+    # --- Web clip (non-tweet URL) ---
+    _clip_web "$url"
+}
+
+# Internal: clip a tweet URL
+_clip_tweet() {
+    local url="$1"
+    local screen_name="$2"
+    local tweet_id="$3"
+
+    # Fetch tweet metadata via FixTweet API (no auth required)
+    local api_url="https://api.fxtwitter.com/${screen_name}/status/${tweet_id}"
+    local api_json
+    api_json="$(curl -sL --max-time 15 "$api_url" 2>/dev/null)" || true
+
+    # Extract author name and generate slug
+    local author_name=""
+    local slug=""
+    if [ -n "$api_json" ]; then
+        author_name="$(echo "$api_json" | jq -r '.tweet.author.screen_name // empty' 2>/dev/null)"
+    fi
+    slug="${author_name:-tweet}"
+
+    # Generate filename
+    local timestamp
+    timestamp="$(date +%Y-%m-%d-%H%M%S)"
+    local filename="${timestamp}-${slug}.md"
+    local filepath="$TWEETS_DIR/$filename"
+
+    # Handle collision
+    if [ -f "$filepath" ]; then
+        local counter=1
+        while [ -f "$TWEETS_DIR/${timestamp}-${slug}-${counter}.md" ]; do
+            ((counter++))
+        done
+        filename="${timestamp}-${slug}-${counter}.md"
+        filepath="$TWEETS_DIR/$filename"
+    fi
+
+    # Generate frontmatter
+    local now
+    now="$(date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/')"
+
+    {
+        echo "---"
+        echo "created: $now"
+        echo "source-type: tweet"
+        echo "url: \"$url\""
+        echo "tweet-id: \"$tweet_id\""
+        echo "---"
+        echo ""
+        echo "<!-- Content will be fetched by /distill Phase 2 via FixTweet API -->"
+    } > "$filepath"
+
+    echo "Clipped: inbox/tweets/$filename"
+    echo "  tweet: @${author_name:-$screen_name} (ID: $tweet_id)"
+    echo "  Run /distill to fetch and organize content."
+}
+
+# Internal: clip a web URL
+_clip_web() {
+    local url="$1"
+
+    # Fetch HTML head for metadata extraction
+    local html
+    html="$(curl -sL --max-time 10 "$url" 2>/dev/null | sed -n '/<head/,/<\/head>/p')" || true
+
+    # Extract metadata
+    local title=""
+    local og_title=""
+    local og_description=""
+    local og_image=""
+
+    # Extract <title>
+    title="$(echo "$html" | sed -n 's/.*<title[^>]*>\([^<]*\)<\/title>.*/\1/p' | head -1)"
+
+    # Extract OGP meta tags (grep may return 1 if no match, so || true)
+    og_title="$(echo "$html" | grep -oi 'property="og:title"[^>]*content="[^"]*"' | sed 's/.*content="\([^"]*\)".*/\1/' | head -1 || true)"
+    [ -z "$og_title" ] && og_title="$(echo "$html" | grep -oi 'content="[^"]*"[^>]*property="og:title"' | sed 's/.*content="\([^"]*\)".*/\1/' | head -1 || true)"
+
+    og_description="$(echo "$html" | grep -oi 'property="og:description"[^>]*content="[^"]*"' | sed 's/.*content="\([^"]*\)".*/\1/' | head -1 || true)"
+    [ -z "$og_description" ] && og_description="$(echo "$html" | grep -oi 'content="[^"]*"[^>]*property="og:description"' | sed 's/.*content="\([^"]*\)".*/\1/' | head -1 || true)"
+
+    og_image="$(echo "$html" | grep -oi 'property="og:image"[^>]*content="[^"]*"' | sed 's/.*content="\([^"]*\)".*/\1/' | head -1 || true)"
+    [ -z "$og_image" ] && og_image="$(echo "$html" | grep -oi 'content="[^"]*"[^>]*property="og:image"' | sed 's/.*content="\([^"]*\)".*/\1/' | head -1 || true)"
+
+    # Use og:title if available, fallback to <title>
+    local display_title="${og_title:-$title}"
+    display_title="${display_title:-Untitled}"
+
+    # Generate kebab-case slug from title (ASCII only, max 50 chars)
+    local slug
+    slug="$(echo "$display_title" | \
+        sed 's/[^a-zA-Z0-9 ]//g' | \
+        tr '[:upper:]' '[:lower:]' | \
+        tr -s ' ' '-' | \
+        sed 's/^-//;s/-$//' | \
+        cut -c1-50 | \
+        sed 's/-$//')"
+    [ -z "$slug" ] && slug="web-clip"
+
+    # Generate filename with timestamp
+    local timestamp
+    timestamp="$(date +%Y-%m-%d-%H%M%S)"
+    local filename="${timestamp}-${slug}.md"
+    local filepath="$WEBCLIPS_DIR/$filename"
+
+    # Handle collision
+    if [ -f "$filepath" ]; then
+        local counter=1
+        while [ -f "$WEBCLIPS_DIR/${timestamp}-${slug}-${counter}.md" ]; do
+            ((counter++))
+        done
+        filename="${timestamp}-${slug}-${counter}.md"
+        filepath="$WEBCLIPS_DIR/$filename"
+    fi
+
+    # Generate frontmatter
+    local now
+    now="$(date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/')"
+
+    {
+        echo "---"
+        echo "created: $now"
+        echo "source-type: web-clip"
+        echo "url: \"$url\""
+        echo "title: \"$display_title\""
+        [ -n "$og_description" ] && echo "og-description: \"$og_description\""
+        [ -n "$og_image" ] && echo "og-image: \"$og_image\""
+        echo "---"
+        echo ""
+        echo "<!-- Content will be fetched by /distill Phase 2 via WebFetch -->"
+    } > "$filepath"
+
+    echo "Clipped: inbox/web-clips/$filename"
+    echo "  title: $display_title"
+    echo "  Run /distill to fetch and organize content."
+}
+
+# Plugin management
+
+_plugin_list() {
+    echo "Available plugins:"
+    local found=false
+    for d in "$PLUGINS_DIR"/*/; do
+        [ -d "$d" ] || continue
+        local name
+        name="$(basename "$d")"
+
+        local installed="✗"
+        if [ -d "$d/commands" ]; then
+            local has_commands=false
+            local all_linked=true
+            for cmd in "$d"/commands/*.md; do
+                [ -f "$cmd" ] || continue
+                [[ "$(basename "$cmd")" == _* ]] && continue
+                has_commands=true
+                local target="$COMMANDS_DIR/$(basename "$cmd")"
+                if [ ! -L "$target" ]; then
+                    all_linked=false
+                    break
+                fi
+            done
+            $has_commands && $all_linked && installed="✓"
+        fi
+
+        printf "  %s %s\n" "$installed" "$name"
+        found=true
+    done
+    $found || echo "  (no plugins found)"
+}
+
+_plugin_install() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: rill plugin install <name>"
+        return 1
+    fi
+
+    local plugin_dir="$PLUGINS_DIR/$name"
+    if [ ! -d "$plugin_dir" ]; then
+        echo "Plugin not found: $name"
+        return 1
+    fi
+
+    local count=0
+    if [ -d "$plugin_dir/commands" ]; then
+        for cmd in "$plugin_dir"/commands/*.md; do
+            [ -f "$cmd" ] || continue
+            local cmd_basename
+            cmd_basename="$(basename "$cmd")"
+            # Skip internal files (prefixed with _)
+            [[ "$cmd_basename" == _* ]] && continue
+            local target="$COMMANDS_DIR/$cmd_basename"
+
+            if [ -L "$target" ]; then
+                echo "  skip (already linked): $cmd_basename"
+            elif [ -f "$target" ]; then
+                echo "  WARN: $cmd_basename exists and is not a symlink. Skipping."
+            else
+                ln -s "../../plugins/$name/commands/$cmd_basename" "$target"
+                echo "  linked: $cmd_basename"
+                ((count++))
+            fi
+        done
+    fi
+
+    echo "Installed $name ($count commands linked)"
+
+    if [ -f "$plugin_dir/plugin.md" ]; then
+        echo ""
+        echo "Setup instructions: plugins/$name/plugin.md"
+    fi
+}
+
+_plugin_uninstall() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: rill plugin uninstall <name>"
+        return 1
+    fi
+
+    local count=0
+    for link in "$COMMANDS_DIR"/*.md; do
+        [ -L "$link" ] || continue
+        local target
+        target="$(readlink "$link")"
+        if echo "$target" | grep -q "plugins/$name/"; then
+            rm "$link"
+            echo "  unlinked: $(basename "$link")"
+            ((count++))
+        fi
+    done
+
+    echo "Uninstalled $name ($count commands unlinked)"
+    echo "Plugin directory preserved: plugins/$name/"
+    echo "To fully remove: rm -rf plugins/$name/"
+}
+
+_plugin_status() {
+    echo "Plugin status:"
+    local found=false
+    for d in "$PLUGINS_DIR"/*/; do
+        [ -d "$d" ] || continue
+        local name
+        name="$(basename "$d")"
+        found=true
+
+        echo ""
+        echo "[$name]"
+
+        # Commands
+        local cmd_total=0 cmd_linked=0
+        if [ -d "$d/commands" ]; then
+            for cmd in "$d"/commands/*.md; do
+                [ -f "$cmd" ] || continue
+                [[ "$(basename "$cmd")" == _* ]] && continue
+                ((cmd_total++))
+                local target="$COMMANDS_DIR/$(basename "$cmd")"
+                if [ -L "$target" ]; then
+                    ((cmd_linked++))
+                    echo "  ✓ $(basename "$cmd")"
+                else
+                    echo "  ✗ $(basename "$cmd") (not linked)"
+                fi
+            done
+        fi
+
+        # Adapter
+        if [ -f "$d/adapter.sh" ]; then
+            echo "  adapter: ✓"
+        fi
+
+        echo "  commands: $cmd_linked/$cmd_total linked"
+    done
+    $found || echo "  (no plugins found)"
+}
+
+cmd_plugin() {
+    local subcmd="${1:-list}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        list)      _plugin_list ;;
+        install)   _plugin_install "$@" ;;
+        uninstall) _plugin_uninstall "$@" ;;
+        status)    _plugin_status ;;
+        *)
+            echo "Usage: rill plugin [list|install|uninstall|status] [name]"
+            return 1
+            ;;
+    esac
+}
+
+cmd_sync() {
+    local target="${1:-}"
+
+    if [ -z "$target" ]; then
+        echo "Available adapters:"
+        local found=false
+        for d in "$PLUGINS_DIR"/*/; do
+            [ -d "$d" ] || continue
+            if [ -f "$d/adapter.sh" ]; then
+                printf "  %s\n" "$(basename "$d")"
+                found=true
+            fi
+        done
+        $found || echo "  (no adapters found)"
+        return 0
+    fi
+
+    local adapter="$PLUGINS_DIR/$target/adapter.sh"
+    if [ ! -f "$adapter" ]; then
+        echo "Adapter not found: $target"
+        echo "Run 'rill sync' to list available adapters."
+        return 1
+    fi
+
+    bash "$adapter"
+}
+
+cmd_touch() {
+    # Called by PostToolUse hook (Edit/Write). Updates `updated` in frontmatter.
+    # Reads hook JSON from stdin. Only acts on target file patterns.
+    local json
+    json="$(cat)"
+
+    local file_path
+    file_path="$(echo "$json" | jq -r '.tool_input.file_path // empty' 2>/dev/null)" || return 0
+    [ -z "$file_path" ] && return 0
+
+    # Convert to relative path
+    local rel_path="${file_path#$RILL_HOME/}"
+
+    # Only process target file patterns
+    case "$rel_path" in
+        workspace/*/_workspace.md) ;;
+        tasks/*.md) ;;
+        knowledge/notes/*.md) ;;
+        pages/*.md)
+            # Skip recipe files
+            case "$rel_path" in *.recipe.md) return 0 ;; esac
+            ;;
+        *) return 0 ;;
+    esac
+
+    # File must exist and have frontmatter
+    [ -f "$file_path" ] || return 0
+    head -1 "$file_path" | grep -q '^---$' || return 0
+
+    local ts
+    ts="$(_activity_log_timestamp)"
+
+    # Update or insert `updated` field in frontmatter
+    if grep -q '^updated:' "$file_path"; then
+        sed -i '' "s/^updated:.*$/updated: ${ts}/" "$file_path"
+    else
+        # Insert after created: line
+        sed -i '' "/^created:/a\\
+updated: ${ts}
+" "$file_path"
+    fi
+}
+
+cmd_activity_log() {
+    local subcmd="${1:-}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        on-write)
+            _activity_log_on_write
+            ;;
+        on-prompt)
+            _activity_log_on_prompt
+            ;;
+        on-stop)
+            _activity_log_on_stop
+            ;;
+        add)
+            _activity_log_add "$@"
+            ;;
+        *)
+            echo "Usage: rill activity-log [on-write|on-prompt|on-stop|add <event> <description> [→ link]]"
+            return 1
+            ;;
+    esac
+}
+
+_activity_log_timestamp() {
+    date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/'
+}
+
+_activity_log_append() {
+    local event="$1"
+    local description="$2"
+    local link="${3:-}"
+
+    local ts
+    ts="$(_activity_log_timestamp)"
+    local line="- ${ts} ${event} ${description}"
+    [ -n "$link" ] && line="${line} → ${link}"
+
+    echo "$line" >> "$RILL_HOME/activity-log.md"
+}
+
+_activity_log_add() {
+    if [ $# -lt 2 ]; then
+        echo "Usage: rill activity-log add <event> <description> [→ link]"
+        return 1
+    fi
+    local event="$1"
+    shift
+    local description=""
+    local link=""
+
+    # Parse args: everything before → is description, after is link
+    while [ $# -gt 0 ]; do
+        if [ "$1" = "→" ]; then
+            shift
+            link="$*"
+            break
+        fi
+        if [ -n "$description" ]; then
+            description="$description $1"
+        else
+            description="$1"
+        fi
+        shift
+    done
+
+    _activity_log_append "$event" "$description" "$link"
+}
+
+_activity_log_on_write() {
+    # Called by PostToolUse (Write) hook. Receives tool input JSON on stdin.
+    local json
+    json="$(cat)"
+
+    local file_path
+    file_path="$(echo "$json" | jq -r '.tool_input.file_path // empty' 2>/dev/null)" || return 0
+    [ -z "$file_path" ] && return 0
+
+    # Convert absolute path to relative (strip RILL_HOME prefix)
+    local rel_path="${file_path#$RILL_HOME/}"
+
+    # Pattern matching
+    case "$rel_path" in
+        workspace/*/_workspace.md)
+            # focus:start — only if not already recorded for this workspace
+            local ws_dir
+            ws_dir="$(echo "$rel_path" | sed 's|/[^/]*$||')"
+            local ws_name
+            ws_name="$(basename "$ws_dir" | sed 's/^[0-9]*-[0-9]*-[0-9]*-//')"
+
+            # Check if focus:start already exists for this workspace in activity-log.md
+            if ! grep -q "focus:start.*→ ${ws_dir}" "$RILL_HOME/activity-log.md" 2>/dev/null; then
+                # Try to extract name from _workspace.md frontmatter
+                local display_name=""
+                if [ -f "$file_path" ]; then
+                    display_name="$(sed -n '/^name:/s/^name: *//p' "$file_path" | head -1)"
+                fi
+                [ -z "$display_name" ] && display_name="$ws_name"
+                _activity_log_append "focus:start" "\"$display_name\"" "${ws_dir}/"
+            fi
+            ;;
+        workspace/*/_summary.md)
+            local ws_dir
+            ws_dir="$(echo "$rel_path" | sed 's|/[^/]*$||')"
+            local ws_name
+            ws_name="$(basename "$ws_dir" | sed 's/^[0-9]*-[0-9]*-[0-9]*-//')"
+            local display_name=""
+            local ws_file="$RILL_HOME/${ws_dir}/_workspace.md"
+            if [ -f "$ws_file" ]; then
+                display_name="$(sed -n '/^name:/s/^name: *//p' "$ws_file" | head -1)"
+            fi
+            [ -z "$display_name" ] && display_name="$ws_name"
+            _activity_log_append "focus:close" "\"$display_name\"" "${rel_path}"
+            ;;
+        workspace/*/[0-9][0-9][0-9]-*.md)
+            local ws_dir
+            ws_dir="$(echo "$rel_path" | sed 's|/[^/]*$||')"
+            local filename
+            filename="$(basename "$rel_path")"
+            _activity_log_append "focus:artifact" "\"$filename\"" "${rel_path}"
+            ;;
+        reports/daily/*.md)
+            local filename
+            filename="$(basename "$rel_path")"
+            _activity_log_append "briefing:generate" "\"$filename\"" "${rel_path}"
+            ;;
+        reports/newsletter/*.md)
+            local filename
+            filename="$(basename "$rel_path")"
+            _activity_log_append "newsletter:generate" "\"$filename\"" "${rel_path}"
+            ;;
+        inbox/tweets/*.md)
+            # Only raw files, not _organized/
+            case "$rel_path" in
+                */_organized/*) ;;
+                *)
+                    local filename
+                    filename="$(basename "$rel_path")"
+                    _activity_log_append "clip:save" "\"$filename\"" "${rel_path}"
+                    ;;
+            esac
+            ;;
+        knowledge/notes/*.md)
+            # Count for distill:complete aggregation at Stop
+            local count_file="/tmp/rill-distill-count-${PPID}"
+            local current=0
+            [ -f "$count_file" ] && current="$(cat "$count_file")"
+            echo $(( current + 1 )) > "$count_file"
+            ;;
+    esac
+}
+
+_activity_log_on_prompt() {
+    # Called by UserPromptSubmit hook. Receives prompt JSON on stdin.
+    local json
+    json="$(cat)"
+
+    local prompt
+    prompt="$(echo "$json" | jq -r '.prompt // empty' 2>/dev/null)" || return 0
+    [ -z "$prompt" ] && return 0
+
+    case "$prompt" in
+        /ask*)
+            local question
+            question="$(echo "$prompt" | sed 's|^/ask *||')"
+            [ -n "$question" ] && _activity_log_append "ask" "\"$question\""
+            ;;
+        /sync*)
+            local target
+            target="$(echo "$prompt" | sed 's|^/sync *||')"
+            _activity_log_append "sync:complete" "\"${target:-manual}\""
+            ;;
+    esac
+}
+
+_activity_log_on_stop() {
+    # Called by Stop hook. Aggregates distill count from tmp file.
+    local count_file="/tmp/rill-distill-count-${PPID}"
+    if [ -f "$count_file" ]; then
+        local count
+        count="$(cat "$count_file")"
+        if [ "$count" -gt 0 ] 2>/dev/null; then
+            _activity_log_append "distill:complete" "notes:${count}"
+        fi
+        rm -f "$count_file"
+    fi
+}
+
+# ── Crypt: git-crypt encryption management ──
+# Dispatched via `rill crypt <subcommand>`. Also reachable via the short
+# aliases `rill doctor` (→ _crypt_doctor) for backward compatibility.
+# The top-level `rill init` is reserved for vault initialization (design f).
+
+_crypt_init() {
+    cd "$RILL_HOME"
+
+    # Check git-crypt is installed
+    if ! command -v git-crypt &>/dev/null; then
+        echo "git-crypt not found. Install: brew install git-crypt"
+        return 1
+    fi
+
+    # Initialize git-crypt if not already done
+    if [ -d ".git/git-crypt" ]; then
+        echo "git-crypt already initialized."
+    else
+        git-crypt init
+        echo "git-crypt initialized."
+    fi
+
+    # Export key
+    local key_path="$HOME/rill-git-crypt.key"
+    if [ ! -f "$key_path" ]; then
+        git-crypt export-key "$key_path"
+        echo "Key exported to: $key_path"
+        echo "⚠️  Save this key to 1Password or similar, then delete from disk."
+    else
+        echo "Key already exists at: $key_path"
+    fi
+
+    # Install pre-commit hook
+    local hook_target=".git/hooks/pre-commit"
+    if [ -f "$hook_target" ] && [ ! -L "$hook_target" ]; then
+        echo "⚠️  Existing pre-commit hook found. Manual installation needed:"
+        echo "    ln -sf ../../bin/hooks/pre-commit-pii-check.sh .git/hooks/pre-commit"
+    else
+        ln -sf ../../bin/hooks/pre-commit-pii-check.sh "$hook_target"
+        echo "Pre-commit hook installed."
+    fi
+}
+
+_crypt_doctor() {
+    cd "$RILL_HOME"
+    local issues=0
+
+    echo "=== Rill Encryption Health Check ==="
+    echo ""
+
+    # 1. git-crypt initialization
+    if [ -d ".git/git-crypt" ]; then
+        echo "✓ git-crypt initialized"
+    else
+        echo "✗ git-crypt not initialized (run: rill crypt init)"
+        ((issues++))
+    fi
+
+    # 2. Encrypted file count
+    local people_count orgs_count
+    people_count=$(ls knowledge/people/*.md 2>/dev/null | wc -l | tr -d ' ')
+    orgs_count=$(ls knowledge/orgs/*.md 2>/dev/null | wc -l | tr -d ' ')
+    echo "  Encrypted files: people=$people_count, orgs=$orgs_count"
+
+    # 3. Lock status
+    if [ -d ".git/git-crypt" ]; then
+        local test_file
+        test_file=$(ls knowledge/people/*.md 2>/dev/null | head -1)
+        if [ -n "$test_file" ]; then
+            if head -c 9 "$test_file" | grep -q "GITCRYPT"; then
+                echo "✗ git-crypt is LOCKED (run: git-crypt unlock <key>)"
+                ((issues++))
+            else
+                echo "✓ git-crypt unlocked (files readable)"
+            fi
+        fi
+    fi
+
+    # 4. Key backup residual check
+    if [ -f "$HOME/rill-git-crypt.key" ]; then
+        echo "⚠️  Key file found at ~/rill-git-crypt.key — move to secure storage and delete"
+        ((issues++))
+    else
+        echo "✓ No residual key file on disk"
+    fi
+
+    # 5. Pre-commit hook
+    if [ -L ".git/hooks/pre-commit" ]; then
+        echo "✓ Pre-commit hook installed"
+    elif [ -f ".git/hooks/pre-commit" ]; then
+        echo "⚠️  Pre-commit hook exists but is not a symlink to bin/hooks/"
+    else
+        echo "✗ Pre-commit hook not installed (run: rill crypt init)"
+        ((issues++))
+    fi
+
+    # 6. PII scan in non-encrypted files
+    echo ""
+    echo "=== PII Scan ==="
+    local pii_found=0
+
+    # Phone numbers (global patterns)
+    local phone_hits
+    phone_hits=$(grep -rn -E \
+        -e '\+[0-9]{1,3}[- .][0-9]{1,4}[- .][0-9]{3,4}' \
+        -e '0[0-9]{1,4}-[0-9]{1,4}-[0-9]{3,4}' \
+        -e '\([0-9]{2,4}\) ?[0-9]{3,4}[- .][0-9]{3,4}' \
+        knowledge/notes/ inbox/ workspace/ tasks.md 2>/dev/null || true)
+    if [ -n "$phone_hits" ]; then
+        # LLM verification to reduce false positives
+        local candidates
+        candidates=$(echo "$phone_hits" | head -20)
+        if command -v claude &>/dev/null; then
+            local llm_result
+            llm_result=$(claude -p --model haiku "You are a PII detection assistant. Analyze these lines from Markdown files. Determine if any contain real phone numbers (personal/business contact numbers).
+
+NOT phone numbers: dates (2026-03-16), timestamps, file IDs (001-initial-review), version numbers, port numbers, ZIP codes, example numbers.
+
+Lines:
+$candidates
+
+Reply ONLY with:
+- \"FOUND\" followed by the lines with real phone numbers
+- \"NONE\" if no real phone numbers" 2>/dev/null || echo "ERROR")
+
+            if echo "$llm_result" | grep -q "^FOUND"; then
+                echo "⚠️  Phone number patterns found (LLM verified):"
+                echo "$llm_result" | tail -n +2 | head -5 | sed 's/^/  /'
+                pii_found=1
+            else
+                echo "✓ Phone patterns found but LLM judged as non-PII"
+            fi
+        else
+            echo "⚠️  Possible phone number patterns (LLM unavailable):"
+            echo "$candidates" | head -5
+            pii_found=1
+        fi
+    fi
+
+    # Email addresses
+    local email_hits
+    email_hits=$(grep -rn -Eo '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' \
+        knowledge/notes/ inbox/ workspace/ tasks.md 2>/dev/null \
+        | grep -Ev 'noreply@|example\.|@anthropic\.com|^git@' || true)
+    if [ -n "$email_hits" ]; then
+        echo "⚠️  Email address patterns found:"
+        echo "$email_hits" | head -5
+        pii_found=1
+    fi
+
+    if [ "$pii_found" -eq 0 ]; then
+        echo "✓ No PII found in non-encrypted files"
+    fi
+
+    echo ""
+    if [ "$issues" -gt 0 ]; then
+        echo "$issues issue(s) found."
+        return 1
+    else
+        echo "All checks passed."
+    fi
+}
+
+# ── Rill source resolution ───────────────────────────────────────────────
+# Returns the absolute path to the Rill distribution (rules, skills,
+# templates, bin/rill). During the legacy/migration period this is the
+# monorepo root derived from BASH_SOURCE. Phase 4 will switch the default
+# to ~/.rill/source/ (a git clone of rillmd/rill).
+_resolve_rill_source() {
+    # Allow explicit override (testing, development)
+    if [ -n "${RILL_SOURCE:-}" ] && [ -d "$RILL_SOURCE" ]; then
+        echo "$RILL_SOURCE"
+        return 0
+    fi
+
+    # Legacy: derive from this script's physical location (bin/rill → repo root)
+    local source="${BASH_SOURCE[0]}"
+    while [ -L "$source" ]; do
+        local link_dir
+        link_dir="$(cd -P "$(dirname "$source")" && pwd)"
+        source="$(readlink "$source")"
+        [[ "$source" != /* ]] && source="$link_dir/$source"
+    done
+    local bin_dir
+    bin_dir="$(cd -P "$(dirname "$source")" && pwd)"
+    echo "$(dirname "$bin_dir")"
+}
+
+# ── Vault gitignore generation (D009-6) ──────────────────────────────────
+# Reads .rill/managed-files.txt and writes a marked section in .gitignore.
+# User-added lines outside the markers are preserved.
+#
+# Usage: _generate_vault_gitignore <vault_path>
+_generate_vault_gitignore() {
+    local vault="$1"
+    local gitignore="$vault/.gitignore"
+    local managed="$vault/.rill/managed-files.txt"
+    local marker_start="# >>> Rill managed (auto-generated) >>>"
+    local marker_end="# <<< Rill managed <<<"
+
+    [ -f "$managed" ] || return 0
+
+    # Build the managed section
+    local section
+    section="$marker_start"$'\n'
+    section+="# Do not edit between these markers — regenerated by rill init/update"$'\n'
+    section+=".rill/"$'\n'
+    while IFS= read -r rel; do
+        [ -z "$rel" ] && continue
+        section+="$rel"$'\n'
+    done < "$managed"
+    section+="$marker_end"
+
+    if [ -f "$gitignore" ]; then
+        # Remove existing managed section, then append new one
+        local tmp; tmp="$(mktemp)"
+        local in_section=false
+        while IFS= read -r line; do
+            if [ "$line" = "$marker_start" ]; then
+                in_section=true
+                continue
+            fi
+            if [ "$line" = "$marker_end" ]; then
+                in_section=false
+                continue
+            fi
+            if [ "$in_section" = false ]; then
+                echo "$line"
+            fi
+        done < "$gitignore" > "$tmp"
+        # Remove trailing blank lines from user section
+        printf '%s' "$(cat "$tmp")" > "$tmp"
+        # Append managed section (with separator if file is non-empty)
+        if [ -s "$tmp" ]; then
+            printf '\n\n%s\n' "$section" >> "$tmp"
+        else
+            printf '%s\n' "$section" > "$tmp"
+        fi
+        mv "$tmp" "$gitignore"
+    else
+        printf '%s\n' "$section" > "$gitignore"
+    fi
+}
+
+# ── Managed file guard (D009-7) ──────────────────────────────────────────
+# Checks if a given path is a Rill managed file. If so, prints a warning
+# and exits non-zero to block Claude Code from editing it.
+#
+# Usage: rill guard <file_path>
+#   Called by Claude Code PreToolUse hook.
+cmd_guard() {
+    if [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ "$1" = "help" ] 2>/dev/null; then
+        cat <<'EOF'
+Usage: rill guard <file_path>
+
+Check if a file is a Rill managed file. If so, print a warning and exit 1.
+Designed to be called from a Claude Code PreToolUse hook to prevent
+accidental edits to official skills and rules.
+
+Managed files are listed in .rill/managed-files.txt and are overwritten
+by `rill update`. Create personal skills instead of modifying managed ones.
+EOF
+        return 0
+    fi
+
+    local target_path="$1"
+    [ -z "$target_path" ] && return 0
+
+    # Resolve RILL_HOME for managed-files.txt lookup
+    local vault="${RILL_HOME:-}"
+    if [ -z "$vault" ]; then
+        # Try cwd walk-up
+        local dir="$PWD"
+        while [ "$dir" != "/" ]; do
+            if [ -d "$dir/.rill" ]; then
+                vault="$dir"
+                break
+            fi
+            dir="$(dirname "$dir")"
+        done
+    fi
+
+    [ -z "$vault" ] && return 0
+    local managed="$vault/.rill/managed-files.txt"
+    [ -f "$managed" ] || return 0
+
+    # Normalize target to relative path from vault root
+    local rel="$target_path"
+    rel="${rel#"$vault"/}"   # strip vault prefix if absolute
+    rel="${rel#./}"           # strip leading ./
+
+    # Check against managed-files.txt
+    if grep -qxF "$rel" "$managed" 2>/dev/null; then
+        cat >&2 <<EOF
+⚠ WARNING: '$rel' is a Rill managed file.
+  This file is overwritten by \`rill update\` and should not be edited directly.
+  Your changes will be lost on the next update.
+
+  Instead, create a personal skill or rule:
+    • Personal skill: .claude/commands/my-custom-skill.md
+    • Personal rule:  .claude/rules/personal-my-rule.md
+
+  These personal files are yours — git tracked and never touched by rill update.
+EOF
+        return 1
+    fi
+
+    return 0
+}
+
+# ── Vault registry: ~/.rill/vaults.json management ──────────────────────
+# Global registry of all Rill vaults on this machine. Consumers:
+#   - resolve_rill_home step 3 (default vault lookup)
+#   - cmd_vault (list / use / add / remove / current / edit)
+#   - cmd_init (auto-registers newly-created vault via _vault_register)
+#
+# Schema (design D3, workspace 2026-04-06-skill-testing/008):
+#   {
+#     "default": "my-rill",
+#     "vaults": [
+#       { "name": "my-rill", "path": "/abs/path", "added": "ISO8601" }
+#     ]
+#   }
+
+_vault_registry_path() {
+    echo "$HOME/.rill/vaults.json"
+}
+
+# Ensure ~/.rill/vaults.json exists with a valid empty structure.
+# Idempotent; safe to call repeatedly.
+_vault_registry_ensure() {
+    local registry
+    registry="$(_vault_registry_path)"
+    if [ ! -f "$registry" ]; then
+        mkdir -p "$(dirname "$registry")"
+        echo '{"default": null, "vaults": []}' > "$registry"
+    fi
+}
+
+# Register a vault in the global registry. Idempotent on (name, path).
+# Sets the registered vault as default if no default currently exists.
+# Called by both `rill vault add` and `rill init`.
+#
+# Usage: _vault_register <path> [<name>]
+_vault_register() {
+    local vault_path="${1:-}"
+    local name="${2:-}"
+
+    if [ -z "$vault_path" ]; then
+        echo "Error: _vault_register requires a path" >&2
+        return 1
+    fi
+    if ! command -v jq &>/dev/null; then
+        echo "Error: jq is required for vault registry operations" >&2
+        return 1
+    fi
+    if [ ! -d "$vault_path" ]; then
+        echo "Error: vault path does not exist: $vault_path" >&2
+        return 1
+    fi
+
+    # Normalize to absolute path
+    vault_path="$(cd "$vault_path" && pwd)"
+
+    # Default name = basename of path
+    if [ -z "$name" ]; then
+        name="$(basename "$vault_path")"
+    fi
+
+    _vault_registry_ensure
+    local registry
+    registry="$(_vault_registry_path)"
+
+    # Detect name collision (same name, different path)
+    local existing_path
+    existing_path="$(jq -r --arg n "$name" \
+        '.vaults[] | select(.name == $n) | .path' "$registry")"
+    if [ -n "$existing_path" ] && [ "$existing_path" != "$vault_path" ]; then
+        echo "Error: vault name '$name' already registered at $existing_path" >&2
+        echo "Hint: use a different name or run 'rill vault remove $name' first" >&2
+        return 1
+    fi
+
+    local now
+    now="$(date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/')"
+
+    # Upsert: strip any prior entry with the same name, then append fresh.
+    local tmp
+    tmp="$(mktemp)"
+    jq --arg n "$name" --arg p "$vault_path" --arg t "$now" '
+        .vaults |= (map(select(.name != $n)) + [{name: $n, path: $p, added: $t}])
+    ' "$registry" > "$tmp" && mv "$tmp" "$registry"
+
+    # Adopt as default only if no default is set yet.
+    local current_default
+    current_default="$(jq -r '.default // empty' "$registry")"
+    if [ -z "$current_default" ]; then
+        tmp="$(mktemp)"
+        jq --arg n "$name" '.default = $n' "$registry" > "$tmp" && mv "$tmp" "$registry"
+    fi
+
+    echo "✓ Registered vault '$name' at $vault_path"
+}
+
+cmd_vault() {
+    if ! command -v jq &>/dev/null; then
+        echo "Error: jq is required for 'rill vault'" >&2
+        return 1
+    fi
+
+    local subcmd="${1:-list}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        list|ls)
+            _vault_registry_ensure
+            local registry; registry="$(_vault_registry_path)"
+            local count
+            count="$(jq -r '.vaults | length' "$registry")"
+            if [ "$count" -eq 0 ]; then
+                echo "No vaults registered. Run 'rill init' inside a directory to create one."
+                return 0
+            fi
+            local default_name
+            default_name="$(jq -r '.default // empty' "$registry")"
+            jq -r '.vaults[] | "\(.name)\t\(.path)"' "$registry" | \
+                while IFS=$'\t' read -r name path; do
+                    if [ "$name" = "$default_name" ]; then
+                        printf '* %-20s %s\n' "$name" "$path"
+                    else
+                        printf '  %-20s %s\n' "$name" "$path"
+                    fi
+                done
+            ;;
+        current)
+            local resolved
+            if resolved="$(resolve_rill_home 2>/dev/null)" && [ -n "$resolved" ]; then
+                echo "$resolved"
+            else
+                echo "Error: no vault could be resolved" >&2
+                echo "Run 'resolve_rill_home' with RILL_DEBUG=1 for details, or 'rill vault list'." >&2
+                return 1
+            fi
+            ;;
+        use)
+            local target="${1:-}"
+            if [ -z "$target" ]; then
+                echo "Usage: rill vault use <name>" >&2
+                return 1
+            fi
+            _vault_registry_ensure
+            local registry; registry="$(_vault_registry_path)"
+            local existing_path
+            existing_path="$(jq -r --arg n "$target" \
+                '.vaults[] | select(.name == $n) | .path' "$registry")"
+            if [ -z "$existing_path" ]; then
+                echo "Error: vault '$target' is not registered" >&2
+                echo "Run 'rill vault list' to see registered vaults." >&2
+                return 1
+            fi
+            local tmp; tmp="$(mktemp)"
+            jq --arg n "$target" '.default = $n' "$registry" > "$tmp" && mv "$tmp" "$registry"
+            echo "✓ Default vault set to '$target' ($existing_path)"
+            ;;
+        add)
+            local path_arg="${1:-.}"
+            local name_arg=""
+            shift 2>/dev/null || true
+            while [ $# -gt 0 ]; do
+                case "$1" in
+                    --name) name_arg="$2"; shift 2 ;;
+                    *) echo "Unknown option: $1" >&2; return 1 ;;
+                esac
+            done
+            if [ -n "$name_arg" ]; then
+                _vault_register "$path_arg" "$name_arg"
+            else
+                _vault_register "$path_arg"
+            fi
+            ;;
+        remove|rm)
+            local target="${1:-}"
+            if [ -z "$target" ]; then
+                echo "Usage: rill vault remove <name>" >&2
+                return 1
+            fi
+            _vault_registry_ensure
+            local registry; registry="$(_vault_registry_path)"
+            local existing_path
+            existing_path="$(jq -r --arg n "$target" \
+                '.vaults[] | select(.name == $n) | .path' "$registry")"
+            if [ -z "$existing_path" ]; then
+                echo "Error: vault '$target' is not registered" >&2
+                return 1
+            fi
+            local tmp; tmp="$(mktemp)"
+            # Drop the entry; if it was the default, clear the default field too.
+            jq --arg n "$target" '
+                .vaults |= map(select(.name != $n))
+                | if .default == $n then .default = null else . end
+            ' "$registry" > "$tmp" && mv "$tmp" "$registry"
+            echo "✓ Removed vault '$target' from registry (files untouched at $existing_path)"
+            ;;
+        edit)
+            _vault_registry_ensure
+            local registry; registry="$(_vault_registry_path)"
+            "$EDITOR" "$registry"
+            if ! jq empty "$registry" 2>/dev/null; then
+                echo "Warning: $registry is not valid JSON after edit" >&2
+                return 1
+            fi
+            ;;
+        ""|-h|--help|help)
+            cat <<'EOF'
+Usage: rill vault <subcommand>
+
+Subcommands:
+  list                     List all registered vaults (default marked with *)
+  current                  Print the currently resolved vault path
+  use <name>               Set the default vault
+  add [<path>] [--name N]  Register a vault (path defaults to cwd)
+  remove <name>            Remove a vault from the registry (files untouched)
+  edit                     Open ~/.rill/vaults.json in $EDITOR
+
+The registry lives at ~/.rill/vaults.json (schema: design D3).
+EOF
+            ;;
+        *)
+            echo "Unknown vault subcommand: $subcmd" >&2
+            echo "Run 'rill vault help' for usage." >&2
+            return 1
+            ;;
+    esac
+}
+
+# ── Vault initialization (design: 002 §6, file ownership A/B/D) ──────────
+# Creates a new Rill vault at the given directory with managed rules,
+# skills, subdirectory CLAUDE.md files, seed taxonomy, conditional
+# root CLAUDE.md scaffold, data directories, and vaults.json registration.
+#
+# Usage: rill init [<vault_dir>] [--name <name>] [--no-default] [--force]
+cmd_init() {
+    local vault_dir="."
+    local vault_name=""
+    local no_default=false
+    local force=false
+    local lang=""
+
+    # ── Argument parsing ─────────────────────────────────────────────
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --name)    vault_name="$2"; shift 2 ;;
+            --no-default) no_default=true; shift ;;
+            --force)   force=true; shift ;;
+            --lang)    lang="$2"; shift 2 ;;
+            -h|--help|help)
+                cat <<'EOF'
+Usage: rill init [<vault_dir>] [--name <name>] [--no-default] [--force] [--lang ja|en]
+
+Initialize a new Rill vault in the given directory (defaults to cwd).
+
+Options:
+  --name <name>    Name for this vault in the registry (default: dirname)
+  --no-default     Do not set this vault as the default
+  --force          Reinitialize an existing vault (overwrites .rill/ marker)
+  --lang ja|en     Generate .claude/rules/personal-language.md with language preference
+
+What happens:
+  1. Creates .rill/ marker (version, config.json, managed-files.txt)
+  2. Copies managed rules (.claude/rules/rill-*.md) and skills
+  3. Copies subdirectory CLAUDE.md files (container schemas)
+  4. Seeds taxonomy.md (only if not already present)
+  5. Creates root CLAUDE.md scaffold (only if not already present)
+  6. Creates data directories (inbox/, knowledge/, workspace/, etc.)
+  7. Registers the vault in ~/.rill/vaults.json
+
+For git-crypt encryption setup, use: rill crypt init
+EOF
+                return 0
+                ;;
+            -*)
+                echo "Unknown option: $1" >&2
+                echo "Run 'rill init --help' for usage." >&2
+                return 1
+                ;;
+            *)
+                vault_dir="$1"; shift ;;
+        esac
+    done
+
+    # ── Pre-flight checks ────────────────────────────────────────────
+    if ! command -v jq &>/dev/null; then
+        echo "Error: jq is required for 'rill init'" >&2
+        return 1
+    fi
+
+    local rill_source
+    rill_source="$(_resolve_rill_source)"
+
+    # Ensure vault_dir exists (create if needed)
+    mkdir -p "$vault_dir"
+    vault_dir="$(cd "$vault_dir" && pwd)"   # normalize to absolute
+
+    if [ -d "$vault_dir/.rill" ] && [ "$force" = false ]; then
+        echo "Error: $vault_dir is already a Rill vault (.rill/ exists)" >&2
+        echo "Use --force to reinitialize." >&2
+        return 1
+    fi
+
+    echo "Initializing Rill vault at $vault_dir ..."
+
+    # ── Phase 1: .rill/ marker ───────────────────────────────────────
+    mkdir -p "$vault_dir/.rill"
+    echo "1" > "$vault_dir/.rill/version"
+    echo '{}' > "$vault_dir/.rill/config.json"
+    : > "$vault_dir/.rill/managed-files.txt"
+
+    # ── Phase 2: Category A files (managed) ──────────────────────────
+    # 2a: .claude/rules/rill-*.md
+    local src rel
+    for src in "$rill_source"/.claude/rules/rill-*.md; do
+        [ -f "$src" ] || continue
+        rel="${src#"$rill_source"/}"
+        mkdir -p "$vault_dir/$(dirname "$rel")"
+        cp "$src" "$vault_dir/$rel"
+        echo "$rel" >> "$vault_dir/.rill/managed-files.txt"
+    done
+
+    # 2b: .claude/commands/*.md (shipped skills, including _subdir agents)
+    local found_skills
+    found_skills="$(find "$rill_source/.claude/commands" -name '*.md' 2>/dev/null || true)"
+    if [ -n "$found_skills" ]; then
+        echo "$found_skills" | while IFS= read -r src; do
+            [ -f "$src" ] || continue
+            rel="${src#"$rill_source"/}"
+            mkdir -p "$vault_dir/$(dirname "$rel")"
+            cp "$src" "$vault_dir/$rel"
+            echo "$rel" >> "$vault_dir/.rill/managed-files.txt"
+        done
+    fi
+
+    # 2c: Subdirectory CLAUDE.md (container schemas, 15 files)
+    local subdir_claude
+    for subdir_claude in \
+        inbox/CLAUDE.md \
+        inbox/journal/CLAUDE.md \
+        inbox/meetings/CLAUDE.md \
+        inbox/tweets/CLAUDE.md \
+        inbox/web-clips/CLAUDE.md \
+        inbox/sources/CLAUDE.md \
+        knowledge/notes/CLAUDE.md \
+        knowledge/people/CLAUDE.md \
+        knowledge/orgs/CLAUDE.md \
+        knowledge/projects/CLAUDE.md \
+        workspace/CLAUDE.md \
+        tasks/CLAUDE.md \
+        pages/CLAUDE.md \
+        reports/daily/CLAUDE.md \
+        reports/newsletter/CLAUDE.md; do
+        if [ -f "$rill_source/$subdir_claude" ]; then
+            mkdir -p "$vault_dir/$(dirname "$subdir_claude")"
+            cp "$rill_source/$subdir_claude" "$vault_dir/$subdir_claude"
+            echo "$subdir_claude" >> "$vault_dir/.rill/managed-files.txt"
+        fi
+    done
+
+    # ── Phase 3: Category B files (seed-only) ────────────────────────
+    if [ ! -f "$vault_dir/taxonomy.md" ]; then
+        if [ -f "$rill_source/templates/seed/taxonomy.md" ]; then
+            cp "$rill_source/templates/seed/taxonomy.md" "$vault_dir/taxonomy.md"
+            local now
+            now="$(date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/')"
+            # macOS sed requires -i '' (no backup extension)
+            sed -i '' "s|__INIT_DATE__|$now|g" "$vault_dir/taxonomy.md"
+            echo "  ✓ Seeded taxonomy.md"
+        else
+            echo "  ⚠ templates/seed/taxonomy.md not found in source, skipping" >&2
+        fi
+    else
+        echo "  ℹ taxonomy.md already exists, skipping (seed-only)"
+    fi
+
+    # ── Phase 4: Root CLAUDE.md scaffold (conditional) ───────────────
+    if [ ! -f "$vault_dir/CLAUDE.md" ]; then
+        cat > "$vault_dir/CLAUDE.md" <<'SCAFFOLD'
+# CLAUDE.md
+
+@.claude/rules/rill-core.md
+SCAFFOLD
+        echo "  ✓ Created CLAUDE.md with Rill core import"
+    else
+        echo "  ℹ CLAUDE.md already exists, not modified"
+    fi
+
+    # ── Phase 4.5: Language preference (--lang) ────────────────────────
+    if [ -n "$lang" ]; then
+        local lang_file="$vault_dir/.claude/rules/personal-language.md"
+        mkdir -p "$vault_dir/.claude/rules"
+        case "$lang" in
+            ja)
+                cat > "$lang_file" <<'LANG'
+# Language Preference
+
+- 本文: 日本語ベース
+- 技術用語: 英語のまま（Markdown, API, frontmatter 等）
+- ファイル名・ディレクトリ名: 英語 kebab-case
+- frontmatter のキー: 英語
+- コミットメッセージ: 英語
+LANG
+                echo "  ✓ Created personal-language.md (Japanese)"
+                ;;
+            en)
+                cat > "$lang_file" <<'LANG'
+# Language Preference
+
+- Body text: English
+- Technical terms: English as-is
+- File/directory names: English kebab-case
+- Frontmatter keys: English
+- Commit messages: English
+LANG
+                echo "  ✓ Created personal-language.md (English)"
+                ;;
+            *)
+                echo "  ⚠ Unknown language '$lang', skipping (supported: ja, en)" >&2
+                ;;
+        esac
+    fi
+
+    # ── Phase 5: Data directories ────────────────────────────────────
+    mkdir -p \
+        "$vault_dir/inbox/journal" \
+        "$vault_dir/inbox/meetings" \
+        "$vault_dir/inbox/tweets" \
+        "$vault_dir/inbox/web-clips" \
+        "$vault_dir/inbox/sources" \
+        "$vault_dir/knowledge/notes" \
+        "$vault_dir/knowledge/people" \
+        "$vault_dir/knowledge/orgs" \
+        "$vault_dir/knowledge/projects" \
+        "$vault_dir/workspace" \
+        "$vault_dir/tasks" \
+        "$vault_dir/reports/daily" \
+        "$vault_dir/reports/newsletter" \
+        "$vault_dir/pages"
+
+    # ── Phase 6: Register in vaults.json ─────────────────────────────
+    _vault_register "$vault_dir" "$vault_name"
+
+    # If --no-default, undo the auto-default that _vault_register may have set.
+    if [ "$no_default" = true ]; then
+        local registry
+        registry="$(_vault_registry_path)"
+        local current_default
+        current_default="$(jq -r '.default // empty' "$registry")"
+        local registered_name="${vault_name:-$(basename "$vault_dir")}"
+        if [ "$current_default" = "$registered_name" ]; then
+            local tmp; tmp="$(mktemp)"
+            jq '.default = null' "$registry" > "$tmp" && mv "$tmp" "$registry"
+        fi
+    fi
+
+    # ── Phase 7: .gitignore for managed files (D009-6) ────────────────
+    _generate_vault_gitignore "$vault_dir"
+    echo "  ✓ .gitignore updated (managed files excluded from git)"
+
+    # ── Phase 8: Claude Code guard hook (D009-7) ────────────────────
+    local settings_file="$vault_dir/.claude/settings.json"
+    mkdir -p "$vault_dir/.claude"
+    if [ -f "$settings_file" ]; then
+        # Merge hook into existing settings (only if hooks.PreToolUse doesn't already have rill guard)
+        if ! jq -e '.hooks.PreToolUse[]? | select(.command | test("rill guard"))' "$settings_file" &>/dev/null; then
+            local tmp; tmp="$(mktemp)"
+            jq '.hooks.PreToolUse = ((.hooks.PreToolUse // []) + [{"matcher": {"tool": "Edit"}, "command": "rill guard $TOOL_INPUT_PATH"}, {"matcher": {"tool": "Write"}, "command": "rill guard $TOOL_INPUT_PATH"}])' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
+            echo "  ✓ Guard hook added to .claude/settings.json"
+        else
+            echo "  ℹ Guard hook already present in .claude/settings.json"
+        fi
+    else
+        cat > "$settings_file" <<'SETTINGS'
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": { "tool": "Edit" },
+        "command": "rill guard $TOOL_INPUT_PATH"
+      },
+      {
+        "matcher": { "tool": "Write" },
+        "command": "rill guard $TOOL_INPUT_PATH"
+      }
+    ]
+  }
+}
+SETTINGS
+        echo "  ✓ Created .claude/settings.json with guard hook"
+    fi
+
+    # ── Summary ──────────────────────────────────────────────────────
+    local managed_count
+    managed_count="$(wc -l < "$vault_dir/.rill/managed-files.txt" | tr -d ' ')"
+    echo ""
+    echo "✓ Rill vault initialized at $vault_dir"
+    echo "  $managed_count managed files copied"
+    echo "  ℹ Rill rules auto-load from .claude/rules/rill-*.md"
+    echo "  ℹ After git clone, run 'rill update' to restore managed files"
+}
+
+# ── Vault update (design: 002 §7, reproject Category A files) ────────────
+# Pulls the latest source and reprojects managed files into registered vaults.
+# Category B (taxonomy.md) and D (root CLAUDE.md, personal-*) are never touched.
+#
+# Usage: rill update [--global-only] [--vault <name>]
+cmd_update() {
+    local global_only=false
+    local target_vault=""
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --global-only) global_only=true; shift ;;
+            --vault)       target_vault="$2"; shift 2 ;;
+            -h|--help|help)
+                cat <<'EOF'
+Usage: rill update [--global-only] [--vault <name>]
+
+Update Rill source and reproject managed files into vaults.
+
+Steps:
+  1. Pull latest source (git pull in source repo)
+  2. For each registered vault, copy files listed in .rill/managed-files.txt
+
+Options:
+  --global-only    Only update the source, skip vault reprojection
+  --vault <name>   Only update the named vault (skip others)
+
+Category B (taxonomy.md) and user files are never touched.
+EOF
+                return 0
+                ;;
+            *)
+                echo "Unknown option: $1" >&2
+                echo "Run 'rill update --help' for usage." >&2
+                return 1
+                ;;
+        esac
+    done
+
+    if ! command -v jq &>/dev/null; then
+        echo "Error: jq is required for 'rill update'" >&2
+        return 1
+    fi
+
+    local rill_source
+    rill_source="$(_resolve_rill_source)"
+
+    # Step 1: Update source
+    if [ -d "$rill_source/.git" ]; then
+        echo "Updating source at $rill_source ..."
+        (cd "$rill_source" && git pull) || {
+            echo "Warning: git pull failed (offline?). Continuing with current source." >&2
+        }
+    else
+        echo "ℹ Source at $rill_source is not a git repo, skipping pull"
+    fi
+
+    if [ "$global_only" = true ]; then
+        echo "✓ Source updated (--global-only, skipping vault reprojection)"
+        return 0
+    fi
+
+    # Step 2: Reproject into vaults
+    _vault_registry_ensure
+    local registry
+    registry="$(_vault_registry_path)"
+
+    local updated=0
+    local skipped=0
+
+    # Read vault entries from registry
+    local vault_count
+    vault_count="$(jq -r '.vaults | length' "$registry")"
+    if [ "$vault_count" -eq 0 ]; then
+        echo "No vaults registered. Run 'rill init' first."
+        return 0
+    fi
+
+    local i=0
+    while [ "$i" -lt "$vault_count" ]; do
+        local vname vpath
+        vname="$(jq -r --argjson i "$i" '.vaults[$i].name' "$registry")"
+        vpath="$(jq -r --argjson i "$i" '.vaults[$i].path' "$registry")"
+
+        # Filter by --vault if specified
+        if [ -n "$target_vault" ] && [ "$vname" != "$target_vault" ]; then
+            ((i++))
+            continue
+        fi
+
+        if [ ! -d "$vpath/.rill" ]; then
+            echo "  ⚠ Skipping '$vname': $vpath/.rill not found" >&2
+            ((skipped++))
+            ((i++))
+            continue
+        fi
+
+        local managed_file="$vpath/.rill/managed-files.txt"
+        if [ ! -f "$managed_file" ]; then
+            echo "  ⚠ Skipping '$vname': managed-files.txt not found" >&2
+            ((skipped++))
+            ((i++))
+            continue
+        fi
+
+        local file_count=0
+        while IFS= read -r rel; do
+            [ -z "$rel" ] && continue
+            if [ -f "$rill_source/$rel" ]; then
+                mkdir -p "$vpath/$(dirname "$rel")"
+                cp "$rill_source/$rel" "$vpath/$rel"
+                ((file_count++))
+            else
+                echo "  ⚠ Source file missing: $rel" >&2
+            fi
+        done < "$managed_file"
+
+        # Regenerate .gitignore for this vault (D009-6)
+        _generate_vault_gitignore "$vpath"
+
+        echo "  ✓ $vname: $file_count files updated"
+        ((updated++))
+        ((i++))
+    done
+
+    if [ -n "$target_vault" ] && [ "$updated" -eq 0 ] && [ "$skipped" -eq 0 ]; then
+        echo "Error: vault '$target_vault' not found in registry" >&2
+        return 1
+    fi
+
+    echo ""
+    echo "✓ Updated $updated vault(s)"
+}
+
+# ── Vault configuration ─────────────────────────────────────────────────
+# Opens the vault-local .rill/config.json in $EDITOR.
+#
+# Usage: rill config
+cmd_config() {
+    if [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ "$1" = "help" ] 2>/dev/null; then
+        cat <<'EOF'
+Usage: rill config
+
+Open the current vault's .rill/config.json in $EDITOR.
+This is the vault-local configuration (not the global registry).
+To edit the global vault registry, use: rill vault edit
+EOF
+        return 0
+    fi
+
+    if [ -z "$RILL_HOME" ]; then
+        echo "Error: no vault resolved. Run 'rill init' or set RILL_HOME." >&2
+        return 1
+    fi
+
+    local config_file="$RILL_HOME/.rill/config.json"
+    if [ ! -f "$config_file" ]; then
+        echo "Error: $config_file not found. Is this a Rill vault?" >&2
+        return 1
+    fi
+
+    "$EDITOR" "$config_file"
+
+    if command -v jq &>/dev/null; then
+        if ! jq empty "$config_file" 2>/dev/null; then
+            echo "Warning: $config_file is not valid JSON after edit" >&2
+            return 1
+        fi
+    fi
+}
+
+# Dispatcher for `rill crypt <subcommand>`. Thin wrapper around _crypt_*.
+cmd_crypt() {
+    local subcmd="${1:-}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        init)   _crypt_init "$@" ;;
+        doctor) _crypt_doctor "$@" ;;
+        ""|-h|--help|help)
+            cat <<'EOF'
+Usage: rill crypt <subcommand>
+
+Subcommands:
+  init      Initialize git-crypt encryption for this vault
+            (git-crypt init + key export + pre-commit hook)
+  doctor    Check encryption health status (same as `rill doctor`)
+
+The short alias `rill doctor` is kept for backward compatibility.
+EOF
+            ;;
+        *)
+            echo "Unknown crypt subcommand: $subcmd" >&2
+            echo "Run 'rill crypt help' for usage." >&2
+            return 1
+            ;;
+    esac
+}
+
+# ── mkfile: Create a file with correct timestamp + frontmatter scaffold ──
+# Used by Claude Code skills to ensure deterministic timestamps/filenames
+# Usage: rill mkfile <directory> [--slug <slug>] [--type <type>] [--field key=value ...]
+# Outputs: relative file path to stdout
+
+cmd_mkfile() {
+    if [ $# -lt 1 ]; then
+        echo "Usage: rill mkfile <directory> [--slug <slug>] [--type <type>] [--field key=value ...]" >&2
+        echo "" >&2
+        echo "Creates a file with correct timestamp filename + frontmatter scaffold." >&2
+        echo "Outputs the relative file path to stdout." >&2
+        echo "" >&2
+        echo "Examples:" >&2
+        echo "  rill mkfile reports/daily --type daily-note" >&2
+        echo "  rill mkfile reports/newsletter --type newsletter --field 'keywords=[Claude, AI]'" >&2
+        echo "  rill mkfile workspace/2026-03-23-topic --slug analysis --type research" >&2
+        echo "  rill mkfile knowledge/notes --slug saas-pricing --type insight --field 'source=inbox/journal/2026-03-23.md'" >&2
+        return 1
+    fi
+
+    local directory="$1"; shift
+    local slug="" type="" override_date="" name="" desc="" tags=""
+    local extra_fields=""  # newline-separated key=value pairs
+
+    # Parse flags
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --slug)  slug="$2"; shift 2 ;;
+            --type)  type="$2"; shift 2 ;;
+            --date)  override_date="$2"; shift 2 ;;
+            --name)  name="$2"; shift 2 ;;
+            --desc)  desc="$2"; shift 2 ;;
+            --tags)  tags="$2"; shift 2 ;;
+            --field)
+                if [ -n "$extra_fields" ]; then
+                    extra_fields="$extra_fields"$'\n'"$2"
+                else
+                    extra_fields="$2"
+                fi
+                shift 2 ;;
+            *)       echo "Unknown option: $1" >&2; return 1 ;;
+        esac
+    done
+
+    # Timestamps (generated once, used for both filename and frontmatter)
+    # created is always the actual current time (never overridden)
+    # date/filename may use --date override for "which day this belongs to"
+    local now_filename now_iso now_date
+    now_filename="$(date +%Y-%m-%d-%H%M%S)"
+    now_iso="$(date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/')"
+    now_date="${override_date:-$(date +%Y-%m-%d)}"
+
+    # Resolve absolute directory path
+    local abs_dir="$RILL_HOME/$directory"
+    mkdir -p "$abs_dir"
+
+    # Generate filename based on directory pattern
+    local filename
+    case "$directory" in
+        inbox/journal)
+            filename="${now_filename}.md"
+            ;;
+        inbox/tweets|inbox/web-clips)
+            if [ -z "$slug" ]; then
+                echo "Error: --slug required for $directory" >&2; return 1
+            fi
+            filename="${now_filename}-${slug}.md"
+            ;;
+        inbox/meetings|inbox/sources|inbox/think-outputs)
+            if [ -z "$slug" ]; then
+                echo "Error: --slug required for $directory" >&2; return 1
+            fi
+            filename="${now_date}-${slug}.md"
+            ;;
+        reports/*)
+            filename="${now_date}.md"
+            ;;
+        workspace/*)
+            # Auto-number: find max NNN prefix, increment
+            local next_num=1
+            local max_num=0
+            for f in "$abs_dir"/[0-9][0-9][0-9]-*.md; do
+                [ -f "$f" ] || continue
+                local num
+                num="$(basename "$f" | sed 's/^\([0-9]*\)-.*/\1/' | sed 's/^0*//')"
+                [ -n "$num" ] && [ "$num" -gt "$max_num" ] && max_num="$num"
+            done
+            next_num=$((max_num + 1))
+            if [ -z "$slug" ]; then
+                echo "Error: --slug required for workspace artifacts" >&2; return 1
+            fi
+            filename="$(printf '%03d' "$next_num")-${slug}.md"
+            ;;
+        knowledge/notes|knowledge/people|knowledge/orgs|knowledge/projects|tasks)
+            if [ -z "$slug" ]; then
+                echo "Error: --slug required for $directory" >&2; return 1
+            fi
+            filename="${slug}.md"
+            ;;
+        pages)
+            if [ -z "$slug" ]; then
+                echo "Error: --slug required for pages/" >&2; return 1
+            fi
+            # Validate required fields for page type (not recipe)
+            if [ "$type" = "page" ]; then
+                if [ -z "$name" ]; then
+                    echo "Error: --name required for pages (type=page)" >&2; return 1
+                fi
+                if [ -z "$desc" ]; then
+                    echo "Error: --desc required for pages (type=page)" >&2; return 1
+                fi
+            fi
+            filename="${slug}.md"
+            ;;
+        *)
+            # Fallback: timestamp-based
+            if [ -n "$slug" ]; then
+                filename="${now_date}-${slug}.md"
+            else
+                filename="${now_filename}.md"
+            fi
+            ;;
+    esac
+
+    # Handle collisions
+    local filepath="$abs_dir/$filename"
+    if [ -f "$filepath" ]; then
+        # For date-only filenames (reports), collision means same-day file exists
+        # For timestamped filenames, collision is rare but handle it
+        local base="${filename%.md}"
+        local counter=1
+        while [ -f "$abs_dir/${base}-${counter}.md" ]; do
+            ((counter++))
+        done
+        filename="${base}-${counter}.md"
+        filepath="$abs_dir/$filename"
+    fi
+
+    # Build frontmatter
+    {
+        echo "---"
+        echo "created: $now_iso"
+
+        # Type field
+        if [ -n "$type" ]; then
+            echo "type: $type"
+        fi
+
+        # Directory-specific auto fields
+        case "$directory" in
+            reports/*)
+                echo "date: $now_date"
+                ;;
+            workspace/*)
+                local topic
+                topic="$(basename "$directory")"
+                echo "topic: $topic"
+                ;;
+            pages)
+                echo "id: $slug"
+                if [ -n "$name" ]; then echo "name: $name"; fi
+                if [ -n "$desc" ]; then echo "description: $desc"; fi
+                echo "refreshed: $now_iso"
+                if [ -n "$tags" ]; then echo "tags: $tags"; fi
+                ;;
+        esac
+
+        # Extra fields
+        if [ -n "$extra_fields" ]; then
+            while IFS= read -r field; do
+                local key="${field%%=*}"
+                local value="${field#*=}"
+                echo "$key: $value"
+            done <<< "$extra_fields"
+        fi
+
+        echo "---"
+        echo ""
+    } > "$filepath"
+
+    # Output relative path to stdout
+    echo "${filepath#$RILL_HOME/}"
+}
+
+# ── task: Quick capture a task ticket file ──
+# Usage: rill task "title" [--project <id>] [--due <YYYY-MM-DD>] [--scheduled <YYYY-MM-DD>] [--status <status>]
+# Note: --project adds mentions: [projects/{id}] (ADR-066)
+# Creates: tasks/{slug}.md
+
+cmd_task() {
+    if [ $# -lt 1 ]; then
+        echo "Usage: rill task \"title\" [--slug <slug>] [--project <id>] [--due <YYYY-MM-DD>] [--scheduled <YYYY-MM-DD>] [--status <status>] [--background <text>] [--context <text>]" >&2
+        echo "" >&2
+        echo "Creates a task ticket file in tasks/" >&2
+        echo "--slug is required (English kebab-case filename)" >&2
+        echo "" >&2
+        echo "Examples:" >&2
+        echo "  rill task \"Reply to Alex\" --slug alex-reply" >&2
+        echo "  rill task \"Contract follow-up\" --slug contract-followup --project acme-saas --due 2026-03-25" >&2
+        echo "  rill task \"Research E2E encryption\" --slug e2e-encryption-research --status someday" >&2
+        return 1
+    fi
+
+    local title="$1"; shift
+    local project="" due="" scheduled="" status="open" user_slug="" draft=false background="" context=""
+
+    # Parse flags
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --slug)      user_slug="$2"; shift 2 ;;
+            --project)   project="$2"; shift 2 ;;
+            --due)       due="$2"; shift 2 ;;
+            --scheduled) scheduled="$2"; shift 2 ;;
+            --status)    status="$2"; shift 2 ;;
+            --draft)     draft=true; shift ;;
+            --background) background="$2"; shift 2 ;;
+            --context)   context="$2"; shift 2 ;;
+            *)           echo "Unknown option: $1" >&2; return 1 ;;
+        esac
+    done
+
+    # --draft overrides status
+    if [ "$draft" = true ]; then
+        status="draft"
+    fi
+
+    # Require --slug for proper English kebab-case filename
+    if [ -z "$user_slug" ]; then
+        echo "Error: --slug is required (English kebab-case filename)" >&2
+        echo "Example: rill task \"Task title\" --slug my-task-name" >&2
+        return 1
+    fi
+
+    # Validate status
+    case "$status" in
+        draft|open|waiting|someday|done|cancelled) ;;
+        *) echo "Error: invalid status '$status'. Must be: draft|open|waiting|someday|done|cancelled" >&2; return 1 ;;
+    esac
+
+    local slug="${user_slug}"
+
+    # Build extra fields for mkfile
+    local fields=""
+    fields="status=$status"
+
+    if [ -n "$project" ]; then
+        fields="$fields"$'\n'"mentions=[projects/$project]"
+    fi
+    if [ -n "$due" ]; then
+        fields="$fields"$'\n'"due=$due"
+    fi
+    if [ -n "$scheduled" ]; then
+        fields="$fields"$'\n'"scheduled=$scheduled"
+    fi
+
+    # Build mkfile command with extra fields
+    local mkfile_args=(tasks --slug "$slug" --type task)
+    while IFS= read -r field; do
+        [ -z "$field" ] && continue
+        mkfile_args+=(--field "$field")
+    done <<< "$fields"
+
+    local filepath
+    filepath="$(cmd_mkfile "${mkfile_args[@]}")"
+
+    if [ $? -ne 0 ] || [ -z "$filepath" ]; then
+        echo "Error: failed to create task file" >&2
+        return 1
+    fi
+
+    # Append body scaffold with standard sections
+    {
+        echo "# $title"
+        echo ""
+        echo "## Goal"
+        echo ""
+        echo "## Background"
+        if [ -n "$background" ]; then
+            printf '%s\n' "$background"
+        fi
+        echo ""
+        echo "## Context"
+        if [ -n "$context" ]; then
+            printf '%s\n' "$context"
+        fi
+        echo ""
+        echo "## Request"
+        echo ""
+        echo "## History"
+        echo ""
+    } >> "$RILL_HOME/$filepath"
+
+    echo "$filepath"
+}
+
+cmd_strip_entity_tags() {
+    # Deterministic post-processing: move entity IDs from tags to mentions (ADR-046 D46-2, ADR-053)
+    # Outputs qualified {type}/{id} format in mentions
+    # Usage: rill strip-entity-tags [file ...]
+    # If no files given, processes all knowledge/notes/*.md
+
+    # Build entity lists per type (macOS bash 3 compat — no associative arrays)
+    local people_eids=()
+    local orgs_eids=()
+    local projects_eids=()
+
+    for f in "$RILL_HOME/knowledge/people"/*.md; do
+        [ -f "$f" ] || continue; people_eids+=("$(basename "$f" .md)")
+    done
+    for f in "$RILL_HOME/knowledge/orgs"/*.md; do
+        [ -f "$f" ] || continue; orgs_eids+=("$(basename "$f" .md)")
+    done
+    for f in "$RILL_HOME/knowledge/projects"/*.md; do
+        [ -f "$f" ] || continue; projects_eids+=("$(basename "$f" .md)")
+    done
+
+    local total=$(( ${#people_eids[@]} + ${#orgs_eids[@]} + ${#projects_eids[@]} ))
+    if [ "$total" -eq 0 ]; then
+        echo "No entity IDs found."
+        return 0
+    fi
+
+    # Build taxonomy tag list (protect tags that exist in taxonomy.md)
+    local taxonomy_tags=()
+    if [ -f "$RILL_HOME/taxonomy.md" ]; then
+        while IFS= read -r tline; do
+            # Parse table rows: "| tag-name | description | ..."
+            local tname
+            tname="$(echo "$tline" | sed -n 's/^| *\([a-z][a-z0-9-]*\) *|.*/\1/p')"
+            [ -n "$tname" ] && taxonomy_tags+=("$tname")
+        done < "$RILL_HOME/taxonomy.md"
+    fi
+
+    # Helper: check if a tag is in taxonomy
+    _is_taxonomy_tag() {
+        local tag="$1"
+        for tt in "${taxonomy_tags[@]}"; do
+            [ "$tag" = "$tt" ] && return 0
+        done
+        return 1
+    }
+
+    # Helper: look up entity type for a given id (projects > orgs > people for collision)
+    _lookup_entity_type() {
+        local id="$1"
+        for pid in "${projects_eids[@]}"; do [ "$id" = "$pid" ] && echo "projects" && return 0; done
+        for oid in "${orgs_eids[@]}"; do [ "$id" = "$oid" ] && echo "orgs" && return 0; done
+        for hid in "${people_eids[@]}"; do [ "$id" = "$hid" ] && echo "people" && return 0; done
+        return 0
+    }
+
+    # Build files list
+    local files=()
+    if [ $# -gt 0 ]; then
+        files=("$@")
+    else
+        for f in "$RILL_HOME/knowledge/notes"/*.md; do
+            [ -f "$f" ] && files+=("$f")
+        done
+    fi
+
+    local fixed=0
+    local checked=0
+
+    for filepath in "${files[@]}"; do
+        [ -f "$filepath" ] || continue
+        ((checked++))
+
+        # Extract tags line from frontmatter (between first --- and second ---)
+        local in_frontmatter=false
+        local tags_line=""
+        local tags_linenum=0
+        local mentions_line=""
+        local mentions_linenum=0
+        local linenum=0
+        local fm_ended=false
+
+        while IFS= read -r line; do
+            ((linenum++))
+            if [ "$fm_ended" = true ]; then
+                break
+            fi
+            if [ "$line" = "---" ]; then
+                if [ "$in_frontmatter" = true ]; then
+                    fm_ended=true
+                    continue
+                fi
+                in_frontmatter=true
+                continue
+            fi
+            if [ "$in_frontmatter" = true ]; then
+                case "$line" in
+                    tags:*)
+                        tags_line="$line"
+                        tags_linenum=$linenum
+                        ;;
+                    mentions:*)
+                        mentions_line="$line"
+                        mentions_linenum=$linenum
+                        ;;
+                esac
+            fi
+        done < "$filepath"
+
+        [ -z "$tags_line" ] && continue
+
+        # Parse tags: extract content between [ and ]
+        local tags_content
+        tags_content="$(echo "$tags_line" | sed 's/^tags: *\[//;s/\] *$//')"
+        [ -z "$tags_content" ] && continue
+
+        # Split into array
+        IFS=',' read -ra tag_array <<< "$tags_content"
+        local new_tags=()
+        local moved_entities=()
+
+        for tag in "${tag_array[@]}"; do
+            tag="$(echo "$tag" | sed 's/^ *//;s/ *$//')"
+            [ -z "$tag" ] && continue
+
+            local etype
+            etype="$(_lookup_entity_type "$tag")"
+
+            if [ -n "$etype" ]; then
+                moved_entities+=("$etype/$tag")
+                # If tag is also in taxonomy, keep it in tags (A-plan: both tags + mentions)
+                if _is_taxonomy_tag "$tag"; then
+                    new_tags+=("$tag")
+                fi
+            else
+                new_tags+=("$tag")
+            fi
+        done
+
+        # Nothing to move
+        [ ${#moved_entities[@]} -eq 0 ] && continue
+
+        # Build new tags string
+        local new_tags_str
+        if [ ${#new_tags[@]} -eq 0 ]; then
+            new_tags_str="tags: []"
+        else
+            local joined_tags=""
+            for t in "${new_tags[@]}"; do
+                [ -n "$joined_tags" ] && joined_tags="$joined_tags, "
+                joined_tags="$joined_tags$t"
+            done
+            new_tags_str="tags: [$joined_tags]"
+        fi
+
+        # Build new mentions string
+        local existing_mentions=()
+        if [ -n "$mentions_line" ]; then
+            local mentions_content
+            mentions_content="$(echo "$mentions_line" | sed 's/^mentions: *\[//;s/\] *$//')"
+            if [ -n "$mentions_content" ]; then
+                IFS=',' read -ra existing_mentions <<< "$mentions_content"
+                # Trim whitespace
+                local trimmed_mentions=()
+                for m in "${existing_mentions[@]}"; do
+                    m="$(echo "$m" | sed 's/^ *//;s/ *$//')"
+                    [ -n "$m" ] && trimmed_mentions+=("$m")
+                done
+                existing_mentions=("${trimmed_mentions[@]+"${trimmed_mentions[@]}"}")
+            fi
+        fi
+
+        # Add moved entities to mentions (no duplicates — check both qualified and bare forms)
+        for eid in "${moved_entities[@]}"; do
+            local already=false
+            local bare_id="${eid#*/}"  # strip type prefix
+            if [ ${#existing_mentions[@]} -gt 0 ]; then
+                for em in "${existing_mentions[@]}"; do
+                    if [ "$eid" = "$em" ] || [ "$bare_id" = "$em" ]; then
+                        already=true
+                        break
+                    fi
+                done
+            fi
+            [ "$already" = false ] && existing_mentions+=("$eid")
+        done
+
+        local joined_mentions=""
+        for m in "${existing_mentions[@]}"; do
+            [ -n "$joined_mentions" ] && joined_mentions="$joined_mentions, "
+            joined_mentions="$joined_mentions$m"
+        done
+        local new_mentions_str="mentions: [$joined_mentions]"
+
+        # Skip if no actual changes
+        local expected_mentions_line="$new_mentions_str"
+        if [ "$new_tags_str" = "$tags_line" ] && [ "$expected_mentions_line" = "$mentions_line" ]; then
+            continue
+        fi
+
+        # Apply changes using sed (in-place)
+        local relpath="${filepath#$RILL_HOME/}"
+
+        # Replace tags line
+        sed -i '' "${tags_linenum}s|.*|${new_tags_str}|" "$filepath"
+
+        if [ -n "$mentions_line" ]; then
+            # Replace existing mentions line
+            sed -i '' "${mentions_linenum}s|.*|${new_mentions_str}|" "$filepath"
+        else
+            # Insert mentions after tags line
+            sed -i '' "${tags_linenum}a\\
+${new_mentions_str}
+" "$filepath"
+        fi
+
+        ((fixed++))
+        echo "  fixed: $relpath — moved [$(IFS=', '; echo "${moved_entities[*]}")] to mentions (qualified)"
+    done
+
+    echo "Checked $checked files, fixed $fixed."
+}
+
+cmd_open() {
+    if [ $# -eq 0 ]; then
+        echo "Usage: rill open <file-path> [--highlight]"
+        echo "Open a file in the Rill GUI"
+        exit 1
+    fi
+
+    local file_path=""
+    local highlight=0
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --highlight|-h) highlight=1; shift ;;
+            *) file_path="$1"; shift ;;
+        esac
+    done
+
+    if [ -z "$file_path" ]; then
+        echo "Error: file path is required"
+        exit 1
+    fi
+
+    # Convert absolute path to repo-relative if needed
+    case "$file_path" in
+        "$RILL_HOME"/*)
+            file_path="${file_path#$RILL_HOME/}"
+            ;;
+        /*)
+            echo "Error: path must be within the Rill repository"
+            exit 1
+            ;;
+    esac
+
+    # Primary: write .rill-navigate file (reliable in both dev and prod)
+    local nav_file="$RILL_HOME/.rill-navigate"
+    local highlight_val="false"
+    [ "$highlight" -eq 1 ] && highlight_val="true"
+    printf '{"path":"%s","highlight":%s}\n' "$file_path" "$highlight_val" > "$nav_file"
+
+    # Fallback: also try URL scheme (works in built app, may work in dev)
+    local encoded_path
+    encoded_path="$(python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read().strip(), safe='/'))" <<< "$file_path")"
+    local url="rill://open?path=${encoded_path}"
+    if [ "$highlight" -eq 1 ]; then
+        url="${url}&highlight=1"
+    fi
+    open "$url" 2>/dev/null || true
+}
+
+cmd_help() {
+    cat <<'EOF'
+Rill — Personal voice journal + knowledge management
+
+Usage: rill <command> [args]
+
+Commands:
+  log [text]       Create a journal entry (inline or editor)
+  i, interactive   Interactive mode (unlimited input, blank line to save)
+  clip <url>       Save a web page/tweet to inbox/ for later processing
+  push             Git add, commit, and push all changes
+  status [n]       Show recent journal entries (default: 10)
+  edit             Open the latest journal entry in editor
+  plugin <sub>     Plugin management (list, install, uninstall, status)
+  sync [name]      Run adapter to sync external sources
+  task "title"     Create a task ticket file in knowledge/notes/ (ADR-063)
+  touch            Update frontmatter \`updated\` field (called by PostToolUse hook)
+  activity-log     Activity log management (on-write, on-prompt, on-stop, add)
+  open <path>      Open a file in the Rill GUI (--highlight for emphasis)
+  mkfile <dir>     Create file with correct timestamp + frontmatter (for Claude Code skills)
+  strip-entity-tags [files]  Move entity IDs from tags to mentions (deterministic)
+  init             Initialize a new Rill vault
+  update           Update source and reproject managed files into vaults
+  config           Open vault-local .rill/config.json in $EDITOR
+  vault <sub>      Vault registry: list | current | use | add | remove | edit
+  guard <path>     Check if a file is managed (used by Claude Code hook)
+  crypt <sub>      Encryption management: crypt init | crypt doctor
+  doctor           Check encryption health status (alias for `rill crypt doctor`)
+  help             Show this help message
+
+Plugin management:
+  rill plugin list              List plugins and install status
+  rill plugin install <name>    Symlink plugin commands to .claude/commands/
+  rill plugin uninstall <name>  Remove symlinks (keeps plugin directory)
+  rill plugin status            Show detailed plugin status
+
+Sync:
+  rill sync                     List available adapters
+  rill sync <name>              Run a plugin's adapter.sh
+
+Examples:
+  rill log "Notes from today's meeting"
+  rill log                              # Opens editor
+  rill i                                # Interactive mode
+  rill clip https://example.com/article
+  rill plugin install google-meet
+  rill sync google-meet
+  rill open knowledge/notes/whisper-api-comparison.md
+  rill open inbox/journal/2026-03-27.md --highlight
+  rill push
+  rill status 5
+EOF
+}
+
+# Main dispatch
+case "${1:-help}" in
+    log)    shift; cmd_log "$@" ;;
+    interactive|i) cmd_interactive ;;
+    clip)   shift; cmd_clip "$@" ;;
+    push)   cmd_push ;;
+    status) shift; cmd_status "$@" ;;
+    edit)   cmd_edit ;;
+    plugin) shift; cmd_plugin "$@" ;;
+    sync)   shift; cmd_sync "$@" ;;
+    task)   shift; cmd_task "$@" ;;
+    open)   shift; cmd_open "$@" ;;
+    activity-log) shift; cmd_activity_log "$@" ;;
+    touch) shift; cmd_touch "$@" ;;
+    mkfile) shift; cmd_mkfile "$@" ;;
+    strip-entity-tags) shift; cmd_strip_entity_tags "$@" ;;
+
+    init)   shift; cmd_init "$@" ;;
+    update) shift; cmd_update "$@" ;;
+    config) shift; cmd_config "$@" ;;
+    vault)  shift; cmd_vault "$@" ;;
+    guard)  shift; cmd_guard "$@" ;;
+    crypt)  shift; cmd_crypt "$@" ;;
+    doctor) _crypt_doctor ;;
+    help|--help|-h) cmd_help ;;
+    *)
+        echo "Unknown command: $1"
+        cmd_help
+        exit 1
+        ;;
+esac

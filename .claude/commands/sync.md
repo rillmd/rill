@@ -1,0 +1,42 @@
+# /sync — Bulk External Source Sync
+
+Run all plugins sequentially to bulk-sync external sources.
+
+## Arguments
+
+$ARGUMENTS — plugin name (omit: run all plugins sequentially)
+
+## Procedure
+
+### When no argument is given (run all plugins at once)
+
+1. Detect `plugins/*/plugin.md` with Glob and Read each file's frontmatter
+2. Run all detected plugins sequentially (no selection prompt):
+   - For each plugin, execute the "Single Plugin Execution" procedure below
+   - Report the result for each plugin briefly
+3. After all plugins complete, display a summary of total ingested files
+4. If new files were ingested, propose chaining to `/distill`:
+   - "A total of N files were ingested. Would you like to organize and distill them with /distill?"
+
+### When a plugin name is specified
+
+Run the "Single Plugin Execution" procedure for the specified plugin only.
+
+### Single Plugin Execution
+
+1. Verify that `plugins/{name}/` exists (error if it does not)
+2. Check whether `plugins/{name}/commands/` contains a `sync-{name}.md` skill
+3. **If the skill exists**: Read its procedure and follow its instructions (AI-powered sync)
+4. **If no skill**: Fall back to the following:
+   a. Verify the existence of `plugins/{name}/adapter.sh`
+   b. Run `rill sync {name}` via Bash
+   c. Check the result:
+      - Success: Report the number of newly ingested files
+      - Failure: Analyze the error and propose remediation
+
+## Rules
+
+- Without an argument, run all plugins automatically (do not make the user choose)
+- Delegate mechanical sync execution to `rill sync`
+- Value Claude adds: interpreting results, proposing chaining to /distill
+- If a plugin-specific sync skill (e.g. `/sync-google-meet`) exists, prefer it

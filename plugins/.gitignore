@@ -1,0 +1,4 @@
+# Plugin state files (per-plugin sync tracking)
+*.synced
+*.config
+.config
