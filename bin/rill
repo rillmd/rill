@@ -1584,9 +1584,9 @@ EOF
         echo "$rel" >> "$vault_dir/.rill/managed-files.txt"
     done
 
-    # 2b: .claude/commands/*.md (shipped skills, including _subdir agents)
+    # 2b: .claude/commands/ (shipped skills, subdir agents, and _lib scripts)
     local found_skills
-    found_skills="$(find "$rill_source/.claude/commands" -name '*.md' 2>/dev/null || true)"
+    found_skills="$(find "$rill_source/.claude/commands" \( -name '*.md' -o -name '*.sh' \) 2>/dev/null || true)"
     if [ -n "$found_skills" ]; then
         echo "$found_skills" | while IFS= read -r src; do
             [ -f "$src" ] || continue
