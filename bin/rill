@@ -942,13 +942,19 @@ _crypt_init() {
         echo "Key already exists at: $key_path"
     fi
 
-    # Install pre-commit hook
+    # Install pre-commit hook (use absolute path from source repo)
     local hook_target=".git/hooks/pre-commit"
-    if [ -f "$hook_target" ] && [ ! -L "$hook_target" ]; then
+    local rill_source
+    rill_source="$(_resolve_rill_source)"
+    local hook_source="$rill_source/bin/hooks/pre-commit-pii-check.sh"
+    if [ ! -f "$hook_source" ]; then
+        echo "⚠️  Hook not found: $hook_source"
+        echo "    Skipping pre-commit hook installation."
+    elif [ -f "$hook_target" ] && [ ! -L "$hook_target" ]; then
         echo "⚠️  Existing pre-commit hook found. Manual installation needed:"
-        echo "    ln -sf ../../bin/hooks/pre-commit-pii-check.sh .git/hooks/pre-commit"
+        echo "    ln -sf $hook_source .git/hooks/pre-commit"
     else
-        ln -sf ../../bin/hooks/pre-commit-pii-check.sh "$hook_target"
+        ln -sf "$hook_source" "$hook_target"
         echo "Pre-commit hook installed."
     fi
 }

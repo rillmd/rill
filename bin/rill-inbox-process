@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# rill-inbox-process — Process URLs from iCloud Drive inbox (iOS Shortcuts integration)
+#
+# Watches: ~/Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/rill-inbox/
+# Each .txt file contains a single URL on the first line.
+# Processes each URL with `rill clip`, then removes the file.
+#
+# Triggered by launchd WatchPaths (com.rill.inbox-watcher.plist)
+
+set -euo pipefail
+
+INBOX_DIR="$HOME/Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/rill-inbox"
+
+# Resolve rill binary from script location (bin/rill-inbox-process → bin/rill)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+RILL_BIN="$SCRIPT_DIR/rill"
+
+[ ! -d "$INBOX_DIR" ] && exit 0
+
+for f in "$INBOX_DIR"/*.txt; do
+    [ ! -f "$f" ] && continue
+    url="$(head -1 "$f" | tr -d '[:space:]')"
+    if [ -n "$url" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') Processing: $url"
+        bash "$RILL_BIN" clip "$url" && rm "$f"
+    fi
+done
