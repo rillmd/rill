@@ -1687,9 +1687,9 @@ LANG
     mkdir -p "$vault_dir/.claude"
     if [ -f "$settings_file" ]; then
         # Merge hook into existing settings (only if hooks.PreToolUse doesn't already have rill guard)
-        if ! jq -e '.hooks.PreToolUse[]? | select(.command | test("rill guard"))' "$settings_file" &>/dev/null; then
+        if ! jq -e '.hooks.PreToolUse[]? | select(.hooks[]? | .command | test("rill guard"))' "$settings_file" &>/dev/null; then
             local tmp; tmp="$(mktemp)"
-            jq '.hooks.PreToolUse = ((.hooks.PreToolUse // []) + [{"matcher": {"tool": "Edit"}, "command": "rill guard $TOOL_INPUT_PATH"}, {"matcher": {"tool": "Write"}, "command": "rill guard $TOOL_INPUT_PATH"}])' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
+            jq '.hooks.PreToolUse = ((.hooks.PreToolUse // []) + [{"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "rill guard $TOOL_INPUT_PATH"}]}])' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
             echo "  ✓ Guard hook added to .claude/settings.json"
         else
             echo "  ℹ Guard hook already present in .claude/settings.json"
@@ -1700,12 +1700,13 @@ LANG
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": { "tool": "Edit" },
-        "command": "rill guard $TOOL_INPUT_PATH"
-      },
-      {
-        "matcher": { "tool": "Write" },
-        "command": "rill guard $TOOL_INPUT_PATH"
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rill guard $TOOL_INPUT_PATH"
+          }
+        ]
       }
     ]
   }
