@@ -137,6 +137,7 @@ After session start (or resume), interact with the following flow:
    - Update checkboxes for completed issues
    - Append progress to "Session History"
    - Update "Next Steps"
+   - **Do NOT change `status`** — never transition the workspace to `completed` from /focus. See the Rules section below for the completion protocol
 
 ## Deliverable File Frontmatter
 
@@ -150,6 +151,7 @@ type: research
 
 ## Rules
 
+- **Never transition `status` to `completed` in /focus**. Workspace completion is exclusively performed by `/close`, which runs the mandatory knowledge distillation via sub-agents (ADR-073). Setting `status: completed` from /focus bypasses distillation and silently loses the session's knowledge. If the user signals that the session is done, or you judge the workspace has reached its completion conditions, **propose running `/close`** via AskUserQuestion (e.g., "This workspace looks ready to complete. Shall I hand off to /close to run distillation?") rather than editing the status directly. The only status transitions /focus may perform are the reopen/resume paths already specified in Phase 0 (`completed` → `active` on reopen, `on-hold` → `active` on resume)
 - **File-first principle**: Save analytical/report-type output to files. Leave them as workspace files, not Claude Code text output. The workspace's value lies in accumulated deliverables
 - **Never modify inbox/journal/ and inbox/*/ original files** (read-only)
 - Workspace files use numbered `NNN-description.md` naming

@@ -37,6 +37,12 @@ client: Client Name          # optional
 ---
 ```
 
+### Status Transition Boundary (important)
+
+- **Only `/close` may set `status: completed`.** This transition is the trigger for knowledge distillation via the two-layer sub-agent architecture (ADR-073). Any other skill or ad-hoc edit that writes `completed` bypasses distillation and silently loses the session's knowledge
+- `/focus` and other interactive skills must **never** set `status: completed` directly. When a session feels done, propose `/close` to the user via AskUserQuestion instead
+- Allowed non-`/close` transitions: `completed` → `active` (reopen), `on-hold` → `active` (resume), `active` → `on-hold` (when the user explicitly pauses). These do not trigger distillation and are safe
+
 ## Artifact File Frontmatter
 
 ```yaml
