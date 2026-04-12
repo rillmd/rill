@@ -1,0 +1,36 @@
+[
+  {
+    "event": "PreToolUse",
+    "matcher": "Edit|Write",
+    "command": "rill guard $TOOL_INPUT_PATH",
+    "timeout": 5
+  },
+  {
+    "event": "PostToolUse",
+    "matcher": "Write",
+    "command": "rill activity-log on-write",
+    "timeout": 5
+  },
+  {
+    "event": "PostToolUse",
+    "matcher": "Write",
+    "command": "rill touch",
+    "timeout": 5
+  },
+  {
+    "event": "PostToolUse",
+    "matcher": "Edit",
+    "command": "rill touch",
+    "timeout": 5
+  },
+  {
+    "event": "UserPromptSubmit",
+    "command": "rill activity-log on-prompt",
+    "timeout": 5
+  },
+  {
+    "event": "Stop",
+    "command": "rill activity-log on-stop",
+    "timeout": 5
+  }
+]

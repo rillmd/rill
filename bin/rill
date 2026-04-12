@@ -1112,43 +1112,120 @@ _resolve_rill_source() {
 #
 # Usage: _generate_vault_gitignore <vault_path>
 
-_ensure_guard_hook() {
+# ── Hook installation (ADR-074) ──────────────────────────────────────
+# `_ensure_all_hooks` reads templates/hooks-manifest.json from the source
+# repo and ensures each hook is present in the vault's .claude/settings.json.
+# Idempotent: existing hooks are detected by exact command match and skipped.
+# User-added hooks are preserved.
+
+_ensure_hook() {
+    # Ensure a single hook entry in settings.json.
+    # Args: vault, event, matcher, command, timeout
+    # matcher="" means no matcher (used for UserPromptSubmit, Stop).
+    local vault="$1"
+    local event="$2"
+    local matcher="$3"
+    local command="$4"
+    local timeout="$5"
+    local settings_file="$vault/.claude/settings.json"
+
+    # Build the hook object
+    local hook_json
+    if [ -n "$timeout" ]; then
+        hook_json="$(jq -cn --arg c "$command" --argjson t "$timeout" \
+            '{type: "command", command: $c, timeout: $t}')"
+    else
+        hook_json="$(jq -cn --arg c "$command" \
+            '{type: "command", command: $c}')"
+    fi
+
+    # Already present? Check for exact command match within the same matcher scope.
+    # The same command under a different matcher is treated as a separate hook.
+    if [ -n "$matcher" ]; then
+        if jq -e --arg e "$event" --arg m "$matcher" --arg c "$command" '
+            .hooks[$e][]?
+            | select(.matcher == $m)
+            | .hooks[]?
+            | select(.command == $c)
+        ' "$settings_file" &>/dev/null; then
+            return 0
+        fi
+    else
+        if jq -e --arg e "$event" --arg c "$command" '
+            .hooks[$e][]?
+            | select(has("matcher") | not)
+            | .hooks[]?
+            | select(.command == $c)
+        ' "$settings_file" &>/dev/null; then
+            return 0
+        fi
+    fi
+
+    local tmp; tmp="$(mktemp)"
+    if [ -n "$matcher" ]; then
+        # Tool event: find matcher entry or create new
+        jq --arg e "$event" --arg m "$matcher" --argjson h "$hook_json" '
+            .hooks //= {} |
+            .hooks[$e] //= [] |
+            if (.hooks[$e] | map(select(.matcher == $m)) | length) > 0 then
+                .hooks[$e] |= map(
+                    if .matcher == $m then .hooks += [$h] else . end
+                )
+            else
+                .hooks[$e] += [{matcher: $m, hooks: [$h]}]
+            end
+        ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
+    else
+        # Non-tool event (UserPromptSubmit, Stop): no matcher
+        jq --arg e "$event" --argjson h "$hook_json" '
+            .hooks //= {} |
+            .hooks[$e] //= [] |
+            if (.hooks[$e] | map(select(has("matcher") | not)) | length) > 0 then
+                .hooks[$e] |= map(
+                    if (has("matcher") | not) then .hooks += [$h] else . end
+                )
+            else
+                .hooks[$e] += [{hooks: [$h]}]
+            end
+        ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
+    fi
+}
+
+_ensure_all_hooks() {
+    # Install all hooks from templates/hooks-manifest.json into the vault.
     local vault="$1"
     local settings_file="$vault/.claude/settings.json"
-    mkdir -p "$vault/.claude"
 
-    # The correct hook format for Claude Code
-    local guard_entry='{"matcher":"Edit|Write","hooks":[{"type":"command","command":"rill guard $TOOL_INPUT_PATH"}]}'
-
-    if [ ! -f "$settings_file" ]; then
-        # Create new settings with guard hook
-        echo "{\"hooks\":{\"PreToolUse\":[$guard_entry]}}" | jq '.' > "$settings_file"
+    if ! command -v jq &>/dev/null; then
+        echo "  ⚠ jq not found, skipping hook installation" >&2
         return 0
     fi
 
-    # Check if guard hook already exists in correct format
-    if jq -e '.hooks.PreToolUse[]? | select(.hooks[]? | .command | test("rill guard"))' "$settings_file" &>/dev/null; then
-        return 0  # already present and correct
+    local rill_source
+    rill_source="$(_resolve_rill_source)"
+    local manifest="$rill_source/templates/hooks-manifest.json"
+
+    if [ ! -f "$manifest" ]; then
+        echo "  ⚠ Hooks manifest not found: $manifest" >&2
+        return 1
     fi
 
-    # Remove old-format guard entries (matcher as object, or top-level command)
-    local tmp; tmp="$(mktemp)"
-    jq '
-      if .hooks.PreToolUse then
-        .hooks.PreToolUse |= map(
-          select(
-            (.command // "" | test("rill guard") | not) and
-            ((.hooks // []) | map(select(.command | test("rill guard"))) | length == 0)
-          )
-        )
-      else . end
-    ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
+    mkdir -p "$vault/.claude"
+    if [ ! -f "$settings_file" ]; then
+        echo '{}' > "$settings_file"
+    fi
 
-    # Add correct-format guard hook
-    tmp="$(mktemp)"
-    jq --argjson entry "$guard_entry" '
-      .hooks.PreToolUse = ((.hooks.PreToolUse // []) + [$entry])
-    ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
+    local count i=0
+    count="$(jq 'length' "$manifest")"
+    while [ "$i" -lt "$count" ]; do
+        local event matcher command timeout
+        event="$(jq -r ".[$i].event" "$manifest")"
+        matcher="$(jq -r ".[$i].matcher // \"\"" "$manifest")"
+        command="$(jq -r ".[$i].command" "$manifest")"
+        timeout="$(jq -r ".[$i].timeout // empty" "$manifest")"
+        _ensure_hook "$vault" "$event" "$matcher" "$command" "$timeout"
+        i=$((i + 1))
+    done
 }
 
 _generate_vault_gitignore() {
@@ -1724,38 +1801,9 @@ LANG
     _generate_vault_gitignore "$vault_dir"
     echo "  ✓ .gitignore updated (managed files excluded from git)"
 
-    # ── Phase 8: Claude Code guard hook (D009-7) ────────────────────
-    local settings_file="$vault_dir/.claude/settings.json"
-    mkdir -p "$vault_dir/.claude"
-    if [ -f "$settings_file" ]; then
-        # Merge hook into existing settings (only if hooks.PreToolUse doesn't already have rill guard)
-        if ! jq -e '.hooks.PreToolUse[]? | select(.hooks[]? | .command | test("rill guard"))' "$settings_file" &>/dev/null; then
-            local tmp; tmp="$(mktemp)"
-            jq '.hooks.PreToolUse = ((.hooks.PreToolUse // []) + [{"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "rill guard $TOOL_INPUT_PATH"}]}])' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
-            echo "  ✓ Guard hook added to .claude/settings.json"
-        else
-            echo "  ℹ Guard hook already present in .claude/settings.json"
-        fi
-    else
-        cat > "$settings_file" <<'SETTINGS'
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "rill guard $TOOL_INPUT_PATH"
-          }
-        ]
-      }
-    ]
-  }
-}
-SETTINGS
-        echo "  ✓ Created .claude/settings.json with guard hook"
-    fi
+    # ── Phase 8: Claude Code hooks (ADR-074) ────────────────────────
+    _ensure_all_hooks "$vault_dir"
+    echo "  ✓ Hooks installed in .claude/settings.json"
 
     # ── Summary ──────────────────────────────────────────────────────
     local managed_count
@@ -1915,8 +1963,8 @@ EOF
         # Regenerate .gitignore for this vault (D009-6)
         _generate_vault_gitignore "$vpath"
 
-        # Ensure guard hook in settings.json (D009-7)
-        _ensure_guard_hook "$vpath"
+        # Ensure Claude Code hooks in settings.json (ADR-074)
+        _ensure_all_hooks "$vpath"
 
         echo "  ✓ $vname: $file_count files updated"
         ((updated++))
