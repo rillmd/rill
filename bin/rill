@@ -808,21 +808,27 @@ _activity_log_on_write() {
     # Pattern matching
     case "$rel_path" in
         workspace/*/_workspace.md)
-            # focus:start — only if not already recorded for this workspace
+            # focus:start or focus:resume
             local ws_dir
             ws_dir="$(echo "$rel_path" | sed 's|/[^/]*$||')"
             local ws_name
             ws_name="$(basename "$ws_dir" | sed 's/^[0-9]*-[0-9]*-[0-9]*-//')"
+            local display_name=""
+            if [ -f "$file_path" ]; then
+                display_name="$(sed -n '/^name:/s/^name: *//p' "$file_path" | head -1)"
+            fi
+            [ -z "$display_name" ] && display_name="$ws_name"
 
-            # Check if focus:start already exists for this workspace in activity-log.md
             if ! grep -q "focus:start.*→ ${ws_dir}" "$RILL_HOME/activity-log.md" 2>/dev/null; then
-                # Try to extract name from _workspace.md frontmatter
-                local display_name=""
-                if [ -f "$file_path" ]; then
-                    display_name="$(sed -n '/^name:/s/^name: *//p' "$file_path" | head -1)"
-                fi
-                [ -z "$display_name" ] && display_name="$ws_name"
+                # First time — new workspace
                 _activity_log_append "focus:start" "\"$display_name\"" "${ws_dir}/"
+            else
+                # Already started — record resume if no focus event for this workspace today
+                local today
+                today="$(date +%Y-%m-%d)"
+                if ! grep -q "${today}.*focus:.*→ ${ws_dir}" "$RILL_HOME/activity-log.md" 2>/dev/null; then
+                    _activity_log_append "focus:resume" "\"$display_name\"" "${ws_dir}/"
+                fi
             fi
             ;;
         workspace/*/_summary.md)

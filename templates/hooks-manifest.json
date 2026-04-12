@@ -20,6 +20,12 @@
   {
     "event": "PostToolUse",
     "matcher": "Edit",
+    "command": "rill activity-log on-write",
+    "timeout": 5
+  },
+  {
+    "event": "PostToolUse",
+    "matcher": "Edit",
     "command": "rill touch",
     "timeout": 5
   },
