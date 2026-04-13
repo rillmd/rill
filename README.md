@@ -1,6 +1,12 @@
-# Rill
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/rill-logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/rill-logo-light.svg">
+    <img alt="Rill" src="assets/rill-logo-light.svg" height="60">
+  </picture>
+</p>
 
-**AI remembers. Rill thinks.**
+<p align="center"><strong>AI remembers. Rill thinks.</strong></p>
 
 Rill is a personal knowledge management system powered by [Claude Code](https://docs.anthropic.com/en/docs/claude-code). It distills fragmented thoughts — entered via voice, text, or external sources — into structured, searchable knowledge.
 
