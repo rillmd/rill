@@ -16,6 +16,7 @@ Completion conditions:
 2. /focus and /distill understood
 3. "Ask Claude" experienced firsthand
 4. /morning reminder set (optional)
+5. Rill app offered (macOS, if not already installed)
 
 ## Arguments
 
@@ -102,12 +103,20 @@ ls inbox/journal/*.md 2>/dev/null | head -1
 
 # Check for existing me.md
 ls knowledge/me.md 2>/dev/null
+
+# Check for Rill app (used in Phase 6)
+ls /Applications/Rill.app ~/Applications/Rill.app 2>/dev/null | head -1
+
+# Check platform (Phase 6 is macOS-only)
+uname
 ```
 
 Interpret results:
 - **`vault_missing`**: Warn the user that `rill init` hasn't been run. Guide them to run it before proceeding. Do not continue.
 - **journal entries exist AND `--refresh` not set**: Skip Phase 2 (journal creation). Note this for Phase 1 greeting.
 - **`knowledge/me.md` exists**: Skip the name question in Phase 1.
+- **Rill.app found OR not macOS**: Skip Phase 6.
+- **Rill.app not found AND macOS**: Run Phase 6 after Phase 5.
 
 ---
 
@@ -247,11 +256,61 @@ After receiving the time:
 4. Use the `schedule` skill or CronCreate to schedule `/morning` for that time with the cron expression.
 5. Confirm to the user:
 
-   > "Done — I'll run `/morning` for you at {time} tomorrow. If anything comes up before then, you know where to find me. See you then. ✦"
+   > "Done — I'll run `/morning` for you at {time} tomorrow."
 
 **If no:**
 
-> "No problem. When you're ready, just type `/morning` anytime. You can always come back here with questions too. See you around. ✦"
+> "No problem. When you're ready, just type `/morning` anytime."
+
+Then proceed to Phase 6.
+
+---
+
+### Phase 6: Rill App (conditional)
+
+**Skip this phase entirely if the Rill app is already installed.**
+
+Check at the start of this phase:
+```bash
+ls /Applications/Rill.app ~/Applications/Rill.app 2>/dev/null | head -1
+```
+
+**If already installed:** Skip Phase 6. Go directly to the closing message.
+
+**If not installed**, offer in `DETECTED_LANG`:
+
+> "There's also a Rill app — a visual timeline for browsing your journals and knowledge. Want me to install it?"
+
+**If yes:**
+
+Run the following commands:
+```bash
+curl -fsSL https://github.com/rillmd/rill/releases/latest/download/Rill.dmg -o ~/Downloads/Rill.dmg
+hdiutil attach -nobrowse ~/Downloads/Rill.dmg -mountpoint /tmp/rill-dmg
+cp -R /tmp/rill-dmg/Rill.app ~/Applications/
+hdiutil detach /tmp/rill-dmg
+open ~/Applications/Rill.app
+```
+
+After successful install:
+> "Done — Rill is running. You'll see your entries building up there over time."
+
+If the download or install fails, don't block — just provide the fallback:
+> "The install didn't work automatically. You can download it manually from https://github.com/rillmd/rill/releases"
+
+**If no:**
+
+> "No problem. You can download it anytime from https://github.com/rillmd/rill/releases"
+
+---
+
+### Closing
+
+After Phase 5 (and Phase 6 if applicable), end with a warm closing in `DETECTED_LANG`:
+
+> "And remember: if you ever get stuck or want to explore something new, just open Claude Code in your vault and ask."
+>
+> "See you around. ✦"
 
 ---
 
@@ -267,6 +326,9 @@ After receiving the time:
 | knowledge/me.md already exists | Skip name question. Use existing name in greeting if readable |
 | Time parsing fails in Phase 5 | Ask: "Could you give me a time like '7am' or '8:30'?" |
 | `rill log` fails | Read the error. If vault not initialized, guide to `rill init`. Otherwise show the error and offer to retry |
+| Rill app already installed | Skip Phase 6 entirely |
+| DMG download fails (offline, 404) | Show fallback URL, don't block onboarding |
+| Linux user (no .app support) | Skip Phase 6 entirely (detect with `uname`) |
 
 ---
 

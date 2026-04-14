@@ -50,24 +50,22 @@ Voice / Text / Files / URLs
 - Git
 - `jq` (for `rill init`)
 
-### Setup
+### Install
 
 ```bash
-# 1. Clone this repository
-git clone https://github.com/rillmd/rill.git ~/src/rillmd/rill
-
-# 2. Add rill to your PATH
-ln -s ~/src/rillmd/rill/bin/rill ~/.local/bin/rill
-
-# 3. Create your knowledge repository
-mkdir ~/my-rill && cd ~/my-rill
-git init
-rill init --name my-rill
-
-# 4. Start using Rill
-rill log "My first thought"
-claude "/distill"
+curl -fsSL https://raw.githubusercontent.com/rillmd/rill/main/install.sh | bash
 ```
+
+### Start using Rill
+
+The installer creates a vault at `~/Documents/my-rill`. Open it with Claude Code:
+
+```bash
+cd ~/Documents/my-rill
+claude
+```
+
+Then type `/onboarding` to start your first session.
 
 ### Daily Usage
 
