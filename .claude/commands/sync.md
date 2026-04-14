@@ -10,12 +10,13 @@ $ARGUMENTS — plugin name (omit: run all plugins sequentially)
 
 ### When no argument is given (run all plugins at once)
 
-1. Detect `plugins/*/plugin.md` with Glob and Read each file's frontmatter
-2. Run all detected plugins sequentially (no selection prompt):
+1. Read `plugins/.enabled` to get the list of enabled plugins. If the file does not exist or is empty, report "No plugins enabled. Run 'rill plugin install <name>' and 'rill plugin enable <name>' to set up plugins." and exit
+2. For each enabled plugin name, Read `plugins/{name}/plugin.md` frontmatter
+3. Run all enabled plugins sequentially (no selection prompt):
    - For each plugin, execute the "Single Plugin Execution" procedure below
    - Report the result for each plugin briefly
-3. After all plugins complete, display a summary of total ingested files
-4. If new files were ingested, propose chaining to `/distill`:
+4. After all plugins complete, display a summary of total ingested files
+5. If new files were ingested, propose chaining to `/distill`:
    - "A total of N files were ingested. Would you like to organize and distill them with /distill?"
 
 ### When a plugin name is specified

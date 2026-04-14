@@ -111,3 +111,53 @@ mark_synced() {
 
     echo -e "${sync_key}\t${filename}\t$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$synced_file"
 }
+
+# --- Dependency checking (used by requires.sh) ---
+
+_requires_failures=0
+
+# Check that a command is available on PATH.
+# Usage: require_command gog "brew install steipete/tap/gogcli"
+require_command() {
+    local cmd="$1" hint="$2"
+    if command -v "$cmd" &>/dev/null; then
+        printf "  ✓ command: %s\n" "$cmd"
+    else
+        printf "  ✗ command: %s — %s\n" "$cmd" "$hint"
+        _requires_failures=$((_requires_failures + 1))
+    fi
+}
+
+# Check that a directory exists.
+# Usage: require_dir "~/Library/.../Rill/tweet-urls" "mkdir -p ..."
+require_dir() {
+    local dir="$1" hint="$2"
+    local expanded="${dir/#\~/$HOME}"
+    if [ -d "$expanded" ]; then
+        printf "  ✓ directory: %s\n" "$dir"
+    else
+        printf "  ✗ directory: %s\n    → %s\n" "$dir" "${hint:-mkdir -p \"$dir\"}"
+        _requires_failures=$((_requires_failures + 1))
+    fi
+}
+
+# Display an auth check (informational only, does not block enable).
+# Usage: require_auth "Google OAuth" "Run: gog auth add <email> --services drive,docs"
+require_auth() {
+    local desc="$1" hint="$2"
+    printf "  ⚠ auth: %s (manual verification needed)\n    → %s\n" "$desc" "$hint"
+}
+
+# Finalize dependency check. Returns 0 if all met, 1 if any failed.
+# Usage: requires_check  (call at the end of requires.sh)
+requires_check() {
+    if [ "$_requires_failures" -gt 0 ]; then
+        echo ""
+        echo "$_requires_failures dependency(s) not met."
+        return 1
+    else
+        echo ""
+        echo "All dependencies met."
+        return 0
+    fi
+}

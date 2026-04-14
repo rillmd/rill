@@ -499,35 +499,44 @@ _clip_web() {
     echo "  Run /distill to fetch and organize content."
 }
 
-# Plugin management
+# Plugin management — state helpers
+
+_is_plugin_installed() {
+    [ -f "$PLUGINS_DIR/.installed" ] && grep -qx "$1" "$PLUGINS_DIR/.installed"
+}
+
+_is_plugin_enabled() {
+    [ -f "$PLUGINS_DIR/.enabled" ] && grep -qx "$1" "$PLUGINS_DIR/.enabled"
+}
+
+_state_add() {  # $1=file, $2=name
+    grep -qx "$2" "$1" 2>/dev/null || echo "$2" >> "$1"
+}
+
+_state_remove() {  # $1=file, $2=name
+    [ -f "$1" ] || return 0
+    { grep -vx "$2" "$1" || true; } > "$1.tmp"
+    mv "$1.tmp" "$1"
+}
+
+# Plugin management — commands
 
 _plugin_list() {
-    echo "Available plugins:"
+    echo "Plugins:"
     local found=false
     for d in "$PLUGINS_DIR"/*/; do
         [ -d "$d" ] || continue
         local name
         name="$(basename "$d")"
-
-        local installed="✗"
-        if [ -d "$d/commands" ]; then
-            local has_commands=false
-            local all_linked=true
-            for cmd in "$d"/commands/*.md; do
-                [ -f "$cmd" ] || continue
-                [[ "$(basename "$cmd")" == _* ]] && continue
-                has_commands=true
-                local target="$COMMANDS_DIR/$(basename "$cmd")"
-                if [ ! -L "$target" ]; then
-                    all_linked=false
-                    break
-                fi
-            done
-            $has_commands && $all_linked && installed="✓"
-        fi
-
-        printf "  %s %s\n" "$installed" "$name"
         found=true
+
+        if _is_plugin_enabled "$name"; then
+            printf "  ✓ %-20s (enabled)\n" "$name"
+        elif _is_plugin_installed "$name"; then
+            printf "  ● %-20s (installed)\n" "$name"
+        else
+            printf "    %-20s (available)\n" "$name"
+        fi
     done
     $found || echo "  (no plugins found)"
 }
@@ -542,37 +551,129 @@ _plugin_install() {
     local plugin_dir="$PLUGINS_DIR/$name"
     if [ ! -d "$plugin_dir" ]; then
         echo "Plugin not found: $name"
+        echo "Run 'rill plugin list' to see available plugins."
         return 1
     fi
 
+    if _is_plugin_installed "$name"; then
+        echo "Plugin '$name' is already installed."
+        if _is_plugin_enabled "$name"; then
+            echo "Status: enabled"
+        else
+            echo "Status: installed (not yet enabled)"
+            echo "Run 'rill plugin enable $name' to activate."
+        fi
+        return 0
+    fi
+
+    _state_add "$PLUGINS_DIR/.installed" "$name"
+    echo "Installed: $name"
+
+    # Run dependency check (informational only, does not block install)
+    if [ -f "$plugin_dir/requires.sh" ]; then
+        echo ""
+        echo "Dependency check:"
+        bash "$plugin_dir/requires.sh"
+        local rc=$?
+        if [ $rc -eq 0 ]; then
+            echo "Ready to enable. Run 'rill plugin enable $name'"
+        else
+            echo "Resolve the above dependencies, then run 'rill plugin enable $name'"
+        fi
+    else
+        echo "No dependencies required. Run 'rill plugin enable $name' to activate."
+    fi
+
+    if [ -f "$plugin_dir/plugin.md" ]; then
+        echo ""
+        echo "Setup instructions: plugins/$name/plugin.md"
+    fi
+}
+
+_plugin_enable() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: rill plugin enable <name>"
+        return 1
+    fi
+
+    if ! _is_plugin_installed "$name"; then
+        echo "Plugin '$name' is not installed."
+        echo "Run 'rill plugin install $name' first."
+        return 1
+    fi
+
+    if _is_plugin_enabled "$name"; then
+        echo "Plugin '$name' is already enabled."
+        return 0
+    fi
+
+    local plugin_dir="$PLUGINS_DIR/$name"
+
+    # Run dependency check (blocks enable on failure)
+    if [ -f "$plugin_dir/requires.sh" ]; then
+        echo "Dependency check:"
+        bash "$plugin_dir/requires.sh"
+        local rc=$?
+        if [ $rc -ne 0 ]; then
+            echo "Cannot enable '$name' until dependencies are resolved."
+            return 1
+        fi
+    fi
+
+    # Create command symlinks
     local count=0
     if [ -d "$plugin_dir/commands" ]; then
         for cmd in "$plugin_dir"/commands/*.md; do
             [ -f "$cmd" ] || continue
             local cmd_basename
             cmd_basename="$(basename "$cmd")"
-            # Skip internal files (prefixed with _)
             [[ "$cmd_basename" == _* ]] && continue
             local target="$COMMANDS_DIR/$cmd_basename"
 
             if [ -L "$target" ]; then
                 echo "  skip (already linked): $cmd_basename"
             elif [ -f "$target" ]; then
-                echo "  WARN: $cmd_basename exists and is not a symlink. Skipping."
+                echo "  WARN: $cmd_basename exists as a regular file. Remove it first to enable symlink."
             else
                 ln -s "../../plugins/$name/commands/$cmd_basename" "$target"
                 echo "  linked: $cmd_basename"
-                ((count++))
+                count=$((count + 1))
             fi
         done
     fi
 
-    echo "Installed $name ($count commands linked)"
+    _state_add "$PLUGINS_DIR/.enabled" "$name"
+    echo "Enabled: $name ($count commands linked)"
+}
 
-    if [ -f "$plugin_dir/plugin.md" ]; then
-        echo ""
-        echo "Setup instructions: plugins/$name/plugin.md"
+_plugin_disable() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: rill plugin disable <name>"
+        return 1
     fi
+
+    if ! _is_plugin_enabled "$name"; then
+        echo "Plugin '$name' is not enabled."
+        return 0
+    fi
+
+    # Remove command symlinks
+    local count=0
+    for link in "$COMMANDS_DIR"/*.md; do
+        [ -L "$link" ] || continue
+        local target
+        target="$(readlink "$link")"
+        if echo "$target" | grep -q "plugins/$name/"; then
+            rm "$link"
+            echo "  unlinked: $(basename "$link")"
+            count=$((count + 1))
+        fi
+    done
+
+    _state_remove "$PLUGINS_DIR/.enabled" "$name"
+    echo "Disabled: $name ($count commands unlinked)"
 }
 
 _plugin_uninstall() {
@@ -582,34 +683,46 @@ _plugin_uninstall() {
         return 1
     fi
 
-    local count=0
-    for link in "$COMMANDS_DIR"/*.md; do
-        [ -L "$link" ] || continue
-        local target
-        target="$(readlink "$link")"
-        if echo "$target" | grep -q "plugins/$name/"; then
-            rm "$link"
-            echo "  unlinked: $(basename "$link")"
-            ((count++))
-        fi
-    done
+    if ! _is_plugin_installed "$name"; then
+        echo "Plugin '$name' is not installed."
+        return 0
+    fi
 
-    echo "Uninstalled $name ($count commands unlinked)"
+    # Disable first if enabled
+    if _is_plugin_enabled "$name"; then
+        _plugin_disable "$name"
+    fi
+
+    _state_remove "$PLUGINS_DIR/.installed" "$name"
+    echo "Uninstalled: $name"
     echo "Plugin directory preserved: plugins/$name/"
-    echo "To fully remove: rm -rf plugins/$name/"
 }
 
 _plugin_status() {
-    echo "Plugin status:"
+    local target_name="${1:-}"
     local found=false
+
     for d in "$PLUGINS_DIR"/*/; do
         [ -d "$d" ] || continue
         local name
         name="$(basename "$d")"
-        found=true
 
+        # If a specific plugin was requested, skip others
+        if [ -n "$target_name" ] && [ "$name" != "$target_name" ]; then
+            continue
+        fi
+
+        found=true
         echo ""
-        echo "[$name]"
+
+        # State
+        local state="available"
+        if _is_plugin_enabled "$name"; then
+            state="enabled"
+        elif _is_plugin_installed "$name"; then
+            state="installed"
+        fi
+        echo "[$name] ($state)"
 
         # Commands
         local cmd_total=0 cmd_linked=0
@@ -617,10 +730,10 @@ _plugin_status() {
             for cmd in "$d"/commands/*.md; do
                 [ -f "$cmd" ] || continue
                 [[ "$(basename "$cmd")" == _* ]] && continue
-                ((cmd_total++))
+                cmd_total=$((cmd_total + 1))
                 local target="$COMMANDS_DIR/$(basename "$cmd")"
                 if [ -L "$target" ]; then
-                    ((cmd_linked++))
+                    cmd_linked=$((cmd_linked + 1))
                     echo "  ✓ $(basename "$cmd")"
                 else
                     echo "  ✗ $(basename "$cmd") (not linked)"
@@ -629,12 +742,22 @@ _plugin_status() {
         fi
 
         # Adapter
-        if [ -f "$d/adapter.sh" ]; then
-            echo "  adapter: ✓"
-        fi
+        [ -f "$d/adapter.sh" ] && echo "  adapter: ✓"
 
         echo "  commands: $cmd_linked/$cmd_total linked"
+
+        # Dependency check
+        if [ -f "$d/requires.sh" ]; then
+            echo ""
+            echo "  Dependencies:"
+            bash "$d/requires.sh" 2>&1 | sed 's/^/  /'
+        fi
     done
+
+    if [ -n "$target_name" ] && ! $found; then
+        echo "Plugin not found: $target_name"
+        return 1
+    fi
     $found || echo "  (no plugins found)"
 }
 
@@ -645,10 +768,12 @@ cmd_plugin() {
     case "$subcmd" in
         list)      _plugin_list ;;
         install)   _plugin_install "$@" ;;
+        enable)    _plugin_enable "$@" ;;
+        disable)   _plugin_disable "$@" ;;
         uninstall) _plugin_uninstall "$@" ;;
-        status)    _plugin_status ;;
+        status)    _plugin_status "$@" ;;
         *)
-            echo "Usage: rill plugin [list|install|uninstall|status] [name]"
+            echo "Usage: rill plugin [list|install|enable|disable|uninstall|status] [name]"
             return 1
             ;;
     esac
@@ -658,16 +783,18 @@ cmd_sync() {
     local target="${1:-}"
 
     if [ -z "$target" ]; then
-        echo "Available adapters:"
+        echo "Enabled adapters:"
         local found=false
         for d in "$PLUGINS_DIR"/*/; do
             [ -d "$d" ] || continue
-            if [ -f "$d/adapter.sh" ]; then
-                printf "  %s\n" "$(basename "$d")"
+            local pname
+            pname="$(basename "$d")"
+            if _is_plugin_enabled "$pname" && [ -f "$d/adapter.sh" ]; then
+                printf "  %s\n" "$pname"
                 found=true
             fi
         done
-        $found || echo "  (no adapters found)"
+        $found || echo "  (no enabled adapters found)"
         return 0
     fi
 
@@ -1847,6 +1974,43 @@ LANG
         fi
     fi
 
+    # ── Phase 6.5: Plugins ─────────────────────────────────────────
+    # Copy plugin framework and plugin directories from source
+    local init_managed="$vault_dir/.rill/managed-files.txt"
+    for src in "$rill_source"/plugins/_lib.sh \
+               "$rill_source"/plugins/_default-distill.md \
+               "$rill_source"/plugins/README.md; do
+        [ -f "$src" ] || continue
+        local rel="${src#"$rill_source"/}"
+        mkdir -p "$vault_dir/$(dirname "$rel")"
+        cp "$src" "$vault_dir/$rel"
+        echo "$rel" >> "$init_managed"
+    done
+
+    for plugin_src in "$rill_source"/plugins/*/; do
+        [ -d "$plugin_src" ] || continue
+        local pname
+        pname="$(basename "$plugin_src")"
+        local plugin_dest="$vault_dir/plugins/$pname"
+        mkdir -p "$plugin_dest"
+
+        find "$plugin_src" -type f 2>/dev/null | while IFS= read -r f; do
+            local fname
+            fname="$(basename "$f")"
+            case "$fname" in .synced|.config) continue ;; esac
+            local frel="${f#"$plugin_src"}"
+            mkdir -p "$plugin_dest/$(dirname "$frel")"
+            cp "$f" "$plugin_dest/$frel"
+            echo "plugins/$pname/$frel" >> "$init_managed"
+        done
+    done
+
+    if [ -f "$rill_source/plugins/.gitignore" ]; then
+        mkdir -p "$vault_dir/plugins"
+        cp "$rill_source/plugins/.gitignore" "$vault_dir/plugins/.gitignore"
+    fi
+    echo "  ✓ Plugins copied"
+
     # ── Phase 7: .gitignore for managed files (D009-6) ────────────────
     _generate_vault_gitignore "$vault_dir"
     echo "  ✓ .gitignore updated (managed files excluded from git)"
@@ -2010,6 +2174,46 @@ EOF
                 ((file_count++))
             fi
         done
+
+        # Plugins: framework files
+        for src in "$rill_source"/plugins/_lib.sh \
+                   "$rill_source"/plugins/_default-distill.md \
+                   "$rill_source"/plugins/README.md; do
+            [ -f "$src" ] || continue
+            rel="${src#"$rill_source"/}"
+            mkdir -p "$vpath/$(dirname "$rel")"
+            cp "$src" "$vpath/$rel"
+            echo "$rel" >> "$managed_file"
+            ((file_count++))
+        done
+
+        # Plugin directories (preserve user state: .synced, .config)
+        for plugin_src in "$rill_source"/plugins/*/; do
+            [ -d "$plugin_src" ] || continue
+            local pname
+            pname="$(basename "$plugin_src")"
+            local plugin_dest="$vpath/plugins/$pname"
+            mkdir -p "$plugin_dest"
+
+            find "$plugin_src" -type f 2>/dev/null | while IFS= read -r f; do
+                local fname
+                fname="$(basename "$f")"
+                case "$fname" in
+                    .synced|.config) continue ;;
+                esac
+                local frel="${f#"$plugin_src"}"
+                mkdir -p "$plugin_dest/$(dirname "$frel")"
+                cp "$f" "$plugin_dest/$frel"
+                echo "plugins/$pname/$frel" >> "$managed_file"
+            done
+        done
+
+        # plugins/.gitignore — copy but NOT in managed-files.txt
+        # (must be git-tracked so git reads it for .synced/.config ignoring)
+        if [ -f "$rill_source/plugins/.gitignore" ]; then
+            mkdir -p "$vpath/plugins"
+            cp "$rill_source/plugins/.gitignore" "$vpath/plugins/.gitignore"
+        fi
 
         # Regenerate .gitignore for this vault (D009-6)
         _generate_vault_gitignore "$vpath"

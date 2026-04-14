@@ -78,8 +78,8 @@ Collect the following data in parallel:
 
 Collect data from plugin briefing hooks.
 
-1. Glob `plugins/*/plugin.md` and Read each file's frontmatter
-2. Identify plugins with `hooks.briefing` field
+1. Read `plugins/.enabled` to get the list of enabled plugins. If the file does not exist or is empty, skip this phase
+2. For each enabled plugin name, Read `plugins/{name}/plugin.md` frontmatter. Identify plugins with `hooks.briefing` field
 3. If no matching plugins, skip (no message needed)
 4. For each matching plugin:
    - Read the hook prompt file (`plugins/{plugin-name}/{hooks.briefing path}`)

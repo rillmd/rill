@@ -75,8 +75,8 @@ Display target counts for all categories. If all 0, display "No unprocessed file
 
 ### Step 3: Plugin Discovery
 
-1. Glob `plugins/*/plugin.md` and Read each file's frontmatter
-2. Build `source-type` → plugin directory name mapping (e.g., `meeting → google-meet`, `tweet → twitter`, `web-clip → web-clipper`)
+1. Read `plugins/.enabled` to get the list of enabled plugins. If the file does not exist or is empty, skip to Step 4 using `plugins/_default-distill.md` for all files
+2. For each enabled plugin name, Read `plugins/{name}/plugin.md` frontmatter. Build `source-type` → plugin directory name mapping (e.g., `meeting → google-meet`, `tweet → twitter`, `web-clip → web-clipper`)
 3. Resolve prompt path for each Phase 2 file:
    - **source-type determination**: Infer from inbox subdirectory name (`inbox/tweets/` → `tweet`, `inbox/web-clips/` → `web-clip`, `inbox/meetings/` → `meeting`). If subdirectory name doesn't match mapping, Read the original file's frontmatter `source-type`
    - Mapping match → `plugins/{name}/distill.md`
@@ -181,7 +181,7 @@ Phase 2.5 and Phase 3 are mutually independent, so execute in parallel.
   ```
   Skip if 0 files were processed in Phase 1-3.
 
-- **Phase 5**: Glob `plugins/*/hooks/post-distill.md` → if found, launch Agent. Pass the following context:
+- **Phase 5**: Read `plugins/.enabled`. For each enabled plugin, check if `plugins/{name}/hooks/post-distill.md` exists. If `.enabled` does not exist or is empty, skip Phase 5. For each found hook, launch Agent. Pass the following context:
   - **Created file list**: File paths of _organized/, knowledge/notes/, knowledge/people/, knowledge/orgs/ created in Phase 1-3
   - **mentions mapping**: person-id / org-id list extracted from mentions in created knowledge/notes/
   - **Added tasks**: List of approved new tasks
