@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{TITLE}}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 16px;
+    line-height: 1.85;
+    color: #1a1a1a;
+    background: #fff;
+    padding: 48px 56px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  /* Header */
+  .header {
+    border-bottom: 2px solid #1a1a1a;
+    padding-bottom: 20px;
+    margin-bottom: 36px;
+  }
+  .header h1 {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin-bottom: 8px;
+  }
+  .header-meta {
+    font-size: 15px;
+    color: #555;
+    display: flex;
+    gap: 24px;
+  }
+
+  /* Section */
+  .section {
+    margin-bottom: 36px;
+    page-break-inside: avoid;
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 8px;
+  }
+  .section-num {
+    background: #1a1a1a;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .section-title {
+    font-size: 19px;
+    font-weight: 700;
+  }
+  .section-time {
+    font-size: 13px;
+    color: #888;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  /* Subsection */
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 18px 0 8px;
+    color: #333;
+  }
+
+  /* Table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 16px;
+    font-size: 15px;
+  }
+  th {
+    background: #f5f5f2;
+    font-weight: 600;
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 2px solid #ddd;
+    font-size: 14px;
+    color: #555;
+  }
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #eee;
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+
+  /* Paragraph */
+  p { margin: 6px 0; }
+
+  /* Note */
+  .note {
+    background: #f8f7f3;
+    border-left: 3px solid #ccc;
+    padding: 10px 14px;
+    margin: 10px 0;
+    font-size: 14px;
+    color: #555;
+  }
+
+  /* Status badge */
+  .badge {
+    display: inline-block;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 1px 8px;
+    border-radius: 3px;
+    border: 1px solid;
+  }
+  .badge-done { border-color: #3a7a4a; color: #2a6a3a; }
+  .badge-plan { border-color: #b08020; color: #8a6010; }
+  .badge-future { border-color: #aaa; color: #777; }
+
+  /* Highlight row */
+  .highlight-row td {
+    background: #fff8f0;
+  }
+
+  /* Checkbox — agreement items for in-meeting confirmation */
+  .agree-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 8px 0;
+    font-size: 15px;
+  }
+  .agree-item .checkbox {
+    width: 17px;
+    height: 17px;
+    border: 1.5px solid #aaa;
+    border-radius: 3px;
+    flex-shrink: 0;
+    margin-top: 3px;
+  }
+
+  /* List */
+  ul { padding-left: 20px; margin: 6px 0; }
+  li { margin: 4px 0; }
+
+  /* Footer */
+  .footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid #ddd;
+    font-size: 11px;
+    color: #999;
+    text-align: center;
+  }
+
+  /* Print */
+  @media print {
+    body { padding: 32px 40px; }
+    .section { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<!--
+  Client meeting materials template
+
+  Usage:
+  1. Copy this template to workspace/{id}/ and edit
+  2. Replace {{TITLE}} with the meeting title
+  3. Fill in header-meta with date/time, format, and attendees
+  4. Add as many sections as needed (update section-num sequentially)
+  5. Place agree-item checkboxes for agreement points in each section
+  6. Fill in the footer with your company name
+  7. Open in a browser and Cmd+P to save as PDF
+
+  Components:
+  - .section + .section-header: Numbered section (with time allocation)
+  - table + th/td: Data table
+  - .highlight-row: Highlighted row (with background color)
+  - .badge (.badge-done / .badge-plan / .badge-future): Status badge
+  - .agree-item + .checkbox: In-meeting confirmation checkbox
+  - .note: Supplementary information block
+-->
+
+<div class="header">
+  <h1>{{TITLE}}</h1>
+  <div class="header-meta">
+    <span><!-- Date/Time --></span>
+    <span><!-- Format (Google Meet, etc.) --></span>
+    <span><!-- Attendees --></span>
+  </div>
+</div>
+
+<!-- Section example -->
+<div class="section">
+  <div class="section-header">
+    <div class="section-num">1</div>
+    <div class="section-title"><!-- Section title --></div>
+    <div class="section-time"><!-- Time allocation --></div>
+  </div>
+
+  <p><!-- Body text --></p>
+
+  <div class="agree-item">
+    <div class="checkbox"></div>
+    <span><!-- Agreement item --></span>
+  </div>
+</div>
+
+<div class="footer">
+  Techcorp Inc.
+</div>
+
+</body>
+</html>

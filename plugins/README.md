@@ -5,10 +5,52 @@ Rill's plugin system. Implements data ingestion from external services as swappa
 ## Design Philosophy
 
 - **Rill is the "destination"** — the transport mechanism is swappable
-- **Directory = Plugin** — install = add directory + symlink, uninstall = remove symlink
+- **Directory = Plugin** — each plugin lives in its own `plugins/{name}/` directory
+- **3-state lifecycle** — available → installed → enabled (see below)
 - **2-layer management** — `rill plugin` (shell, mechanical) + `/plugin` (Claude Code, interactive)
 - **plugin.md = human-readable docs, directory structure = manifest** — no AI parser needed
 - **Capability-based** — plugins are defined by a combination of capabilities (source / workflow / hooks). Existing source-only plugins are fully backward compatible
+
+## 3-State Plugin Lifecycle
+
+Plugins have three states:
+
+```
+available ──install──→ installed ──enable──→ enabled
+    ↑                      │                    │
+    └────uninstall─────────┘                    │
+                           ↑                    │
+                           └────disable─────────┘
+```
+
+| State | Meaning | Detection |
+|-------|---------|-----------|
+| **available** | Plugin directory exists but user has not installed it | `plugins/{name}/` exists AND not in `.installed` |
+| **installed** | User has installed it; may be setting up dependencies | Listed in `.installed` AND not in `.enabled` |
+| **enabled** | Dependencies resolved; `/sync`, hooks, and skills are active | Listed in `.enabled` |
+
+State files:
+- `plugins/.installed` — one plugin name per line (git-tracked)
+- `plugins/.enabled` — one plugin name per line (git-tracked)
+- `rill update` does **not** overwrite these files (preserves user choices)
+
+### Dependency Checking: `requires.sh`
+
+Plugins declare dependencies via a `requires.sh` script that uses helpers from `_lib.sh`:
+
+```bash
+#!/usr/bin/env bash
+source "$(cd "$(dirname "$0")/.." && pwd)/_lib.sh"
+
+require_command gog "brew install steipete/tap/gogcli"
+require_dir "~/Library/..." "mkdir -p ..."
+require_auth "Google OAuth" "Run: gog auth add <email> --services drive"
+requires_check
+```
+
+- `rill plugin install` runs `requires.sh` for **informational diagnostics** (does not block install)
+- `rill plugin enable` runs `requires.sh` as a **gate** (blocks enable on failure)
+- `adapter.sh` retains its own runtime checks as a final safety net (defense in depth)
 
 ## Directory Structure
 
@@ -16,17 +58,21 @@ Rill's plugin system. Implements data ingestion from external services as swappa
 plugins/
 ├── README.md           # This file
 ├── _lib.sh             # Shared library
-├── .gitignore          # Shared gitignore
+├── _default-distill.md # Default distill prompt
+├── .gitignore          # Ignores .synced, .config
+├── .installed          # Installed plugin list (user state, git-tracked)
+├── .enabled            # Enabled plugin list (user state, git-tracked)
 └── {plugin-name}/      # For source plugins
     ├── plugin.md       # Documentation (overview, setup instructions, usage)
     ├── adapter.sh      # Transport script (executed by rill sync)
+    ├── requires.sh     # Dependency check script (optional)
+    ├── distill.md      # Source-specific distill prompt (optional)
     ├── commands/       # Claude Code skill originals
-    │   └── *.md        # Symlinked to .claude/commands/ on install
+    │   └── *.md        # Symlinked to .claude/commands/ on enable
     └── .gitignore      # Excludes .synced
 └── {plugin-name}/      # For workflow + hooks plugins
     ├── plugin.md       # Capabilities declaration (data-dir, search-scope, hooks)
-    ├── adapter.sh      # source capability (optional)
-    ├── distill.md      # Source-specific distill prompt (optional)
+    ├── requires.sh     # Dependency check script (optional)
     ├── commands/       # workflow capability: skill originals
     ├── hooks/          # hooks capability: core skill extension prompts
     ├── data/           # workflow capability: plugin-specific data
@@ -67,16 +113,27 @@ fi
 
 Manages synced keys in `PLUGIN_DIR/.synced`.
 
+### Dependency Helpers (for requires.sh)
+
+```bash
+require_command <cmd> <install-hint>     # Check command exists on PATH
+require_dir <path> <create-hint>          # Check directory exists
+require_auth <description> <setup-hint>   # Display auth check (informational)
+requires_check                            # Finalize: exit 0 if all met, 1 if any failed
+```
+
 ## CLI Commands
 
 ```bash
-rill plugin list              # List plugins + status
-rill plugin install <name>    # Symlink commands/*.md to .claude/commands/
-rill plugin uninstall <name>  # Remove symlinks (directory is preserved)
-rill plugin status            # Detailed status
+rill plugin list              # List plugins with state
+rill plugin install <name>    # Install + dependency diagnostics
+rill plugin enable <name>     # Enable (requires check → symlink commands)
+rill plugin disable <name>    # Disable (remove symlinks, keep installed)
+rill plugin uninstall <name>  # Full removal (disable + uninstall)
+rill plugin status [name]     # Detailed status
 
-rill sync                     # List available adapters
-rill sync <name>              # Execute adapter.sh
+rill sync                     # List enabled adapters
+rill sync <name>              # Execute adapter.sh (no enable check for explicit calls)
 ```
 
 ## Creating a New Plugin
@@ -84,9 +141,10 @@ rill sync <name>              # Execute adapter.sh
 1. Create a `plugins/{name}/` directory
 2. Write documentation in `plugin.md`
 3. Implement transport logic in `adapter.sh` (source `_lib.sh`)
-4. Place Claude Code skills in `commands/*.md` if needed
-5. Add `.synced` to `.gitignore`
-6. Enable skills with `rill plugin install {name}`
+4. Add dependency checks in `requires.sh` (optional)
+5. Place Claude Code skills in `commands/*.md` if needed
+6. Add `.synced` to `.gitignore`
+7. Test: `rill plugin install {name} && rill plugin enable {name}`
 
 ## Capability Model (D38)
 
@@ -121,7 +179,7 @@ hooks:                             # hooks capability
 
 ### Hook Execution Specification
 
-- Control stays with the core: after /distill completes all phases, it scans `plugins/*/plugin.md` and runs hooks from plugins that have a `hooks` field as sub-agents
+- Control stays with the core: after /distill completes all phases, it reads `plugins/.enabled` and runs hooks from enabled plugins that have a `hooks` field as sub-agents
 - Failures are non-fatal: hook execution errors are logged and processing continues (does not affect core processing results)
 - Backward compatible: existing source-only plugins have no hooks field and are unaffected
 
