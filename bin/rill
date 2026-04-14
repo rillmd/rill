@@ -1234,6 +1234,50 @@ _ensure_all_hooks() {
     done
 }
 
+# ── Permission installation (ADR-074) ────────────────────────────────────
+# `_ensure_permissions` reads templates/permissions-manifest.json from the
+# source repo and ensures each allow rule is present in settings.json.
+# Idempotent: existing rules are detected by exact match and skipped.
+# User-added rules (e.g. cross-repo absolute paths) are preserved.
+
+_ensure_permissions() {
+    local vault="$1"
+    local settings_file="$vault/.claude/settings.json"
+
+    if ! command -v jq &>/dev/null; then
+        echo "  ⚠ jq not found, skipping permissions update" >&2
+        return 0
+    fi
+
+    local rill_source
+    rill_source="$(_resolve_rill_source)"
+    local manifest="$rill_source/templates/permissions-manifest.json"
+
+    if [ ! -f "$manifest" ]; then
+        echo "  ⚠ Permissions manifest not found: $manifest" >&2
+        return 1
+    fi
+
+    mkdir -p "$vault/.claude"
+    if [ ! -f "$settings_file" ]; then
+        echo '{}' > "$settings_file"
+    fi
+
+    local tmp; tmp="$(mktemp)"
+    jq --slurpfile rules "$manifest" '
+        .permissions //= {} |
+        .permissions.allow //= [] |
+        reduce ($rules[0][]) as $rule (
+            .;
+            if (.permissions.allow | index($rule)) == null then
+                .permissions.allow += [$rule]
+            else
+                .
+            end
+        )
+    ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
+}
+
 _generate_vault_gitignore() {
     local vault="$1"
     local gitignore="$vault/.gitignore"
@@ -1807,9 +1851,10 @@ LANG
     _generate_vault_gitignore "$vault_dir"
     echo "  ✓ .gitignore updated (managed files excluded from git)"
 
-    # ── Phase 8: Claude Code hooks (ADR-074) ────────────────────────
+    # ── Phase 8: Claude Code hooks + permissions (ADR-074) ─────────────
     _ensure_all_hooks "$vault_dir"
-    echo "  ✓ Hooks installed in .claude/settings.json"
+    _ensure_permissions "$vault_dir"
+    echo "  ✓ Hooks and permissions installed in .claude/settings.json"
 
     # ── Summary ──────────────────────────────────────────────────────
     local managed_count
@@ -1969,8 +2014,9 @@ EOF
         # Regenerate .gitignore for this vault (D009-6)
         _generate_vault_gitignore "$vpath"
 
-        # Ensure Claude Code hooks in settings.json (ADR-074)
+        # Ensure Claude Code hooks + permissions in settings.json (ADR-074)
         _ensure_all_hooks "$vpath"
+        _ensure_permissions "$vpath"
 
         echo "  ✓ $vname: $file_count files updated"
         ((updated++))
