@@ -2,3 +2,6 @@
 *.synced
 *.config
 .config
+
+# Centralized sync state directory
+.state/

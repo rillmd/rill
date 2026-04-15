@@ -26,6 +26,21 @@ docs_json="$(gog --json drive search "Notes by Gemini" --max 100 2>/dev/null)" |
     exit 1
 }
 
+# Auto-rebuild meetings .index if missing (gitignored, may disappear after clone)
+_ensure_meetings_index() {
+    local index_file="$MEETINGS_DIR/.index"
+    [ -f "$index_file" ] && return 0
+
+    for f in "$MEETINGS_DIR"/*.md; do
+        [ -f "$f" ] || continue
+        local did
+        did="$(sed -n '/^---$/,/^---$/{ s/^google-doc-id: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p; }' "$f")"
+        [ -n "$did" ] && echo -e "${did}\t$(basename "$f")" >> "$index_file"
+    done
+}
+
+_ensure_meetings_index
+
 count=0
 skipped=0
 
@@ -36,7 +51,13 @@ skipped=0
 while IFS=$'\t' read -r doc_id doc_name doc_modified; do
     [ -z "$doc_id" ] && continue
 
-    # Check if already synced
+    # Defense-in-depth: check meetings index first
+    if grep -q "^${doc_id}	" "$MEETINGS_DIR/.index" 2>/dev/null; then
+        ((skipped++))
+        continue
+    fi
+
+    # Primary check: plugin sync state
     if is_already_synced "$doc_id"; then
         ((skipped++))
         continue
@@ -108,6 +129,7 @@ google-doc-id: \"$doc_id\""
 
     if create_source_file "$filename" "meeting" "$created_ts" "$extra_fm" "$doc_text"; then
         mark_synced "$doc_id" "$filename"
+        echo -e "${doc_id}\t${filename}" >> "$MEETINGS_DIR/.index"
         ((count++))
     fi
 

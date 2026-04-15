@@ -45,14 +45,12 @@ for file in "$ICLOUD_DIR"/*.md "$ICLOUD_DIR"/*.txt; do
     # Determine journal filename: same base name but always .md
     local_filename="${filename%.*}.md"
 
-    # Handle collision
+    # Idempotency: skip if file already exists (same timestamp = same memo)
     if [ -f "$JOURNAL_DIR/$local_filename" ]; then
-        base="${local_filename%.md}"
-        counter=1
-        while [ -f "$JOURNAL_DIR/${base}-${counter}.md" ]; do
-            ((counter++))
-        done
-        local_filename="${base}-${counter}.md"
+        echo "SKIP: $local_filename already exists in journal"
+        mark_synced "$filename" "skipped:exists:$local_filename"
+        ((skipped++))
+        continue
     fi
 
     cp "$file" "$JOURNAL_DIR/$local_filename"

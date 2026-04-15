@@ -111,7 +111,8 @@ if ! is_already_synced "$sync_key"; then
 fi
 ```
 
-Manages synced keys in `PLUGIN_DIR/.synced`.
+Manages synced keys in `plugins/.state/{plugin_name}.synced` (centralized state directory).
+Legacy path (`PLUGIN_DIR/.synced`) is auto-migrated on first access.
 
 ### Dependency Helpers (for requires.sh)
 

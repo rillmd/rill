@@ -75,6 +75,36 @@ create_source_file() {
     return 0
 }
 
+# Resolve .synced file path.
+#
+# New location: plugins/.state/{plugin_name}.synced (centralized state dir).
+# Auto-migrates legacy path (PLUGIN_DIR/.synced) on first access.
+#
+# Requires PLUGIN_DIR to be set (done by adapter.sh before sourcing _lib.sh).
+# Falls back to PLUGIN_DIR/.synced if PLUGIN_DIR is unset (e.g., requires.sh).
+_resolve_synced_file() {
+    local plugin_name
+    if [ -n "${PLUGIN_DIR:-}" ]; then
+        plugin_name="$(basename "$PLUGIN_DIR")"
+    else
+        echo "./.synced"
+        return
+    fi
+
+    local state_dir="$RILL_HOME/plugins/.state"
+    local new_path="$state_dir/${plugin_name}.synced"
+    local legacy_path="$PLUGIN_DIR/.synced"
+
+    # Auto-migrate: move legacy .synced to .state/ (one-time)
+    if [ -f "$legacy_path" ] && [ ! -f "$new_path" ]; then
+        mkdir -p "$state_dir"
+        mv "$legacy_path" "$new_path"
+    fi
+
+    mkdir -p "$state_dir"
+    echo "$new_path"
+}
+
 # Check if a sync key has already been synced.
 #
 # Usage:
@@ -83,11 +113,11 @@ create_source_file() {
 # Args:
 #   $1 - sync key (unique identifier, e.g., Google Doc ID)
 #
-# Reads .synced file in the calling plugin's directory.
-# The .synced file path is determined by PLUGIN_DIR (set by adapter.sh).
+# Reads .synced file from plugins/.state/{plugin_name}.synced.
 is_already_synced() {
     local sync_key="$1"
-    local synced_file="${PLUGIN_DIR:-.}/.synced"
+    local synced_file
+    synced_file="$(_resolve_synced_file)"
 
     if [ ! -f "$synced_file" ]; then
         return 1
@@ -107,7 +137,8 @@ is_already_synced() {
 mark_synced() {
     local sync_key="$1"
     local filename="$2"
-    local synced_file="${PLUGIN_DIR:-.}/.synced"
+    local synced_file
+    synced_file="$(_resolve_synced_file)"
 
     echo -e "${sync_key}\t${filename}\t$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$synced_file"
 }
