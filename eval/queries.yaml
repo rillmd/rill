@@ -1,0 +1,116 @@
+# /eval Evaluation Query Set (Sample)
+#
+# These are SAMPLE queries to get started. Replace them with queries
+# relevant to YOUR vault's knowledge base.
+#
+# Query text only. Ground truth notes are not specified
+# (Deep Path dynamically generates the ground truth).
+#
+# type: factual (fact retrieval), synthesis (multi-note integration),
+#       entity (person/org-driven), exploratory (open-ended)
+# id: Used for partial re-runs (/eval --queries Q2,Q16,Q18)
+
+# --- Entity-driven ---
+- id: Q1
+  query: "What are Alex Chen's technical concerns?"
+  type: entity
+  scope: narrow
+
+- id: Q2
+  query: "What is the current status of our relationship with Sunrise Hotel?"
+  type: entity
+  scope: medium
+
+- id: Q3
+  query: "What competitors does Acme SaaS have?"
+  type: entity
+  scope: medium
+
+# --- Project-driven ---
+- id: Q4
+  query: "What is Acme SaaS's pricing model?"
+  type: factual
+  scope: narrow
+
+- id: Q5
+  query: "What are the 3 most important design principles in Rill?"
+  type: synthesis
+  scope: wide
+
+- id: Q6
+  query: "What is the current stage and direction of the content marketing project?"
+  type: entity
+  scope: medium
+
+# --- Topic-driven ---
+- id: Q7
+  query: "What are the important patterns in Claude Code skill design?"
+  type: synthesis
+  scope: wide
+
+- id: Q8
+  query: "What should be considered when designing tag taxonomies?"
+  type: synthesis
+  scope: medium
+
+- id: Q9
+  query: "What tasks need to be done for the quarterly review?"
+  type: factual
+  scope: medium
+
+- id: Q10
+  query: "What is the current market landscape for AI agent infrastructure?"
+  type: factual
+  scope: medium
+
+# --- Cross-cutting / Synthesis ---
+- id: Q11
+  query: "How does Rill differ from other PKM tools in design philosophy?"
+  type: synthesis
+  scope: medium
+
+- id: Q12
+  query: "What risks are associated with the current partnership agreements?"
+  type: synthesis
+  scope: wide
+
+- id: Q13
+  query: "What types of AI agent infrastructure services exist?"
+  type: synthesis
+  scope: wide
+
+- id: Q14
+  query: "What are the challenges with automated email response in the hospitality industry?"
+  type: synthesis
+  scope: medium
+
+# --- Exploratory ---
+- id: Q15
+  query: "What business ideas have been explored recently?"
+  type: exploratory
+  scope: wide
+
+- id: Q16
+  query: "What are the risks of AI integration in PKM tools?"
+  type: synthesis
+  scope: medium
+
+- id: Q17
+  query: "How is the Claude product ecosystem evolving?"
+  type: synthesis
+  scope: medium
+
+- id: Q18
+  query: "What is the tech stack for the SaaS product?"
+  type: factual
+  scope: narrow
+
+- id: Q19
+  query: "Are there any insights on optimizing travel packing?"
+  type: factual
+  scope: narrow
+
+- id: Q20
+  query: "How can email deliverability rates be improved?"
+  type: factual
+  scope: narrow

@@ -1,0 +1,12 @@
+# Baseline generated: 2026-04-06T22:14+0900
+
+## New knowledge/notes/
+- cicd-pipeline-improvement-plan.md (type: record, tags: [infrastructure])
+- oauth-contract-dependency-on-auth-delay.md (type: insight, tags: [infrastructure])
+- oauth-provider-migration-practices.md (type: reference, tags: [infrastructure, api-design])
+- oauth-spec-change-auth-delay.md (type: record, tags: [infrastructure])
+- plg-billing-triggers-personal-tools.md (type: insight, tags: [pricing, monetization])
+
+## New tasks/
+- plan-oauth-provider-migration.md
+- resolve-auth-blocker.md
