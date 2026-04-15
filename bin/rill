@@ -2585,6 +2585,9 @@ cmd_mkfile() {
 
         echo "---"
         echo ""
+        # Skeleton body: signals to GUI that content is being generated
+        echo "_Generating content..._"
+        echo ""
     } > "$filepath"
 
     # Output relative path to stdout

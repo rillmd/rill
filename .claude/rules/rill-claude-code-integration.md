@@ -49,6 +49,9 @@ rill mkfile pages --slug rill-roadmap --type page
 
 When you want to show the user a file you've explored or analyzed, run `rill open <repo-relative-path>` to open it in the Rill GUI.
 
+### Timing Rule (important)
+**`rill open` must be called AFTER content has been written to the file**, not immediately after `rill mkfile`. `rill mkfile` creates a file with only frontmatter and a placeholder body (`_Generating content..._`). If opened at this stage, the user sees an empty-looking file and may think creation is complete. Always write the actual content first (via Edit/Write), then call `rill open`.
+
 ### When to Use
 1. After the user asks "where is this file?"
 2. After `/distill` or `/focus` creates artifacts
