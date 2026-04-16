@@ -65,6 +65,7 @@ When a file or non-workspace directory is specified.
 
 Collect unprocessed files in 2 categories:
 
+- **Root drop zone relocation** (runs first): Glob `inbox/*.md` (root-level Markdown files only, not inside subdirectories). For each match, excluding `inbox/CLAUDE.md`, move it to `inbox/sources/{filename}` using `git mv` when the file is tracked, otherwise `mv`. This enables users to drop arbitrary Markdown files directly into `inbox/` as a generic drop zone; relocated files are then picked up by the Phase 2 `sources/` glob below. If no root-level matches exist, skip silently.
 - **Refresh queue check**: Read `knowledge/.refresh-queue`. If not empty, display "knowledge/.refresh-queue has N pending refreshes. Use /repair to process them" (not processed by /distill itself)
 - **Phase 1**: Glob `inbox/journal/*.md` → compare with `inbox/journal/.processed` → unprocessed journals (exclude `_organized/` files and `.gitkeep`)
 - **Phase 2**: Glob `inbox/{meetings,web-clips,tweets,think-outputs,sources}/*.md` → compare with each subdirectory's `.processed` → unprocessed inbox files (exclude `_organized/`, `.gitkeep`, `.processed`)
