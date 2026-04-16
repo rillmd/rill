@@ -1012,9 +1012,9 @@ When reading a file referenced by `source:`, if an identically-named file exists
 
 | Skill | Trigger | Role |
 |-------|---------|------|
-| `/morning` | Manual or automated | Morning routine: /sync → /distill → /briefing → /newsletter (D58) |
-| `/distill` | /morning or manual | Integrated distillation pipeline. No args = batch, with args = single-file distillation (D58) |
-| `/briefing` | /morning or manual | Daily Note generation (D30) |
+| `/morning` | Manual or automated | Daily user-facing reports: `/briefing` + `/newsletter` in parallel via `claude -p` (D58, D75). `/sync` and `/distill` are not chained — run them separately; see `docs/guides/scheduling.md` |
+| `/distill` | Manual or scheduled | Integrated distillation pipeline. No args = batch, with args = single-file distillation (D58) |
+| `/briefing` | /morning or manual | Daily Note generation. Notes section surfaces unprocessed inbox count + /sync /distill recommendation (D30, D75) |
 | `/newsletter` | /morning or manual | Daily research report generation (D31) |
 | `/focus` | Manual | Start/resume workspace (D28) |
 | `/close` | Manual | Complete workspace (D28) |
@@ -1022,7 +1022,7 @@ When reading a file referenced by `source:`, if an identically-named file exists
 | `/page` | Manual | Pages creation, update, rebuild (D62) |
 | `/clip-tweet` | Manual | Tweet ingestion |
 | `/plugin` | Manual | Interactive plugin management (with guidance, diagnostics, and suggestions) |
-| `/sync` | /morning or manual | Interactive external source sync + /distill chain suggestion |
+| `/sync` | Manual or scheduled | Interactive external source sync + /distill chain suggestion (D75) |
 | `/sync-google-meet` | Called from /sync | Interactive Google Meet notes import |
 | `/sync-voice-memo` | Called from /sync | Interactive voice memo sync |
 

@@ -157,7 +157,7 @@ Write a narrative where the reader can grasp the "big picture" and "what to thin
 ## Notes
 
 (Write specific notes in prose:
-- Unprocessed inbox count and /distill recommendation
+- **Today's recommended action** — If any `inbox.*.unprocessed` count is non-zero, explicitly recommend running `/sync` (to pull new external sources) followed by `/distill` (to extract knowledge and draft tasks). State the counts per subdirectory. If this recommendation has been appearing for several days in a row, mention `docs/guides/scheduling.md` as a way to automate the pipeline. This section is the primary actionable handoff from the morning report to the user
 - Tasks approaching deadlines
 - Items left unattended for long periods
 - Other observations)

@@ -208,7 +208,7 @@ Every skill is a single Markdown file in `.claude/commands/`. The file *is* the 
 | `/newsletter` | `knowledge/me.md`, web | `reports/newsletter/{today}.md` | Research report |
 | `/page` | canonical sources + `{id}.recipe.md` | `pages/{id}.md` | Refresh a materialized view |
 | `/sync` | plugin adapters (`plugins/*/adapter.sh`) | `inbox/*/` | Pull from external services |
-| `/morning` | — (orchestrator) | chains above | Full morning routine |
+| `/morning` | — (orchestrator) | `/briefing` + `/newsletter` (parallel) | Daily user-facing reports. Maintenance (`/sync`, `/distill`) is intentionally separate — see [scheduling guide](./guides/scheduling.md) |
 | `/onboarding` | — (tutorial) | first vault files | First-time setup |
 | `/inspect` / `/repair` / `/maintain` | `knowledge/` | metadata fixes | Quality maintenance |
 | `/eval` | standard test prompts | `reports/eval/` | Measure skill quality |
