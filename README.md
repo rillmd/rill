@@ -80,7 +80,7 @@ The app and CLI read the same vault. Start with either; they stay in sync throug
 | Skill | What it does |
 |-------|--------------|
 | `/onboarding` | First-time setup and tutorial |
-| `/morning` | Full morning routine: sync → distill → briefing → newsletter |
+| `/morning` | Daily reports: `/briefing` + `/newsletter` in parallel |
 | `/distill` | Extract knowledge, tasks, and entities from inbox entries |
 | `/briefing` | Generate today's daily note from recent activity |
 | `/newsletter` | Generate a research report based on your interests |
@@ -131,8 +131,11 @@ Then type `/onboarding`. This walks you through a first journal entry, your firs
 # Capture a thought
 rill log "Ideas about project architecture"
 
-# Run the morning routine (sync + distill + briefing + newsletter)
+# Run the daily reports (briefing + newsletter in parallel)
 claude "/morning"
+
+# Pull external sources and distill knowledge (run on your own cadence)
+claude "/sync" && claude "/distill"
 
 # Dive deep on a topic
 claude "/focus API redesign"
