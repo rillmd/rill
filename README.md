@@ -31,11 +31,10 @@ You interact with it through natural language in Claude Code — no custom UI to
 
 ## Screenshots
 
-<!-- TODO(ss): replace with real screenshots -->
 <p align="center">
-  <img alt="Rill desktop app" src="assets/screenshot-gui-timeline.png" width="720">
+  <img alt="Rill desktop app — timeline view" src="assets/screenshot-gui-timeline.png" width="720">
 </p>
-<p align="center"><em>The Rill desktop app. Timeline view of journal, meetings, and clips.</em></p>
+<p align="center"><em>The Rill desktop app. Timeline of journal entries, meetings, and generated daily notes, with the current entry rendered on the right.</em></p>
 
 ## How It Works
 
