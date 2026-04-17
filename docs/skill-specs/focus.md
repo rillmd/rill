@@ -12,7 +12,7 @@ Behavioral specification for /focus. An interactive skill that starts or resumes
 |----|-------|-----------|
 | IO-I1 | Theme text | Starting a new workspace |
 | IO-I2 | Journal file path | New WS from a journal entry |
-| IO-I3 | Task file path (`tasks/*.md`) | Starting/resuming WS from a task |
+| IO-I3 | Task file path (`tasks/*/_task.md`) | Starting/resuming WS from a task |
 | IO-I4 | workspace/ path or id | Resuming an existing WS |
 | IO-I5 | Omitted | If an active WS exists, suggest resuming it |
 
@@ -45,8 +45,8 @@ Behavioral specification for /focus. An interactive skill that starts or resumes
 | WS-01 | workspace/ path specified + status: active → resume (proceed to Phase 3) | State check | ✅ |
 | WS-02 | workspace/ path specified + status: completed → ask whether to resume | ⚠️ Interactive | ✅ |
 | WS-03 | Omitted → list active WSs and ask to resume or create new | ⚠️ Interactive | ✅ |
-| WS-04 | tasks/*.md specified → if related contains a WS, suggest resuming | related check | ✅ |
-| WS-05 | When creating new WS from tasks/*.md → add WS path to task's related | Bidirectional link | ✅ |
+| WS-04 | tasks/*/_task.md specified → if related contains a WS, suggest resuming | related check | ✅ |
+| WS-05 | When creating new WS from tasks/*/_task.md → add WS path to task's related | Bidirectional link | ✅ |
 | WS-06 | Theme specified → search for related WSs, if found ask to resume or create new | Search verification | ✅ |
 | WS-07 | Metadata file priority: `_workspace.md` > `_session.md` > `_project.md` | Backward compatibility | ✅ |
 

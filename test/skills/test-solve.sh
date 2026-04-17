@@ -27,7 +27,7 @@ for arg in "$@"; do
   esac
 done
 
-TASK_FILE="tasks/oauth-provider-investigation.md"
+TASK_FILE="tasks/oauth-provider-investigation/_task.md"
 
 # --- Setup ---
 if [[ -z "$VAULT_DIR" ]]; then

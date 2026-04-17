@@ -30,7 +30,7 @@ test-vault/
 
 1. Original files in inbox/ are **read-only**. Never modify them
 2. Before creating files in knowledge/notes/, check for duplicates against existing files. Update existing files if there is overlap
-3. Tasks are managed as ticket files at `tasks/{slug}.md`
+3. Tasks are managed as ticket files at `tasks/{slug}/_task.md`
 4. Always include frontmatter when creating files. **Use `rill mkfile` for new file creation**
 5. When assigning tags, Read `taxonomy.md` to check existing tags
 6. The `mentions` field can be used in all file types. An array of typed entity references with type prefix: `[people/id, orgs/id, projects/id]`

@@ -85,7 +85,7 @@ A personal information management system that distills fragmented thoughts enter
 | Org | `knowledge/orgs/` | Search anchor (updatable) | None (existence = valid) |
 | Project | `knowledge/projects/` | Project profile (updatable) | None (existence = valid) |
 | Interest Profile | `knowledge/me.md` | User interest profile (updatable) | None (single file) |
-| Task | `tasks/*.md` | Ticket file (ADR-063) | frontmatter `status` |
+| Task | `tasks/*/_task.md` | Ticket file (ADR-063) | frontmatter `status` |
 | Daily Note | `reports/daily/` | Generated output (updatable) | Date file existence |
 | Newsletter | `reports/newsletter/` | Generated output (updatable) | Date file existence |
 | Ad-hoc Report | `reports/` subdirectories | Generated output (updatable) | frontmatter `type` + `title` |
@@ -110,7 +110,7 @@ The following entities are updatable:
 - `knowledge/me.md` — Interest Profile updates (/distill Phase 4 auto-updates, manual updates also allowed)
 - `workspace/{id}/_workspace.md` — Status changes, workspace information updates
 - `workspace/{id}/_log.md` — Session history appending
-- `tasks/*.md` — Task ticket addition and state changes
+- `tasks/*/_task.md` — Task ticket addition and state changes
 - `taxonomy.md` — Tag additions and merges
 
 ---
@@ -268,7 +268,7 @@ Knowledge has no explicit state transitions. If it exists, it is valid. Content 
 
 Entities, like Knowledge, have no explicit state transitions. If they exist, they are valid.
 
-**Loose coupling between tasks/ and workspaces (ADR-029)**: Task tickets (`tasks/*.md`) are linked to projects via `mentions: [projects/{id}]`. No 1:1 correspondence with workspaces is required. Workspaces are created only when deliverable accumulation or deep thinking is needed.
+**Loose coupling between tasks/ and workspaces (ADR-029)**: Task tickets (`tasks/*/_task.md`) are linked to projects via `mentions: [projects/{id}]`. No 1:1 correspondence with workspaces is required. Workspaces are created only when deliverable accumulation or deep thinking is needed.
 
 **Workspace completion condition principle (ADR-029)**: All workspaces must have clear completion conditions. Areas (responsibility domains without end conditions) must not be workspaces. If an area is needed, decompose it into concrete projects.
 
@@ -462,7 +462,7 @@ reports/ content is NOT auto-distilled to knowledge/notes/. Auto-distilling AI o
 
 ### 4.10 Task ticket files (ADR-063)
 
-Tasks are managed as individual files (tickets) at `tasks/{slug}.md`.
+Tasks are managed as individual files (tickets) at `tasks/{slug}/_task.md`.
 
 **Frontmatter schema**:
 
@@ -645,7 +645,7 @@ What is currently being worked on (/distill auto-updates).
 - Fact 1 (/distill auto-accumulates. Max 20 items)
 
 ## See Also
-- [task-xxx](../../tasks/task-xxx.md) — Related task
+- [task-xxx](../../tasks/task-xxx/_task.md) — Related task
 - [workspace/xxx/](../../workspace/xxx/) — Workspace name
 ```
 
@@ -796,7 +796,7 @@ Phase 2: inbox/*/ organization (plugin routing)
   Process: Plugin Discovery resolves source-type -> plugin
            plugins/{name}/distill.md (if matching plugin exists)
            plugins/_default-distill.md (if no match)
-  Output: inbox/{type}/_organized/*.md, tasks/*.md
+  Output: inbox/{type}/_organized/*.md, tasks/*/_task.md
   State:  Append to inbox/*/.processed as name:organized
 
 Phase 2.5: Automatic entity extraction
@@ -888,7 +888,7 @@ Batch design:
 ### 5.4 /briefing — Daily Note Generation Pipeline (D30)
 
 ```
-  Input:  tasks/*.md, workspace/*/_workspace.md,
+  Input:  tasks/*/_task.md, workspace/*/_workspace.md,
           past 3 days of inbox/journal/ and knowledge/notes/,
           inbox/ unprocessed count, git log
   Process: Internal data collection -> prose report generation (fully automated, no dialogue)
@@ -910,7 +910,7 @@ Batch design:
 ### 5.5 /newsletter — Daily Research Report Pipeline (D31)
 
 ```
-  Input:  workspace/*/_workspace.md (active), tasks/*.md,
+  Input:  workspace/*/_workspace.md (active), tasks/*/_task.md,
           past 7 days of knowledge/notes/, past 3 days of inbox/journal/
   Process: Context collection -> keyword extraction (max 8)
            -> WebSearch (independent search per keyword)
@@ -951,11 +951,11 @@ knowledge/notes/{name}.md
 
 workspace/{id}/_workspace.md
   <- id functions as tag: linked to knowledge/ and inbox/*/ via tags: [project-phoenix]
-  <- tasks/*.md linked via mentions: [projects/{id}]
+  <- tasks/*/_task.md linked via mentions: [projects/{id}]
   <- _log.md records session and decision history chronologically
 
 knowledge/people/{name}.md
-  <- Referenced by tasks/*.md via mentions: [people/person-id]
+  <- Referenced by tasks/*/_task.md via mentions: [people/person-id]
   <- Discoverable via participants: in inbox/{type}/_organized/
 ```
 
@@ -1163,7 +1163,7 @@ The following conditions must always hold:
     - Aggregation results (related file lists, interaction lists, etc.)
     These chronological and cross-cutting aggregations are dynamically executed by Claude Code via grep/read
 11. **Normalization consistency**: The `aliases` field is the sole normalization hub for name variants. Task `mentions: [people/person-id]` uses the `id` field from knowledge/people/
-12. **Loose coupling of tasks/ and workspaces**: Task tickets (`tasks/*.md`) are linked to projects via `mentions: [projects/{id}]`. No 1:1 correspondence with workspaces is required (ADR-029)
+12. **Loose coupling of tasks/ and workspaces**: Task tickets (`tasks/*/_task.md`) are linked to projects via `mentions: [projects/{id}]`. No 1:1 correspondence with workspaces is required (ADR-029)
 13. **Workspace completion conditions**: All workspaces must have completion conditions. Areas (responsibility domains without end conditions) must not be workspaces (ADR-029)
 14. **PII container encryption**: Files in knowledge/people/ and knowledge/orgs/ are encrypted with git-crypt. Contact information (phone numbers, email addresses, etc.) must be stored only in these directories and not in non-encrypted files like knowledge/notes/ (ADR-047)
 15. **Pages AI search exclusion**: pages/ is a human-facing Materialized View and excluded from AI search. /distill, /briefing, /eval do not Grep pages/. Page updates are only performed by `/page` skill, which always reads the recipe first (ADR-062)

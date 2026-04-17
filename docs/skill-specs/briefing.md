@@ -10,7 +10,7 @@ Behavioral specification for /briefing. A fully automated (no interaction) skill
 
 | ID | Input | Condition |
 |----|-------|-----------|
-| IO-I1 | `tasks/*.md` (status: open/waiting) | Filtered via Grep |
+| IO-I1 | `tasks/*/_task.md` (status: open/waiting) | Filtered via Grep |
 | IO-I2 | `inbox/journal/*.md` (within activity window) | Identified by briefing-context.sh |
 | IO-I3 | `knowledge/notes/*.md` (created within activity window) | Identified by briefing-context.sh |
 | IO-I4 | `activity-log.md` (entries within activity window) | Time range filter |
@@ -56,9 +56,9 @@ Behavioral specification for /briefing. A fully automated (no interaction) skill
 
 | ID | Rule | Verification Method | Status |
 |----|------|---------------------|--------|
-| TK-01 | Tasks are collected from ticket files (tasks/*.md) | Source confirmation | ✅ |
+| TK-01 | Tasks are collected from ticket files (tasks/*/_task.md) | Source confirmation | ✅ |
 | TK-02 | Focus targets: due within 7 days / waiting / matching projects of active WSs | ⚠️ LLM judgment | ✅ |
-| TK-03 | Task links use relative path format `[Title](../../tasks/{slug}.md)` | regex | ✅ |
+| TK-03 | Task links use relative path format `[Title](../../tasks/{slug}/_task.md)` | regex | ✅ |
 | TK-04 | Waiting tickets display `waiting` in backticks | grep | ✅ |
 | TK-05 | Overdue tasks are detected and displayed | ⚠️ LLM judgment | ✅ |
 | TK-06 | done, draft, cancelled, someday statuses are not Read | Log confirmation | ✅ |
