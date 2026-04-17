@@ -39,7 +39,7 @@ When a file or non-workspace directory is specified.
 1. **Resolve target files**: If directory, target all .md files inside (exclude `_workspace.md`, `_summary.md`, `_organized/`). If `_organized/` has a file with the same name, prefer that one
 2. **Knowledge extraction**: Launch an Agent per target file (`_distill/knowledge-agent.md` template + shared context injection. Max 5 parallel)
 3. **Entity detection**: If newly created knowledge/notes/ mentions reference entities not in knowledge/people/ or knowledge/orgs/, auto-create them (Phase 2.5 equivalent)
-4. **Task extraction**: Following the "Task extraction rules" loaded in Step 1, extract task candidates from target files and create ticket files. Use `rill task "Title" --slug <slug> --draft --background "background text (multiple sentences)" --context "context text"` (ADR-069). Pass knowledge/notes/ file paths from step 2 as context (convert `Title::path` pairs to Markdown link list). Check for duplicates against existing tickets
+4. **Task extraction**: For each target file, launch `_task/create-agent.md` as a sub-agent in `mode=extract` (parallel up to 5). Pass `source_path` = the target file, the shared context (taxonomy + entity mappings), and the list of knowledge/notes/ paths created in step 2 as hints. The sub-agent owns duplicate checking, substance writing, and file creation per `.claude/rules/rill-tasks.md`. It sets `status=draft` via `rill mkfile --field` (ADR-069)
 5. **Post-processing**: Run `rill strip-entity-tags` on created knowledge/notes/, append new tags to taxonomy.md
 6. **Summary display**: List of created knowledge, entity creation count, added tasks
 
@@ -129,7 +129,7 @@ After all agents complete:
    - journal: Append filenames to `inbox/journal/.processed`
    - inbox/*: Append `filename:organized` to each subdirectory's `.processed`
 2. **Entity ID stripping (deterministic post-processing)**: Run `rill strip-entity-tags <file-paths ...>` on created/updated knowledge/notes/ (ADR-046 D46-2)
-3. Aggregate task candidates (from all Phase 1 + Phase 2 agents. After duplicate check against existing tickets, create ticket files with `rill task "Title" --slug <slug> --draft --background "background text" --context "context text"`. Parse `| background:` field and pass to `--background` (pass multi-sentence text as-is). If background is empty, omit `--background`. Parse `| context:` field, convert comma-separated `Title::path` pairs to Markdown link list (`- [Title](path)` newline-separated) and pass to `--context`. If context is empty, omit `--context`. ADR-069: AI-generated tasks are created as draft)
+3. Aggregate task candidates from all Phase 1 + Phase 2 agents. For each candidate, launch `_task/create-agent.md` as a sub-agent in `mode=extract` (max 5 parallel, `run_in_background: true`). Pass the candidate pipe line, the `source_path` already recorded in it, and the shared context (taxonomy_yaml, people/orgs/projects mappings). The sub-agent handles duplicate checking, substance-rule-compliant body writing, and file creation via `rill mkfile tasks --field 'status=draft' ...` (ADR-069). Legacy parent-side parsing of `| background:` / `| context:` fields and `Title::path` conversion is no longer performed here — substance writing is owned by the sub-agent per `.claude/rules/rill-tasks.md`
 4. If new tags are reported, append to `taxonomy.md` (verify no conflict with deprecated tags)
 
 ### Step 6: Group 2 — Parallel Agent Launch
@@ -205,7 +205,7 @@ After all Phases complete, display the following summary:
 - **Never modify inbox/ original files** (read-only. Exception: auto-adding frontmatter is allowed)
 - `inbox/journal/.processed` records filenames only (no path prefix. e.g., `2026-02-13-1921.md`)
 - `inbox/{subdir}/.processed` uses `filename:status` format (e.g., `2026-02-16-meeting.md:organized`)
-- Agent prompt templates (`.claude/commands/_distill/`) are **Read by agents themselves** (do not Read in parent context). Exception: `task-extraction.md` is Read by parent and injected as shared context data
+- Agent prompt templates (`.claude/commands/_distill/`) are **Read by agents themselves** (do not Read in parent context). Exception: `task-extraction.md` is Read by parent and injected as shared context data for child agents so they can return task *candidates*; actual ticket writing is delegated to the `_task/create-agent.md` sub-agent invoked by the orchestrator
 - Plugin distill.md is Read by parent, template variables expanded, and injected inline into prompt
 - Template variable names are unified: `{taxonomy_yaml}`, `{people_mapping}`, `{orgs_mapping}`, `{projects_mapping}`, `{task_extraction_rules}`, `{file_path}`
 - **Error handling**: If an agent returns an error, skip that file and do not append to `.processed`. Include skip count in summary
