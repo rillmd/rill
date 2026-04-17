@@ -1981,11 +1981,13 @@ EOF
     done
 
     # ── Phase 3: Category B files (seed-only) ────────────────────────
+    local now today
+    now="$(date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/')"
+    today="$(date +%Y-%m-%d)"
+
     if [ ! -f "$vault_dir/taxonomy.md" ]; then
         if [ -f "$rill_source/templates/seed/taxonomy.md" ]; then
             cp "$rill_source/templates/seed/taxonomy.md" "$vault_dir/taxonomy.md"
-            local now
-            now="$(date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/')"
             # macOS sed requires -i '' (no backup extension)
             sed -i '' "s|__INIT_DATE__|$now|g" "$vault_dir/taxonomy.md"
             echo "  ✓ Seeded taxonomy.md"
@@ -1995,6 +1997,40 @@ EOF
     else
         echo "  ℹ taxonomy.md already exists, skipping (seed-only)"
     fi
+
+    # 3b: Sample content (welcome journal, note, task) — helps new users understand
+    # what each GUI view will show. Only placed if the target directory has no
+    # existing Markdown files (never overwrite real user data on re-init).
+    _seed_sample_file() {
+        local src_rel dst target_dir
+        src_rel="$1"  # e.g. templates/seed/knowledge/notes/welcome-to-rill.md
+        dst="$2"      # e.g. $vault_dir/knowledge/notes/welcome-to-rill.md
+        target_dir="$(dirname "$dst")"
+        [ -f "$rill_source/$src_rel" ] || { echo "  ⚠ $src_rel not found, skipping" >&2; return; }
+        # Skip if target dir already has user content.
+        # CLAUDE.md is system-managed (Phase 2c) so we exclude it from the check.
+        if [ -d "$target_dir" ] && \
+           [ -n "$(find "$target_dir" -maxdepth 1 -type f -name '*.md' ! -name 'CLAUDE.md' -print -quit 2>/dev/null)" ]; then
+            echo "  ℹ $(basename "$dst"): target dir has existing notes, skipping"
+            return
+        fi
+        mkdir -p "$target_dir"
+        cp "$rill_source/$src_rel" "$dst"
+        sed -i '' "s|__INIT_DATE__|$now|g; s|__INIT_DAY__|$today|g" "$dst"
+        echo "  ✓ Seeded $(echo "$dst" | sed "s|$vault_dir/||")"
+    }
+
+    _seed_sample_file \
+        "templates/seed/knowledge/notes/welcome-to-rill.md" \
+        "$vault_dir/knowledge/notes/welcome-to-rill.md"
+
+    _seed_sample_file \
+        "templates/seed/inbox/journal/welcome.md" \
+        "$vault_dir/inbox/journal/${today}-welcome.md"
+
+    _seed_sample_file \
+        "templates/seed/tasks/try-your-first-distill.md" \
+        "$vault_dir/tasks/try-your-first-distill.md"
 
     # ── Phase 4: Root CLAUDE.md scaffold (conditional) ───────────────
     if [ ! -f "$vault_dir/CLAUDE.md" ]; then
