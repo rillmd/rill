@@ -61,7 +61,7 @@ The following data is injected from the orchestrator's prompt (not included in t
 ## Output
 After processing, report the following **concisely** (do not return file contents):
 - Path of created _organized/ file
-- List of created knowledge/ files (paths only)
+- **### Created knowledge files** — list of newly created knowledge/notes/ paths (one per line, no commentary). Use this exact section heading so the orchestrator can aggregate. Include ONLY newly created files (not Evergreen-skipped ones).
 - Skipped knowledge (existing filename + reason in one line)
 - Extracted tasks (pipe format per task extraction rules)
 - Updated people/ files (key fact additions, paths only)
