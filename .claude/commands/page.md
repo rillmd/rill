@@ -40,10 +40,10 @@ When called with a page id or path, open a conversation centered on that page. T
    - Read each file listed in `frontmatter.sources` as **context**, not just for change detection. Sources are known-relevant files; their content is the conversational backdrop
    - If the page has `mentions`, read the referenced entity files (`knowledge/people/*.md`, `knowledge/orgs/*.md`, `knowledge/projects/*.md`) for entity-level context
    - Do not perform wide exploratory search (e.g., Grep across workspace/tasks) at session start — that is reserved for the "full refresh" intent. Sources + mentions is the ceiling here
-4. Detect changes that the user should notice:
-   - For each source file, identify changes since the page was last updated (use `git log --since={updated} --name-only -- {source}` or judge from content)
-   - Summarize only what's actually different from what the page already reflects
-   - **Check for an interrupted batch** (see Batch Progression Mode below): look for an HTML comment at the end of the page body starting with `rill:pending-batch`. If present, parse its timestamp and remaining items for the opening message
+4. Detect changes and new candidates that the user should notice:
+   a. **Known sources changed (Layer 1)**: For each file in `frontmatter.sources`, check if it was modified after the page's `frontmatter.updated || frontmatter.created`. Use `git log --since={updated} --name-only -- {source}` or compare file mtime. Summarize only what's actually different from what the page already reflects
+   b. **New related candidates (Layer 2/3)**: Read `pages/.pending` and filter for entries matching the current `page_id` (column 1, TAB-separated). For each matching entry, verify the `source_path` (column 2) is not already present in `frontmatter.sources` — if it is, treat the pending entry as stale and skip it (it will be cleaned up on the next write). Collect the remaining entries as "new related candidates" with their `origin_skill` and `detected_at`
+   c. **Check for an interrupted batch** (see Batch Progression Mode below): look for an HTML comment at the end of the page body starting with `rill:pending-batch`. If present, parse its timestamp and remaining items for the opening message
 5. Present the opening message:
 
 ```
@@ -54,15 +54,22 @@ When called with a page id or path, open a conversation centered on that page. T
 Remaining: {items}.
 Resume, or discard and start fresh?
 
-{If changes were detected in known sources, list them briefly:}
+{If changes were detected in known sources (4a), list them briefly:}
 Changes since last update:
 - {file}: {one-line summary of what changed}
+
+{If new related candidates are found in .pending (4b), list them:}
+🌱 New related candidates since last update:
+- {source_path} ({origin_skill}, {detected_at})
+- {source_path} ({origin_skill}, {detected_at})
+→ Review together ("全部取り込んで" activates batch mode), cherry-pick, or dismiss individually
 
 What would you like to discuss? You can:
 - Update information ("I changed X to Y")
 - Ask a question ("What's my current X?")
 - Revise structure ("Add a section about X")
 - Request a full refresh ("Update with the latest")
+- Work through the candidates ("これ全部見て", "dismiss {source_path}")
 ```
 
 Omit blocks whose condition did not fire.
@@ -121,7 +128,28 @@ How would you like to proceed? All / Select / Cancel
 4. Apply approved items as diff-previewed edits (one at a time or in a small batch)
 5. Update `frontmatter.sources` to include newly referenced files
 
-#### Intent 5: Undo
+#### Intent 5: Pending Candidates Review / Dismiss
+
+Triggered when the user responds to the "New related candidates" block, either to take the candidates in (batch or cherry-pick) or to dismiss them.
+
+**Review / take in**:
+1. If the user says "全部取り込んで" / "apply all" / "see all" / similar broad approval, switch to **Batch Progression Mode** and process each candidate in sequence. For each:
+   - Read the candidate source file
+   - Propose a diff-preview showing what should be reflected in the page (a summary, a table row, a new paragraph — judge based on the candidate's content and the page's structure)
+   - Apply via Edit Application Protocol (which also adds the source to `frontmatter.sources` and runs implicit ack on the pending row via `--ack`)
+2. If the user cherry-picks ("this one only", "just the squat one"), process that single candidate the same way
+
+**Dismiss**:
+1. If the user says "関係ない" / "dismiss" / "not relevant" for a candidate, remove the pending row without editing the page:
+   ```bash
+   rill pages-pending-update --ack --page {id} --source {source_path}
+   ```
+2. Acknowledge in one line: "Dismissed {source_path}."
+3. Do not write anything to the page body
+
+This intent is distinct from Intent 4 (Full Refresh). Intent 4 performs exploratory search from `recipe.md` hints; Intent 5 operates on the pre-computed candidate list in `pages/.pending`.
+
+#### Intent 6: Undo
 
 Triggered by undo requests ("戻して", "取り消して", "undo", "revert that").
 
@@ -152,6 +180,7 @@ Apply?
 4. **Apply** via Edit tool
 5. **Update `frontmatter.updated`** to the current time *every time* an edit is applied (obtain with `date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/'`). This way, a session interrupted mid-way still leaves the page in a consistent state with a correct timestamp
 6. **Update `frontmatter.sources`** if the edit was informed by a new file not already listed
+   - **Implicit ack of pending entries**: if the newly added source was present in `pages/.pending` for this page, remove that pending row by running `rill pages-pending-update --ack --page {id} --source {source_path}`. This keeps `.pending` consistent with absorbed sources automatically
 7. **Track** the edit in conversation context: `{file_path, old_string, new_string, applied_at}` — for potential undo
 
 ### Batch Progression Mode
