@@ -26,7 +26,7 @@ Common frontmatter schema, reference conventions, and link rules for all Rill fi
 ## Reference / Link Rules
 
 - **In-body links**: Use standard Markdown `[text](path)`. Wiki links `[[]]` are not used
-- **Backtick-only ID references are prohibited**: No `` `task-xxx` `` style references — always use `[display name](tasks/xxx.md)` links (ADR-064)
+- **Backtick-only ID references are prohibited**: No `` `task-xxx` `` style references — always use `[display name](tasks/xxx/_task.md)` links (ADR-064, ADR-076)
 - **Frontmatter fields** (source, related, mentions, etc.) are structured data — do not use Markdown links. Keep as plain path strings
 
 ## File Creation Rules
