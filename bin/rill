@@ -242,7 +242,7 @@ cmd_status() {
     topics_count="$(find "$RILL_HOME/workspace/thinks" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
     knowledge_count="$(find "$RILL_HOME/knowledge/notes" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
     local task_count
-    task_count="$(find "$RILL_HOME/tasks" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+    task_count="$(find "$RILL_HOME/tasks" -name '_task.md' 2>/dev/null | wc -l | tr -d ' ')"
     echo "  journal: $journal_count  thinks: $topics_count  knowledge: $knowledge_count  tasks: $task_count"
 }
 
@@ -923,7 +923,7 @@ cmd_touch() {
     # Only process target file patterns
     case "$rel_path" in
         workspace/*/_workspace.md) ;;
-        tasks/*.md) ;;
+        tasks/*/_task.md) ;;
         knowledge/notes/*.md) ;;
         pages/*.md)
             # Skip recipe files
@@ -2029,8 +2029,8 @@ EOF
         "$vault_dir/inbox/journal/${today}-welcome.md"
 
     _seed_sample_file \
-        "templates/seed/tasks/try-your-first-distill.md" \
-        "$vault_dir/tasks/try-your-first-distill.md"
+        "templates/seed/tasks/try-your-first-distill/_task.md" \
+        "$vault_dir/tasks/try-your-first-distill/_task.md"
 
     # ── Phase 4: Root CLAUDE.md scaffold (conditional) ───────────────
     if [ ! -f "$vault_dir/CLAUDE.md" ]; then
@@ -2497,7 +2497,12 @@ cmd_mkfile() {
 
     # Resolve absolute directory path
     local abs_dir="$RILL_HOME/$directory"
-    mkdir -p "$abs_dir"
+    # ADR-076: for task artifacts (tasks/{slug}), the parent directory must pre-exist.
+    # Skip the implicit mkdir so the tasks/* case can surface a clean error.
+    case "$directory" in
+        tasks/*) ;;
+        *) mkdir -p "$abs_dir" ;;
+    esac
 
     # Generate filename based on directory pattern
     local filename
@@ -2536,7 +2541,60 @@ cmd_mkfile() {
             fi
             filename="$(printf '%03d' "$next_num")-${slug}.md"
             ;;
-        knowledge/notes|knowledge/people|knowledge/orgs|knowledge/projects|tasks)
+        tasks/*/*)
+            # ADR-076: sub-directories beneath tasks/{slug}/ are not allowed
+            echo "Error: tasks sub-directory must be single level (tasks/{slug})" >&2
+            return 1
+            ;;
+        tasks/*)
+            # ADR-076: artifact file under an existing task directory (tasks/{slug}/NNN-*.md)
+            # Mirrors the workspace/* branch.
+            if [ -z "$slug" ]; then
+                echo "Error: --slug required for task artifacts" >&2; return 1
+            fi
+            if [ ! -d "$abs_dir" ]; then
+                echo "Error: parent task directory $directory does not exist. Create task first with 'rill task'." >&2
+                return 1
+            fi
+            local next_num=1
+            local max_num=0
+            for f in "$abs_dir"/[0-9][0-9][0-9]-*.md; do
+                [ -f "$f" ] || continue
+                local num
+                num="$(basename "$f" | sed 's/^\([0-9]*\)-.*/\1/' | sed 's/^0*//')"
+                [ -n "$num" ] && [ "$num" -gt "$max_num" ] && max_num="$num"
+            done
+            next_num=$((max_num + 1))
+            filename="$(printf '%03d' "$next_num")-${slug}.md"
+            ;;
+        tasks)
+            # ADR-076: task ticket lives at tasks/{slug}/_task.md (one-file directory)
+            if [ -z "$slug" ]; then
+                echo "Error: --slug required for tasks" >&2; return 1
+            fi
+            case "$slug" in
+                */*) echo "Error: tasks --slug must be a bare slug, not a path" >&2; return 1 ;;
+                _*)  echo "Error: tasks --slug cannot start with underscore" >&2; return 1 ;;
+            esac
+
+            # Guard against legacy flat file from pre-ADR-076 vaults
+            if [ -f "$abs_dir/$slug.md" ]; then
+                echo "Error: legacy flat file tasks/$slug.md exists. Run migration first." >&2
+                return 1
+            fi
+
+            local task_dir="$abs_dir/$slug"
+            if [ -e "$task_dir" ] && [ ! -d "$task_dir" ]; then
+                echo "Error: tasks/$slug exists and is not a directory" >&2; return 1
+            fi
+            if [ -f "$task_dir/_task.md" ]; then
+                echo "Error: tasks/$slug/_task.md already exists" >&2; return 1
+            fi
+            mkdir -p "$task_dir"
+            abs_dir="$task_dir"
+            filename="_task.md"
+            ;;
+        knowledge/notes|knowledge/people|knowledge/orgs|knowledge/projects)
             if [ -z "$slug" ]; then
                 echo "Error: --slug required for $directory" >&2; return 1
             fi
@@ -2633,7 +2691,7 @@ cmd_mkfile() {
 # ── task: Quick capture a task ticket file ──
 # Usage: rill task "title" [--project <id>] [--due <YYYY-MM-DD>] [--scheduled <YYYY-MM-DD>] [--status <status>]
 # Note: --project adds mentions: [projects/{id}] (ADR-066)
-# Creates: tasks/{slug}.md
+# Creates: tasks/{slug}/_task.md (ADR-076)
 
 cmd_task() {
     if [ $# -lt 1 ]; then
@@ -2684,6 +2742,12 @@ cmd_task() {
         draft|open|waiting|someday|done|cancelled) ;;
         *) echo "Error: invalid status '$status'. Must be: draft|open|waiting|someday|done|cancelled" >&2; return 1 ;;
     esac
+
+    # ADR-076: tasks/{slug}/ directory must not already exist
+    if [ -d "$RILL_HOME/tasks/$user_slug" ]; then
+        echo "Error: tasks/$user_slug/ already exists. Use a different --slug or edit the existing task." >&2
+        return 1
+    fi
 
     local slug="${user_slug}"
 
