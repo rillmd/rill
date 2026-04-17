@@ -18,9 +18,10 @@ Starts (or resumes) a workspace from a theme or file. Automatically collects rel
 $ARGUMENTS — one of the following:
 - Theme text (e.g., `voice input optimization`) → Start a new workspace
 - Journal file path (e.g., `inbox/journal/2026-02-13-1950.md`) → Start new workspace from that journal
-- Task file path (e.g., `tasks/xxx.md`) → Start/resume workspace from task
 - workspace/ path or id (e.g., `workspace/2026-02-13-rill-development/` or `rill`) → Resume existing workspace
 - Omitted → Propose resuming active workspaces if any, otherwise ask for theme
+
+**Not accepted**: task file paths (`tasks/{slug}/_task.md`, or the legacy `tasks/{slug}.md`). ADR-077 retired task-originated /focus. If the user passes a task path, return an error immediately and suggest `/solve {slug}` instead — tasks are executed in place now, not through a workspace (ADR-076).
 
 ## Procedure
 
@@ -36,11 +37,9 @@ $ARGUMENTS — one of the following:
    - Search for `_workspace.md` OR `_session.md` OR `_project.md` with `status: active`
    - If active workspaces found, display the list and ask via AskUserQuestion whether to resume or create new
    - If no active workspaces, ask "What would you like to think about?" via AskUserQuestion
-3. If argument is a task file path (`tasks/*.md`):
-   - Read the task file, get tags, mentions, related
-   - If task's `related` contains a workspace path, propose resuming that workspace
-   - If no related workspace, create new → Phase 1 (origin = task file path, inherit tags from task)
-   - **Task linking**: On new WS creation, add workspace path to task's `related`. Set WS `origin` to task path
+3. If argument starts with `tasks/` (either new `tasks/{slug}/_task.md` or legacy `tasks/{slug}.md`):
+   - Exit immediately with: "Task-originated /focus was retired by ADR-077. Tasks execute in place now — run `/solve {slug}` to work on this task, which writes artifacts directly under `tasks/{slug}/`. If you want a standalone Deep Think surface, start `/focus <theme>` with a theme (not a task path)."
+   - Do not create a workspace, do not Read the task file
 4. If argument is text or a journal path:
    - Search for related existing workspaces (match on directory name, tags, _workspace.md body)
    - If related workspace found, ask "An existing workspace exists. Resume or create new?" via AskUserQuestion
@@ -173,7 +172,6 @@ type: research
   - `type` is not one of `record` / `insight` / `reference`
   ※ Mode A + Mode B combined have virtually no impact on main task accuracy/speed. Mode B targets are refreshed in the next /distill Phase 0.5
 - **Backward compatibility**: Properly read workspaces that only have `_session.md` or `_project.md`. Do not rename during Phase 3 interaction
-- **Task linking**: For workspaces started from tasks, at session end add workspace path to task's `related` and append link-annotated progress to the history section. Deliverables are centralized in the workspace, not placed in task files
 - **Body link rule**: When referencing files in workspace deliverables or _workspace.md, use `[display name](relative-path)` Markdown links. Backtick-only ID references are prohibited
 
 ## Compaction Resilience
