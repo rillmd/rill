@@ -1,31 +1,26 @@
-Returns task candidates as text (does not write to files. Ticket creation is handled by the parent context).
+Task candidate identification rules (injected as shared context for /distill child agents).
 
-- Only extract clear actions ("investigate X", "set up Y", etc.)
-- Do not extract proposals or discussion items as tasks
-- Format: `- Title | slug: suggested-slug | mentions: people/id | source: {source file path} | background: background text | context: Note Title::path, Note Title::path`
-- slug must be English kebab-case (used directly as filename)
-- mentions: Use type-prefixed IDs from the shared context entity list for matching people
-- source: Use the source file path specified by the caller
-- If no tasks found, report "No tasks"
-- Duplicate checking is handled by the parent context (not needed here)
+Child agents return task candidates as text; ticket writing is delegated to `_task/create-agent.md` (invoked by the /distill orchestrator in the parent). Do not write task files from the child.
 
-**Background writing rules (highest priority)**:
+## What counts as a candidate
 
-Background is the most important field of a task. Write it so that reading the task alone makes clear "what this task is about, what the issue is, and why it was created."
+- Clear committed actions ("investigate X", "follow up with Y", "set up Z")
+- Do not extract proposals, brainstorming items, or discussion points
 
-Must include (2-4 sentences):
-- **Why this task is needed** (motivation/problem)
-- **Core insight from the source** (not just "investigate X" but "given insight Y, investigate X to address issue Z")
-- **Contextual information** (relevant situation, constraints, prerequisites if any)
+## Output format
 
-Prohibited:
-- Compressing to 1 sentence. Avoiding information loss is the top priority
-- Copying source text verbatim. Reorganize so a third party can understand
+Return one candidate per line in pipe format:
 
-**Context writing rules**:
+```
+- Title | slug: suggested-slug | mentions: people/id,projects/id | source: <source file path> | hint: brief one-line trigger note
+```
 
-- List related knowledge/notes/ files as comma-separated `Title::path` pairs
-  - knowledge/notes/ files created from the same source (from knowledge extraction)
-  - Existing related files discovered during Evergreen check
-- Do not include the source file (already recorded in frontmatter source)
-- Maximum 5 items. Omit context field if none applicable
+- Title: short, imperative
+- slug: English kebab-case (used as filename by the orchestrator)
+- mentions: type-prefixed IDs taken from the shared entity mappings (`people/alex-chen`, `projects/acme-saas`). Omit the field if none match
+- source: the organized source file path passed by the caller
+- hint: a single line distilling the trigger, so the downstream writing agent knows what to expand into full Background. Keep it brief — full substance writing happens in `_task/create-agent.md`, not here
+
+If no tasks found, report "No tasks".
+
+Duplicate checking is handled by the parent orchestrator — do not check from the child.
