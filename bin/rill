@@ -2663,7 +2663,6 @@ cmd_mkfile() {
                 echo "id: $slug"
                 if [ -n "$name" ]; then echo "name: $name"; fi
                 if [ -n "$desc" ]; then echo "description: $desc"; fi
-                echo "refreshed: $now_iso"
                 if [ -n "$tags" ]; then echo "tags: $tags"; fi
                 ;;
         esac
