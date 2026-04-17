@@ -1,21 +1,26 @@
 # Task Rules — Rill
 
-`tasks/` is the **action layer**. Individual tasks are managed as task ticket files (ADR-063).
+`tasks/` is the **action layer**. Individual tasks are managed as per-task directories (ADR-063, ADR-076).
 
 ## Structure
 
 ```
 tasks/
-├── {slug}.md      # Task ticket file
+└── {slug}/
+    ├── _task.md            # Task ticket body + frontmatter
+    └── NNN-description.md  # Optional per-task artifacts (time-ordered)
 ```
 
-**Flat structure**. No subdirectories.
+**Directory per task** (ADR-076). Each task lives in its own directory so /solve can accumulate research notes, plans, decisions, and other artifacts under it without spawning a separate workspace. Simple tasks remain a one-file directory (`_task.md` only).
+
+- Sub-directories under a task are not allowed (flat artifact layout).
+- Binary artifacts (HTML mock, image, PDF) may live at the same level as `_task.md`.
 
 ## File Names
 
-- `{slug}.md` (kebab-case)
-- **No `task-` prefix needed** (ADR-063)
-- Examples: `rill-voice-task-management-skill.md`, `smith-trading-followup.md`
+- Directory: `{slug}/` (kebab-case). The ticket body is always `_task.md` inside it.
+- **No `task-` prefix needed** on the slug (ADR-063)
+- Examples: `tasks/rill-voice-task-management-skill/_task.md`, `tasks/smith-trading-followup/_task.md`
 
 ## Frontmatter
 
@@ -174,8 +179,10 @@ What's wrong:
 ## Creation Methods
 
 1. AI suggestions during `/focus` (user approval required)
-2. `rill task "title"` CLI
+2. `rill task "title" --slug {slug}` CLI — creates `tasks/{slug}/_task.md`
 3. `/distill` (interactive only)
+
+Per-task artifacts (research notes, plans, decisions produced by /solve) are scaffolded inside the task directory with `rill mkfile tasks/{slug} --slug {description} --type {research|analysis|decision|progress|review}`.
 
 ## Duplicate Check
 

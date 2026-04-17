@@ -17,7 +17,7 @@ All data is plain Markdown files. GitHub is the single source of truth.
 ├── inbox/          # Input layer (immutable): journal, meetings, tweets, web-clips, sources
 ├── knowledge/      # Accumulation layer: me.md, notes/, people/, orgs/, projects/
 ├── workspace/{id}/ # Working layer (stateful)
-├── tasks/          # Task tickets
+├── tasks/{slug}/   # Per-task directory (_task.md + optional artifacts, ADR-076)
 ├── reports/        # Claude Code outputs: daily/, newsletter/
 ├── pages/          # Human-facing aggregated Materialized Views
 ├── taxonomy.md     # Tag vocabulary management
