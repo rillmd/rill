@@ -26,6 +26,7 @@ $ARGUMENTS — one of the following:
 1. If argument is `YYYY-MM-DD`: Use that date as target
 2. If argument omitted: Use today's date as target
 3. If `reports/daily/YYYY-MM-DD.md` already exists: Overwrite without confirmation (version history is in Git)
+4. Run `rill pages-pending-update --gc` to sweep pending entries pointing at deleted pages (silent when nothing to clean; never fails)
 
 ### Phase 1: Data Collection
 
@@ -68,7 +69,9 @@ Collect the following data in parallel:
 8. **Past 2 weeks journal overview** — Get filename list from inbox/journal/ for the past 2 weeks.
    For understanding theme repetition and frequency trends.
    Content: Read only what AI judges necessary (no need to read all)
-9. **Workspace details** — Use Step A's active_details. To detect additional active workspaces:
+9. **Pages with pending updates** — Read `pages/.pending`. Skip comment lines (`^#`) and empty lines. Parse TAB-separated columns: `page_id`, `source_path`, `detected_at`, `origin_skill`. Group by `page_id` and count entries. For each `page_id`, read `pages/{id}.md` frontmatter to resolve `name` and most recent `detected_at`. Skip groups whose `source_path` appears in that page's `frontmatter.sources` (stale entries — they will be cleaned on the next /page session's implicit ack).
+
+10. **Workspace details** — Use Step A's active_details. To detect additional active workspaces:
      `Grep(pattern="^status: active", path="workspace/", glob="**/_workspace.md", output_mode="files_with_matches")`
    Read only matched workspaces' `_workspace.md`
    - Completion candidates: All checklist items checked + related ADR exists in docs/decisions/
@@ -137,6 +140,17 @@ Target tasks: due within 7 days / status: waiting / projects/{id} in mentions ma
 Link: Use relative path `../../tasks/{slug}/_task.md`.
 due: Display if frontmatter `due` exists.
 status: Display `waiting` in backticks for waiting tickets)
+
+## Pages with pending updates
+
+(Only include this section if Phase 1 Step B #9 yielded at least one page with non-stale pending entries. Omit the entire section otherwise.
+
+List each page ordered by most recent `detected_at` desc. Cap at 8 rows; if more exist, append `_and {N} more_` at the end.
+
+- **[Page name](../../pages/{id}.md)**: {count} new related candidate(s) (most recent: YYYY-MM-DD, origin: distill/close)
+  → Run `/page {id}` to review
+
+When count is 1, say "1 new related candidate"; when >1, pluralize.)
 
 ## Situation Analysis
 
