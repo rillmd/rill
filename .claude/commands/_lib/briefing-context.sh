@@ -192,16 +192,16 @@ if [ -d "$knowledge_dir" ]; then
 fi
 top_5=$(echo "$tag_counts" | head -5 | awk '{print "  - { tag: \"" $2 "\", count: " $1 " }"}')
 
-# --- Task tickets (tasks/*.md) ---
+# --- Task tickets (tasks/*/_task.md) ---
 ticket_open=0
 ticket_waiting=0
 ticket_overdue=0
 ticket_due_soon=""
 ticket_files=""
 
-for tfile in "$RILL_HOME"/tasks/*.md; do
+for tfile in "$RILL_HOME"/tasks/*/_task.md; do
     [ -f "$tfile" ] || continue
-    fname=$(basename "$tfile")
+    fname=$(basename "$(dirname "$tfile")")
     t_status=$(grep -m1 '^status:' "$tfile" 2>/dev/null | sed 's/^status: *//' | tr -d '"' || echo "")
     case "$t_status" in
         open) ticket_open=$((ticket_open + 1)) ;;

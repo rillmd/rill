@@ -18,7 +18,7 @@ Procedure:
 1. Read `source_path`. If an `_organized/` twin exists, read that instead.
 2. Identify the action to capture. Either take the `candidate` hint as the target, or (if absent) scan the source and pick the clearest committed action. Skip proposals, discussion points, and speculative items — those are not tasks.
 3. Generate a kebab-case English slug. If the task ties to an entity in the mappings, prefix the slug with that entity id (e.g. `acme-saas-imap-checklist`).
-4. Duplicate check: Grep `tasks/*.md` for overlapping titles/slugs. If a clear duplicate exists with thinner substance, re-invoke self with `mode=enrich` on the existing path instead. If no duplicate, proceed to write.
+4. Duplicate check: `Grep(pattern="^# ", path="tasks/", glob="**/_task.md", output_mode="content")` (or match on slug by directory name) for overlapping titles/slugs. If a clear duplicate exists with thinner substance, re-invoke self with `mode=enrich` on the existing path instead. If no duplicate, proceed to write.
 5. Gather context: Grep `knowledge/notes/` for supporting notes the Background should reference. Read the 1–3 most relevant.
 6. Draft the body per `.claude/rules/rill-tasks.md` Substance rules. Goal states a checkable completion condition; Background conveys trigger/stakes/context so the executor can work from it cold; Context lists related files with short role descriptors; Request carries creator intent if any; History records provenance in one line.
 7. Build frontmatter and create the file:

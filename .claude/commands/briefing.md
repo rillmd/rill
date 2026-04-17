@@ -52,7 +52,7 @@ Collect the following data in parallel:
 
 1. **Task collection** (from ticket files)
    - Use Grep for fast filtering of target tickets:
-     `Grep(pattern="^status: (open|waiting)", path="tasks/", glob="*.md", output_mode="files_with_matches")`
+     `Grep(pattern="^status: (open|waiting)", path="tasks/", glob="**/_task.md", output_mode="files_with_matches")`
    - Read only matched files (skip done, draft, cancelled, someday)
    - Also reference Step A's `task_tickets` statistics (counts, due_soon list) as supplementary data
    - Collect from each ticket: title (h1), status, due, mentions (projects/{id}), background (body opening), request
@@ -107,7 +107,7 @@ Then use Edit to append the body to the output path (frontmatter is already gene
 
 Writing rules for each section:
 - **Use prose as the default**. Write with context and recommended actions, not just bullet point lists
-- "Today's Focus" collects tasks from ticket files (`tasks/*.md`)
+- "Today's Focus" collects tasks from ticket files (`tasks/{slug}/_task.md`)
 - Sections with no information may be omitted
 - Workspace review results are integrated into "Situation Analysis"
 
@@ -130,11 +130,11 @@ Target tasks: due within 7 days / status: waiting / projects/{id} in mentions ma
 
 [Prose explaining task group context]
 
-- **[Task title](../../tasks/{slug}.md)** — 1-sentence summary from background. due: YYYY-MM-DD
-- **[Task title](../../tasks/{slug}.md)** `waiting` — Explanation of waiting status
+- **[Task title](../../tasks/{slug}/_task.md)** — 1-sentence summary from background. due: YYYY-MM-DD
+- **[Task title](../../tasks/{slug}/_task.md)** `waiting` — Explanation of waiting status
 
 (Title: Use the h1 from the ticket. Background: Summarize to 1 sentence from ticket body.
-Link: Use relative path `../../tasks/{slug}.md`.
+Link: Use relative path `../../tasks/{slug}/_task.md`.
 due: Display if frontmatter `due` exists.
 status: Display `waiting` in backticks for waiting tickets)
 
@@ -181,14 +181,14 @@ Tasks from ticket files are written in rich display format.
 
 - Title: Use the h1 (`# Title`) from the ticket as-is
 - Background: Summarize to 1 sentence from ticket body
-- Link: Relative path `../../tasks/{slug}.md`
+- Link: Relative path `../../tasks/{slug}/_task.md`
 - due: Display if frontmatter `due` exists
 - status: Display in backticks for `waiting`
 
 **Display example**:
 ```
-- **[Submit Q4 expense report](../../tasks/submit-expense-report.md)** — Reimbursement deadline approaching. due: 2026-04-15
-- **[Schedule design review with Jane](../../tasks/phoenix-design-review.md)** `waiting` — Awaiting Jane's availability for the proposal review
+- **[Submit Q4 expense report](../../tasks/submit-expense-report/_task.md)** — Reimbursement deadline approaching. due: 2026-04-15
+- **[Schedule design review with Jane](../../tasks/phoenix-design-review/_task.md)** `waiting` — Awaiting Jane's availability for the proposal review
 ```
 
 ## Rules

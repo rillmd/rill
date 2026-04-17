@@ -214,7 +214,7 @@ For each numbered deliverable (`NNN-*.md`):
 
 #### 8.2 Related task sync
 
-1. Grep `tasks/*.md` to find tasks referencing the workspace id (directory name) in `source:` or `related:`
+1. `Grep(pattern=..., path="tasks/", glob="**/_task.md", output_mode="files_with_matches")` to find tasks referencing the workspace id (directory name) in `source:` or `related:`
 2. Read each detected task, target those with `status` of `open` / `waiting` / `draft` (skip `done` / `cancelled`)
 3. Compare each target task's goal against the `_summary.md` generated in Phase 2, with AI judging whether it was completed within the workspace
 4. Present judgment results to user in a list and request confirmation via AskUserQuestion:
@@ -223,8 +223,8 @@ For each numbered deliverable (`NNN-*.md`):
 
    | Task | Current status | Judgment |
    |------|---------------|----------|
-   | [Task name](tasks/xxx.md) | open | ✅ Completed (reason: ...) |
-   | [Task name](tasks/yyy.md) | waiting | ❓ Cannot determine (reason: ...) |
+   | [Task name](tasks/xxx/_task.md) | open | ✅ Completed (reason: ...) |
+   | [Task name](tasks/yyy/_task.md) | waiting | ❓ Cannot determine (reason: ...) |
 
    May I update the status of the above tasks?
    ```
@@ -269,11 +269,11 @@ workspace/{id}/_summary.md
 - ...
 
 ### Extracted tasks (if any)
-- tasks/xxx.md (status: draft)
+- tasks/xxx/_task.md (status: draft)
 - ...
 
 ### Synced related tasks (if any)
-- tasks/xxx.md: open → done
+- tasks/xxx/_task.md: open → done
 - ...
 
 ### Open issues (carried forward)

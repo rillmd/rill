@@ -3,7 +3,7 @@ gui:
   label: "/solve"
   hint: "AI autonomously researches, analyzes, and resolves a task"
   match:
-    - "tasks/*.md"
+    - "tasks/*/_task.md"
   arg: path
   order: 12
   mode: live
@@ -16,9 +16,11 @@ The AI reads a task, gathers context, and autonomously runs research and analysi
 ## Arguments
 
 {arg} — one of the following:
-- Full path to a task file (e.g. `tasks/research-kids-carsickness.md`)
-- A task slug (e.g. `research-kids-carsickness` or `research-kids-carsickness.md`) → resolved to `tasks/{slug}.md`
+- Full path to a task's `_task.md` (e.g. `tasks/research-kids-carsickness/_task.md`)
+- A task slug (e.g. `research-kids-carsickness`) → resolved to `tasks/{slug}/_task.md`
 - Omitted → use AskUserQuestion to ask "Which task should I run?"
+
+Legacy flat-file paths (`tasks/{slug}.md`) are no longer accepted. If one is passed, fail with a message asking the user to run `rill migrate tasks-v1` first (ADR-076).
 
 ## Safety Boundary
 
@@ -250,7 +252,7 @@ If the user requests modifications, revise the design and present it again. Once
    If the task contains information with knowledge value, extract it as a knowledge note under knowledge/notes/.
    - **What to distill**: records of decisions (why a choice was made) → `type: record`; design insights or patterns → `type: insight`; summaries of external information → `type: reference`
    - **Not to distill**: pure actions (e.g. bring the umbrella home), tasks that are only procedural checklists
-   - **How**: create with `rill mkfile knowledge/notes --slug {slug} --type {record|insight|reference} --field "source=tasks/{task-slug}.md"`. `source` points to the task file
+   - **How**: create with `rill mkfile knowledge/notes --slug {slug} --type {record|insight|reference} --field "source=tasks/{task-slug}/_task.md"`. `source` points to the task file
    - **Backlink to the task**: add the path of the created knowledge note to the task's `related`
    - **Evergreen check**: confirm there is no existing knowledge/notes/ file on the same topic. If there is, update it instead of creating a new one
 
