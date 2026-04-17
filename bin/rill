@@ -2768,10 +2768,19 @@ cmd_strip_entity_tags() {
         return 0
     fi
 
-    # Build taxonomy tag list (protect tags that exist in taxonomy.md)
+    # Build taxonomy tag list (protect tags that exist in taxonomy.md).
+    # Only collect Active Topic Tags — stop reading once we hit the
+    # "## Deprecated Tags" section, otherwise deprecated entity IDs (e.g.
+    # `rill`, `bellhop-ai`) get protected and the strip no-ops on them.
     local taxonomy_tags=()
     if [ -f "$RILL_HOME/taxonomy.md" ]; then
+        local in_deprecated=false
         while IFS= read -r tline; do
+            if [[ "$tline" =~ ^##[[:space:]]+Deprecated ]]; then
+                in_deprecated=true
+                continue
+            fi
+            [ "$in_deprecated" = true ] && continue
             # Parse table rows: "| tag-name | description | ..."
             local tname
             tname="$(echo "$tline" | sed -n 's/^| *\([a-z][a-z0-9-]*\) *|.*/\1/p')"
