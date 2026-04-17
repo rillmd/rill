@@ -7,7 +7,9 @@ type: analysis
 
 Behavioral specification for /solve. A skill that reads tasks and autonomously performs research, analysis, and artifact generation.
 
-**Test strategy**: With `claude -p`, a single turn progresses through Phase 0→1→2→3→4. Task understanding, WS creation, artifact generation, and status updates are structurally verified.
+**Test strategy**: With `claude -p`, a single turn progresses through Phase 0→1→2→3→4. Task understanding, artifact generation under the task directory, and task status / history updates are structurally verified.
+
+Post-ADR-077 (D77-1/D77-2): /solve never creates a workspace. All artifacts land under `tasks/{slug}/` alongside `_task.md`.
 
 ---
 
@@ -18,6 +20,7 @@ Behavioral specification for /solve. A skill that reads tasks and autonomously p
 | INV-01 | inbox/ is immutable | Hash comparison |
 | INV-02 | Safety boundary compliance (no code changes, no external communication) | Log verification |
 | INV-03 | Do not execute if task status is done/cancelled | Output verification |
+| INV-04 | No new workspace is created during /solve (ADR-077 D77-1) | `workspace/` diff check |
 
 ---
 
@@ -43,13 +46,17 @@ Behavioral specification for /solve. A skill that reads tasks and autonomously p
 
 ## 5. Phase 3: Execution
 
+ADR-076/077: artifacts live inside the task directory (`tasks/{slug}/NNN-*.md`).
+The old workspace-generation path (pre-ADR-077) is removed.
+
 | ID | Rule | Verification Method |
 |----|------|-------------------|
-| P3-01 | workspace directory is created | File existence |
-| P3-02 | _workspace.md has required frontmatter | Field check |
-| P3-03 | _workspace.md origin points to the task file | Path check |
-| P3-04 | Artifact files (NNN-*.md) are created | File existence |
-| P3-05 | Artifacts have frontmatter | Field check |
+| P3-01 | For Research pattern, new artifact files are created under `tasks/{slug}/` | File existence |
+| P3-02 | Artifacts follow `NNN-description.md` naming with auto-incremented numbering | regex |
+| P3-03 | Artifacts have required frontmatter (`created`, `type`) | Field check |
+| P3-04 | For Enrich pattern, `tasks/{slug}/_task.md` body is updated in place | Diff check |
+| P3-05 | For Code pattern, an implementation plan artifact is created under the task directory, and no code changes are written in the target repo | File existence + diff |
+| P3-06 | No `workspace/` directory is created as a side effect of /solve (ADR-077 D77-1) | `workspace/` listing diff |
 
 ---
 
@@ -57,10 +64,10 @@ Behavioral specification for /solve. A skill that reads tasks and autonomously p
 
 | ID | Rule | Verification Method |
 |----|------|-------------------|
-| P4-01 | Task status is changed to waiting | fm_get |
-| P4-02 | Task related includes the workspace path | fm_get |
-| P4-03 | Task History section contains execution record | grep |
-| P4-04 | _workspace.md MOC includes artifact links | grep |
+| P4-01 | Task status is changed to `waiting` when the AI completes the work | fm_get |
+| P4-02 | Task `## History` section contains an execution record line | grep |
+| P4-03 | Task `## Context` section is extended with links to new artifacts (when any) | grep |
+| P4-04 | activity-log.md has an entry for the /solve run | grep |
 
 ---
 
@@ -68,6 +75,6 @@ Behavioral specification for /solve. A skill that reads tasks and autonomously p
 
 | Level | Rule Count | Percentage |
 |-------|-----------|------------|
-| ✅ Automatically verifiable | 10 | 53% |
-| ⚠️ LLM judgment / log | 9 | 47% |
+| ✅ Automatically verifiable | 11 | 58% |
+| ⚠️ LLM judgment / log | 8 | 42% |
 | **Total** | **19** | — |
