@@ -80,7 +80,7 @@ Governing rule: [`.claude/rules/rill-knowledge.md`](../.claude/rules/rill-knowle
 
 ### Layer 4 — Action (`tasks/`)
 
-Every actionable item is a ticket file (`tasks/{slug}.md`) with explicit `status`, optional `due` / `scheduled`, and a narrative body (Goal / Background / Context / Request / History).
+Every actionable item is a ticket file (`tasks/{slug}/_task.md`) with explicit `status`, optional `due` / `scheduled`, and a narrative body (Goal / Background / Context / Request / History).
 
 Tasks are independent of workspaces — a task can exist without a workspace, and a workspace can exist without producing tasks. They link via `mentions:` frontmatter when related.
 
@@ -212,7 +212,7 @@ Every skill is a single Markdown file in `.claude/commands/`. The file *is* the 
 | `/onboarding` | — (tutorial) | first vault files | First-time setup |
 | `/inspect` / `/repair` / `/maintain` | `knowledge/` | metadata fixes | Quality maintenance |
 | `/eval` | standard test prompts | `reports/eval/` | Measure skill quality |
-| `/solve` | `tasks/{slug}.md` | task body, ad-hoc output | AI-assisted execution of a task |
+| `/solve` | `tasks/{slug}/_task.md` | task body, ad-hoc output | AI-assisted execution of a task |
 | `/clip-tweet` | tweet URL | `inbox/tweets/` | Single-tweet ingestion |
 | `/plugin` | `plugins/` | `plugins/.installed`, `plugins/.enabled` | Interactive plugin management |
 

@@ -62,7 +62,7 @@ Expected outputs from /distill for each fixture. Used as the basis for test asse
 
 **Expected Output**:
 - Task candidates:
-  - "Investigate alternative OAuth providers" -> **Duplicate**: matches existing `tasks/oauth-provider-investigation.md` -> do not create (TK-05)
+  - "Investigate alternative OAuth providers" -> **Duplicate**: matches existing `tasks/oauth-provider-investigation/_task.md` -> do not create (TK-05)
   - "Confirm Jordan Kim's onboarding schedule" -> May be extracted as a new task candidate
     - `status: draft` (TK-03)
     - `source: inbox/journal/_organized/2026-01-15-210000.md` (TK-07)

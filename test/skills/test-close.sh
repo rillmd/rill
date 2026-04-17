@@ -233,10 +233,10 @@ echo ""
 # 7. Task extraction from unchecked items (TK-02, TK-03)
 echo "=== TK: Task extraction ==="
 NEW_TASKS=0
-for f in tasks/*.md; do
+for f in tasks/*/_task.md; do
   [[ -f "$f" ]] || continue
-  name=$(basename "$f")
-  if [[ ! -f "$FIXTURES_DIR/tasks/$name" ]]; then
+  name=$(basename "$(dirname "$f")")
+  if [[ ! -f "$FIXTURES_DIR/tasks/$name/_task.md" ]]; then
     NEW_TASKS=$((NEW_TASKS + 1))
     echo "  New task: $name"
     TASK_STATUS=$(fm_get "$f" "status")
@@ -309,7 +309,7 @@ echo ""
 
 # 10. Related task sync check (TS-01)
 echo "=== TS: Related task sync ==="
-MIGRATION_TASK="tasks/plan-auth-migration-schedule.md"
+MIGRATION_TASK="tasks/plan-auth-migration-schedule/_task.md"
 if [[ -f "$MIGRATION_TASK" ]]; then
   MIGRATION_STATUS=$(fm_get "$MIGRATION_TASK" "status")
   echo "  Migration task status: $MIGRATION_STATUS"

@@ -26,7 +26,7 @@ Behavioral specification for /distill. Codifies all rules of the skill, serving 
 | IO-O1 | `inbox/journal/_organized/*.md` | Phase 1 |
 | IO-O2 | `inbox/{type}/_organized/*.md` | Phase 2 |
 | IO-O3 | `knowledge/notes/*.md` | Phase 1, 3 |
-| IO-O4 | `tasks/*.md` (status: draft) | Phase 1, 2 |
+| IO-O4 | `tasks/*/_task.md` (status: draft) | Phase 1, 2 |
 | IO-O5 | `knowledge/people/*.md` (new/updated) | Phase 1, 2.5 |
 | IO-O6 | `knowledge/orgs/*.md` (new/updated) | Phase 2.5 |
 | IO-O7 | `knowledge/projects/*.md` (updated) | Phase 1, 3 |

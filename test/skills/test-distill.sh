@@ -191,10 +191,10 @@ echo ""
 # 7. Task creation check (TK-03, TK-05)
 echo "=== TK: Task extraction ==="
 NEW_TASKS=0
-for f in tasks/*.md; do
+for f in tasks/*/_task.md; do
   [[ -f "$f" ]] || continue
-  name=$(basename "$f")
-  if [[ ! -f "$FIXTURES_DIR/tasks/$name" ]]; then
+  name=$(basename "$(dirname "$f")")
+  if [[ ! -f "$FIXTURES_DIR/tasks/$name/_task.md" ]]; then
     NEW_TASKS=$((NEW_TASKS + 1))
     echo "  New task: $name"
     TASK_STATUS=$(fm_get "$f" "status")
@@ -204,16 +204,16 @@ done
 echo "  Total new tasks: $NEW_TASKS"
 
 # TK-05: Duplicate task not created (oauth-provider-investigation already exists)
-if [[ -f "tasks/oauth-provider-investigation.md" ]]; then
-  TASK_STATUS_EXISTING=$(fm_get "tasks/oauth-provider-investigation.md" "status")
+if [[ -f "tasks/oauth-provider-investigation/_task.md" ]]; then
+  TASK_STATUS_EXISTING=$(fm_get "tasks/oauth-provider-investigation/_task.md" "status")
   assert_eq "$TASK_STATUS_EXISTING" "open" "TK-05: Existing task status unchanged (not overwritten)"
 fi
 
 # TK-04: Task background has 2+ sentences (spot check on new tasks)
-for f in tasks/*.md; do
+for f in tasks/*/_task.md; do
   [[ -f "$f" ]] || continue
-  name=$(basename "$f")
-  if [[ ! -f "$FIXTURES_DIR/tasks/$name" ]]; then
+  name=$(basename "$(dirname "$f")")
+  if [[ ! -f "$FIXTURES_DIR/tasks/$name/_task.md" ]]; then
     # Count sentences in background section (rough: count periods)
     BG_TEXT=$(awk '/^## Background|^## Goal/{found=1; next} found && /^## /{exit} found{print}' "$f" 2>/dev/null)
     if [[ -n "$BG_TEXT" ]]; then
