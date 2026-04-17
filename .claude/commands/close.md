@@ -242,6 +242,18 @@ For each numbered deliverable (`NNN-*.md`):
 - Run `rill strip-entity-tags` on created `knowledge/notes/` files
 - Append new tags (if any) to `taxonomy.md`
 - Entity detection: detect new entities from `mentions` in created notes → auto-create entity files if missing
+- **Pages pending update** (Phase 2 of pages-wiki-redesign — "new candidates" push):
+  1. Build a sources list containing:
+     - The workspace metadata file path: `workspace/{workspace_id}/_workspace.md` (or `_session.md` / `_project.md` for legacy workspaces)
+     - Every newly-created `knowledge/notes/*.md` path from Phase 4 (paths where Distillation sub-agent status == `created`). Exclude `updated` notes — those are Evergreen updates already covered by /page Session Start Layer 1
+  2. Write the list to a tmp file (one path per line) and invoke:
+     ```bash
+     rill pages-pending-update --sources-file "$tmp" --origin close
+     ```
+  3. The CLI matches each source's `mentions` (Layer 2) or `tags` (Layer 3 fallback, pages without mentions only) against `pages/*.md` and upserts entries into `pages/.pending`
+  4. Do NOT pass `--force` if the CLI prints `⚠ bulk update detected` — investigate first (Phase 4 likely produced an unusually large batch; decide manually whether to push all into pending)
+
+Design reference: `workspace/2026-04-15-pages-wiki-redesign/006-matching-strategy-revision.md`
 
 #### 9.2 Completion summary display
 
