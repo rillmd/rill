@@ -189,7 +189,29 @@ Phase 2.5 and Phase 3 are mutually independent, so execute in parallel.
   - **Plugin path**: `plugins/{plugin-name}/`
   - **Failures are non-fatal**: Log and skip errors during hook execution
 
-### Step 9: Summary + Task Approval
+### Step 9: Pages Pending Update (Phase 2 of the pages-wiki-redesign — "new candidates" push)
+
+After all Phases complete, before the final summary:
+
+1. **Aggregate newly created knowledge/notes/ paths** from:
+   - Phase 1 journal-agent outputs → `### Created knowledge files` section
+   - Phase 3 knowledge-agent outputs → `### Created knowledge files` section
+   - Plugin distill.md agent outputs (if the plugin follows the same `### Created knowledge files` convention)
+2. **Exclude** refresh-agent output (refresh-agent is not part of /distill, but this guard exists so future integrations don't accidentally feed Evergreen updates into pending)
+3. If the aggregated list is empty, skip this step
+4. Write the aggregated paths to a temporary sources file (one per line, absolute or repo-relative paths both accepted by the CLI), then invoke:
+   ```bash
+   tmp=$(mktemp)
+   printf '%s\n' "${created_files[@]}" > "$tmp"
+   rill pages-pending-update --sources-file "$tmp" --origin distill
+   rm -f "$tmp"
+   ```
+5. The CLI matches each new file's `mentions` (Layer 2) or `tags` (Layer 3 fallback, only for pages without mentions) against all `pages/*.md` and upserts entries into `pages/.pending`
+6. **Do NOT pass `--force` blindly.** If the CLI prints `⚠ bulk update detected`, the aggregated list is likely contaminated with Evergreen updates or a migration slipped in — investigate rather than override
+
+Design reference: `workspace/2026-04-15-pages-wiki-redesign/006-matching-strategy-revision.md`
+
+### Step 10: Summary + Task Approval
 
 After all Phases complete, display the following summary:
 - **Phase 1**: Processed / skipped count, created file list
