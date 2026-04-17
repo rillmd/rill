@@ -36,8 +36,8 @@ related:                           # optional
 
 ### Required Fields
 - `type: task`
-- `source`
 - `status`
+- `source` — when the task has a discrete upstream (journal, meeting, note). For tasks born from live conversation with no discrete origin, omit it rather than fabricate a link to an unrelated recent file.
 
 ### Status Values
 - `draft`: AI-generated unapproved task (approved/rejected via Electron app Review mode, ADR-069)
@@ -92,9 +92,9 @@ Per-field notes:
 - **Goal**: State the completion condition — something that can be checked true/false. Not a plan. If it genuinely can't be stated at capture time, say so explicitly rather than leaving it blank.
 - **Background**: Whatever the executor needs to pick this up cold — the trigger, the stakes, non-obvious prior context. The test is whether someone who wasn't in the room can work from Background alone.
 - **Context**: One link per line with a short role descriptor ("why this link matters for this task"). Do not use the `Title::path,Title::path` inline format — it compresses role context to nothing.
-- **Request**: Creator's note to executor — approach hints, pitfalls, constraints. Not a plan.
+- **Request**: Creator's note to executor — approach hints, pitfalls, constraints. Not a plan. Legacy "Action Items" headings (in any language) are deprecated: put intent in Request and concrete checkboxes under Subtasks.
 - **History**: Provenance at creation; grows as the task evolves.
-- **Frontmatter**: `source` is a real file path, not a placeholder. `tags` and `mentions` reflect what the task is actually about — tasks almost always tie to a project/person/org and a concrete origin.
+- **Frontmatter**: `source` must point to the actual upstream file, or be omitted — do not fill it with an unrelated recent journal. `tags` and `mentions` reflect what the task is actually about.
 
 ## Good Example
 
