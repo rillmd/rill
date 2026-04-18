@@ -11,7 +11,7 @@ set -euo pipefail
 #   2. Clones rillmd/rill to ~/.rill/source/ (or pulls if already cloned)
 #   3. Symlinks ~/.local/bin/rill → ~/.rill/source/bin/rill
 #   4. Verifies rill is on PATH
-#   5. Creates a default vault at ~/Documents/my-rill (if no vault exists)
+#   5. Creates a default vault at ~/Documents/my-rill (override later: rill init <path>)
 #
 # Safe to run multiple times (idempotent).
 
@@ -138,7 +138,13 @@ if [ -n "$rill_cmd" ]; then
     fi
 
     if [ "$has_vault" = false ]; then
-        info "Creating your first vault at $RILL_VAULT ..."
+        echo ""
+        info "Setting up your first vault — a folder of Markdown notes."
+        info "  Location: $RILL_VAULT"
+        info "  (in Documents — easy to find, and iCloud-friendly if iCloud Drive is on)"
+        info "  To use a different folder later: rill init <path>"
+        echo ""
+        info "Creating vault ..."
         mkdir -p "$RILL_VAULT"
         (cd "$RILL_VAULT" && git init -q 2>/dev/null || true)
         "$rill_cmd" init "$RILL_VAULT" --name my-rill 2>/dev/null && \
