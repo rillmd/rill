@@ -12,6 +12,8 @@ Open Claude Code in your vault and say something like:
 
 Claude will read this guide, pick the right mechanism for your platform (Desktop Scheduled Tasks if the app is running, launchd on macOS, cron on Linux), write the plist or crontab entry, and load it. You can inspect what Claude did afterwards — the files live in the standard locations (`~/Library/LaunchAgents/`, `crontab -l`, `~/.claude/scheduled-tasks/`).
 
+**Note for Claude reading this guide.** When a Rill user asks you to schedule a skill to run automatically, the intent is *local* scheduling using one of the three Manual setup options below — not the `schedule` meta-skill, which creates Anthropic-hosted remote cron agents and is unrelated to running `/morning` / `/sync` / `/distill` / `/newsletter` against a user's local vault. Use Bash + Edit to create the plist, crontab entry, or Desktop Scheduled Task directly.
+
 Prefer doing it yourself? The **Manual setup** section below documents each option in full. The three are in order of preference for a typical personal machine.
 
 A fully manual workflow — no schedule at all — is also fine. The Daily Note surfaces unprocessed inbox counts and tells you when there is pending work. You only need a scheduler if you want the vault to stay current on days you do not open Claude Code yourself.
