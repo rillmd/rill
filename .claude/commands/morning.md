@@ -1,17 +1,22 @@
 # /morning — Morning Routine
 
-Runs the two user-facing daily reports in parallel: Daily Note (/briefing) and research newsletter (/newsletter). Each runs as an independent process (`claude -p`) to isolate context and bypass nesting limits (ADR-058).
+Runs the two user-facing daily reports in sequence: Daily Note (/briefing) and research newsletter (/newsletter). Both run inline within the current Claude Code session via the Skill tool.
 
 Background processing (external source sync, knowledge distillation) is **not** part of /morning (ADR-075). Run `/sync` and `/distill` manually when you want to catch up, or see `docs/guides/scheduling.md` for ways to automate them.
+
+## Why sequential (not parallel)
+
+Earlier revisions of /morning spawned `/briefing` and `/newsletter` as parallel `claude -p` sub-processes. When the parent session runs in `auto` mode (the recommended default), the classifier reliably refuses to spawn in-session sub-agents with elevated permissions — this is the classifier's intended behavior, not a bug. Inline Skill-tool invocation stays inside the user's single top-level intent ("run my morning routine"), so each underlying tool call is judged routine and no subprocess spawn is attempted. Runtime cost: roughly 2–3 minutes longer than the old parallel pipeline.
 
 ## Dependencies
 
 ```
-Step 1: /briefing + /newsletter  (parallel)
-Step 2: Completion summary
+Step 1: /briefing
+Step 2: /newsletter
+Step 3: Completion summary
 ```
 
-/briefing reads an activity window covering yesterday's data, so it does not depend on today's /sync or /distill output. /newsletter is WebSearch-based and equally independent. This lets both run in parallel with no ordering constraint.
+Neither skill depends on the other's output. /briefing reads yesterday's activity window; /newsletter is WebSearch-based.
 
 ## Arguments
 
@@ -19,43 +24,30 @@ $ARGUMENTS — none
 
 ## Procedure
 
-### Step 1: Daily Note + Newsletter (parallel)
+### Step 1: Daily Note (/briefing)
 
-Run the following with Bash:
+Invoke the `briefing` skill via the Skill tool and wait for it to complete. Capture the path of the generated Daily Note from the skill's summary output.
 
-```bash
-claude -p "/briefing" --permission-mode bypassPermissions --model sonnet > /tmp/rill-morning-briefing.log 2>&1 &
-BRIEFING_PID=$!
+### Step 2: Newsletter (/newsletter)
 
-claude -p "/newsletter" --permission-mode bypassPermissions --model sonnet > /tmp/rill-morning-newsletter.log 2>&1 &
-NEWSLETTER_PID=$!
+Invoke the `newsletter` skill via the Skill tool and wait for it to complete. Capture the path of the generated newsletter.
 
-BRIEFING_EXIT=0
-NEWSLETTER_EXIT=0
-wait $BRIEFING_PID || BRIEFING_EXIT=$?
-wait $NEWSLETTER_PID || NEWSLETTER_EXIT=$?
+If /briefing failed in Step 1, still run /newsletter — the two are independent.
 
-echo "=== /briefing (exit: $BRIEFING_EXIT) ==="
-tail -20 /tmp/rill-morning-briefing.log
-echo ""
-echo "=== /newsletter (exit: $NEWSLETTER_EXIT) ==="
-tail -20 /tmp/rill-morning-newsletter.log
-```
-
-### Step 2: Completion summary
+### Step 3: Completion summary
 
 Concisely summarize the execution result of each skill:
 - /briefing: path of generated Daily Note + success/failure
 - /newsletter: path of generated newsletter + success/failure
 
-The Daily Note already surfaces unprocessed inbox counts and recommends `/sync` and `/distill` when there is pending work (see /briefing's Notes section). The morning summary does not need to duplicate that — the user reads the Daily Note for actionable next steps.
+The Daily Note already surfaces unprocessed inbox counts and recommends `/sync` and `/distill` when there is pending work (see /briefing's Notes section). The morning summary does not need to duplicate that.
 
 After the summary, exit (do not transition to assistant mode).
 
 ## Rules
 
-- The output of each `claude -p` returns to /morning's context as the Bash result
-- If one skill fails, the other is unaffected (parallel isolation)
-- `--model sonnet` is for cost efficiency. Adjust the flag if Opus is needed
+- Both skills run in the current session via the Skill tool. Do **not** spawn `claude -p` sub-processes from this skill
+- Sequential execution. Parallel was tried and abandoned because the `auto` mode classifier (correctly) refuses skill-initiated subprocess spawns with elevated permissions
+- If /briefing fails, still attempt /newsletter (they are independent)
 - After everything completes, display the summary and exit
-- Do not call `/sync` or `/distill` from inside /morning. They are separate skills invoked manually or via the user's external scheduler (ADR-075)
+- Do not call `/sync` or `/distill` from inside /morning (ADR-075)
