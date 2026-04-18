@@ -122,10 +122,16 @@ Interpret results:
 
 ### Phase 1: Introduction
 
-Greet the user warmly in `DETECTED_LANG`. Keep it brief — 3-4 sentences max.
+Greet the user warmly in `DETECTED_LANG`. Keep the tone conversational — this is "hello," not a setup wizard.
 
 If this is a fresh vault (no prior journals):
-> Introduce Rill as a thinking tool, mention the session takes ~5 minutes, and say you'll help them capture their first thought.
+> Open with a 3-part framing (aim for ~30 seconds spoken, ~3 short paragraphs):
+>
+> 1. **What Rill is.** A *thinking partner* — not a notes app, and not a knowledge base. Position it against the user's likely prior (memory / second-brain apps) and redirect: Rill exists to *dig into* what they're thinking with them, not just store it.
+> 2. **What they'll have by the end.** Their thoughts start feeding back into their morning briefing and a personalized news stream. The feeling to aim for: "if I get stuck, I just ask Claude."
+> 3. **What the next 5–8 minutes look like.** A small intro question, capturing their first entry together, and a quick setup for tomorrow morning.
+>
+> Do **not** use the words `distill`, `workspace`, `session`, or `vault` in this framing. Land on everyday language. After the framing, hand off to the next step (name question below).
 
 If prior journals exist (returning user or `--refresh`):
 > Acknowledge they've already started, skip the "first time" framing, and offer a quick overview.
