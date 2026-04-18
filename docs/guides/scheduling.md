@@ -141,7 +141,7 @@ For systemd timers, see `man systemd.timer` — create a `.service` unit per job
 
 The examples above use `--permission-mode auto`. In `auto` mode a classifier approves routine tool calls automatically and terminates the run when it encounters a risky action (writing outside the vault, unexpected network calls, etc.). For unattended scheduled runs this is the safe failure mode: there is no human to approve a prompt, so termination prevents a runaway job from causing sustained damage.
 
-`--permission-mode bypassPermissions` still works and skips the classifier entirely. Use it only if you run the scheduler inside an isolated environment (container, VM, dedicated user account) where you explicitly want no guardrails. For a typical personal machine, `auto` is the recommended choice.
+Other permission modes exist for specialized environments (see `claude --permission-mode --help`). For a typical personal machine, stay with `auto`.
 
 ## When to Skip Scheduling
 
