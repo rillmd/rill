@@ -1,17 +1,12 @@
 ---
 gui:
-  - label: "/page"
-    hint: "Open conversational session"
-    match:
-      - "pages/*.md"
-    arg: path
-    mode: live
-  - label: "/page rebuild"
-    hint: "Rebuild from scratch (last resort)"
-    match:
-      - "pages/*.md"
-    arg: path
-    mode: live
+  label: "/page"
+  hint: "Open conversational session"
+  match:
+    - "pages/*.md"
+  arg: path
+  order: 15
+  mode: live
 ---
 
 # /page — Conversational Pages
