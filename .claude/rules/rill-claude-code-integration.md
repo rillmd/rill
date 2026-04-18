@@ -95,9 +95,10 @@ Claude Code's shell environment is zsh, so be aware of:
 - Technical decisions are recorded as ADRs in `docs/decisions/`
 - Update `SPEC.md` on system design changes
 
-### Binary PII
-- Do not commit binary files containing PII (images, PDFs, etc.) to Git
-- Verify exclusion via `.gitignore` (ADR-047)
+### Binary Assets
+- **PII-bearing source binaries** (business cards, meeting slides, scanned contracts containing real names / emails / phone numbers) — do not commit. Default `.gitignore` excludes `inbox/sources/*.{jpg,jpeg,png,heic,pdf}` per ADR-047 D47-2.
+- **Non-PII asset binaries** (app icons, logos, documentation screenshots, generated figures) — commit when reasonably small (~2 MB soft cap) and the user has approved the asset. Prefer SVG / Markdown over raster when equivalent.
+- The gate is PII-content, not file format. A 100 KB app icon is fine; a screenshot leaking real email addresses is not.
 
 ### `_distill/` Internal Templates
 - `.claude/commands/_distill/` contains internal templates for /distill

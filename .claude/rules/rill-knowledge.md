@@ -100,6 +100,11 @@ related:
 
 This minimizes the PII exposure surface.
 
-## Binary PII
+## Binary Assets
 
-Binary files containing PII (images, PDFs, etc.) must not be committed to Git. Ensure they are excluded via `.gitignore` (ADR-047).
+The rule gates on **whether the binary embeds personal data**, not on file format.
+
+- **PII-bearing source binaries** (business cards, scanned contracts, meeting PDFs / slides / screenshots with real names, emails, or phone numbers) must not be committed. These typically land under `inbox/sources/*.{jpg,jpeg,png,heic,pdf}` and are excluded by the default `.gitignore` per [ADR-047 D47-2](../../docs/decisions/047-git-crypt-pii-encryption.md).
+- **Non-PII asset binaries** (app icons, logos, UI screenshots intended for documentation, generated figures) **may** be committed when they are reasonably small (soft cap ~2 MB per file) and the user has approved the asset. Prefer text-based formats (SVG, Markdown tables) when equivalent; fall back to PNG / JPG only when a binary format is genuinely required.
+
+A 100 KB app icon is not PII. A screenshot of an inbox view showing real email addresses is. When in doubt, strip the PII before committing, or keep the file out of Git.
