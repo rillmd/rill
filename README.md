@@ -127,24 +127,31 @@ Then type `/onboarding`. This walks you through a first journal entry, your firs
 
 ## Daily Usage
 
+Rill runs inside Claude Code. Once you're in your vault with `claude` started, just talk to it in natural language:
+
+> *"capture this thought: ideas about project architecture"*
+>
+> *"clip https://example.com/interesting-article"*
+>
+> *"give me today's briefing"* / *"what's worth reading today based on my interests?"*
+>
+> *"help me think through the API redesign"*
+>
+> *"pull in any new entries from my plugins and extract what's useful"*
+
+Claude routes each of these to the right skill internally — `/focus`, `/distill`, `/briefing`, `/newsletter`, `/sync` — so you don't need to remember command names. You can also just ask questions: *"what did I decide about X last week?"* / *"summarize my meetings with the finance team."* Claude reads the relevant files directly.
+
+### Power-user shortcuts
+
+For quick capture from outside Claude Code, a few shell commands are available:
+
 ```bash
-# Capture a thought
-rill log "Ideas about project architecture"
-
-# Run the daily reports (briefing + newsletter in parallel)
-claude "/morning"
-
-# Pull external sources and distill knowledge (run on your own cadence)
-claude "/sync" && claude "/distill"
-
-# Dive deep on a topic
-claude "/focus API redesign"
-
-# Clip a web page or tweet
-rill clip https://example.com/interesting-article
+rill log "Notes from today's meeting"     # quick journal entry from anywhere
+rill clip https://example.com/article     # clip a URL
+rill push                                 # git add + commit + push
 ```
 
-Inside Claude Code, you can also just ask questions in natural language: *"What did I decide about X last week?"* / *"Summarize my meetings with the finance team."* Claude reads the relevant files directly.
+Run `rill help` to see the full CLI surface. Anything beyond quick capture is best handled by asking Claude inside your vault.
 
 ## Vault Structure
 
@@ -255,7 +262,7 @@ rill update
 
 Rill supports plugins for ingesting data from external services. The `plugins/` directory lists what ships by default; see [plugins/README.md](plugins/README.md) for how the plugin system works and how to author your own.
 
-Individual plugins are installed with `rill plugin install <name>` and enabled with `rill plugin enable <name>`.
+You can install a plugin by asking Claude inside your vault — *"install the google-meet plugin"* — or by running `rill plugin install <name>` and `rill plugin enable <name>` from the shell.
 
 ## Documentation
 
