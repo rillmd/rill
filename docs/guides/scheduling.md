@@ -1,10 +1,26 @@
 # Scheduling Rill's Daily Routines
 
-Rill's skills are interactive. You invoke `/morning`, `/sync`, `/distill`, and `/newsletter` from the Claude Code CLI when you want them to run. If you want them to run automatically on a schedule, **Rill does not pick a scheduler for you**. The Claude Code scheduling landscape is fragmented and changes quickly; this guide lists the options and their trade-offs so you can pick the one that fits your environment.
+Rill's skills are interactive. You invoke them by asking Claude inside your vault, or by running `claude -p "/skill"` from the shell. If you want them to run automatically on a schedule, this guide walks through the options.
 
-A fully manual workflow is perfectly viable — the Daily Note surfaces unprocessed inbox counts and recommends `/sync` and `/distill` when there is pending work. You only need a scheduler if you want the vault to stay current on days you do not open Claude Code yourself.
+## Easiest path: ask Claude to set it up
 
-## What to Schedule
+Open Claude Code in your vault and say something like:
+
+> *"set up the morning briefing to run automatically at 8am, and pull in my plugins at 7:55"*
+>
+> *"schedule /newsletter for every evening at 5pm"*
+
+Claude will read this guide, pick the right mechanism for your platform (Desktop Scheduled Tasks if the app is running, launchd on macOS, cron on Linux), write the plist or crontab entry, and load it. You can inspect what Claude did afterwards — the files live in the standard locations (`~/Library/LaunchAgents/`, `crontab -l`, `~/.claude/scheduled-tasks/`).
+
+Prefer doing it yourself? The **Manual setup** section below documents each option in full. The three are in order of preference for a typical personal machine.
+
+A fully manual workflow — no schedule at all — is also fine. The Daily Note surfaces unprocessed inbox counts and tells you when there is pending work. You only need a scheduler if you want the vault to stay current on days you do not open Claude Code yourself.
+
+## Manual setup
+
+The rest of this guide documents the mechanics of each option, useful when you want to audit what Claude set up for you, or when you prefer to configure it by hand.
+
+### What to Schedule
 
 A typical daily cadence looks like this:
 
@@ -18,7 +34,7 @@ A typical daily cadence looks like this:
 
 See [ADR-075](../decisions/075-morning-scheduler-separation.md) for the reasoning behind this separation (if your copy of the vault contains ADRs).
 
-## Option A: Claude Code Desktop Scheduled Tasks
+### Option A: Claude Code Desktop Scheduled Tasks
 
 The simplest option if you use the Claude Code desktop app.
 
@@ -66,7 +82,7 @@ The simplest option if you use the Claude Code desktop app.
 **Pros.** GUI for schedule configuration and history. Automatic catch-up for missed runs.
 **Cons.** Requires the desktop app to be running and your Mac to be awake at the scheduled time.
 
-## Option B: macOS launchd
+### Option B: macOS launchd
 
 For CLI-only users or when you want schedules to run without the desktop app.
 
@@ -116,7 +132,7 @@ Create equivalent `.plist` files for `morning-reports` (08:00, runs `/morning`) 
 **Pros.** Works without the desktop app. Survives reboots once loaded.
 **Cons.** No GUI. Manual XML editing. Does not fire while the Mac is asleep.
 
-## Option C: Linux cron / systemd timers
+### Option C: Linux cron / systemd timers
 
 For headless servers or Linux desktops.
 
@@ -133,16 +149,16 @@ For systemd timers, see `man systemd.timer` — create a `.service` unit per job
 **Pros.** Ubiquitous. Well-documented.
 **Cons.** No catch-up for missed runs. Shell quoting gets awkward inside `crontab`.
 
-## Authentication
+### Authentication
 
 `claude -p` uses whatever authentication you have already configured with Claude Code — typically a Max Plan login. Rill does not recommend API keys for scheduled runs (see [ADR-068](../decisions/068-claude-code-integration-boundary.md)). If your scheduler runs under a different user than the one logged in to Claude Code, `claude -p` will fail to authenticate; run the scheduler under your normal user account.
 
-## Permission Mode
+### Permission Mode
 
 The examples above use `--permission-mode auto`. In `auto` mode a classifier approves routine tool calls automatically and terminates the run when it encounters a risky action (writing outside the vault, unexpected network calls, etc.). For unattended scheduled runs this is the safe failure mode: there is no human to approve a prompt, so termination prevents a runaway job from causing sustained damage.
 
 Other permission modes exist for specialized environments (see `claude --permission-mode --help`). For a typical personal machine, stay with `auto`.
 
-## When to Skip Scheduling
+### When to Skip Scheduling
 
-If you run `/morning` manually most days, you do not need any of this. The Daily Note's Notes section explicitly recommends `/sync` and `/distill` whenever pending inbox files accumulate, so a fully manual workflow is perfectly viable. Scheduling is an optimization, not a requirement.
+If you run the morning routine yourself most days, you do not need any of this. The Daily Note's Notes section explicitly nudges you when the inbox has accumulated pending work, so a fully manual workflow is perfectly viable. Scheduling is an optimization, not a requirement.

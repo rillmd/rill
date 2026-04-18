@@ -2,7 +2,7 @@
 
 Runs the two user-facing daily reports in sequence: Daily Note (/briefing) and research newsletter (/newsletter). Both run inline within the current Claude Code session via the Skill tool.
 
-Background processing (external source sync, knowledge distillation) is **not** part of /morning (ADR-075). Run `/sync` and `/distill` manually when you want to catch up, or see `docs/guides/scheduling.md` for ways to automate them.
+Background processing (external source sync, knowledge distillation) is **not** part of /morning (ADR-075). When you want to catch up, ask inside your vault — *"pull in new entries and extract anything useful"* — and Claude will route to `/sync` then `/distill`. For unattended automation, see [docs/guides/scheduling.md](../../docs/guides/scheduling.md).
 
 ## Why sequential (not parallel)
 
