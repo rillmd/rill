@@ -60,7 +60,11 @@ Set the result as `DETECTED_LANG`.
 
 #### 0-2: Create personal-language.md
 
-If `.claude/rules/personal-language.md` does not exist, create it now and save the detected language. This is the only place the preference is stored — do not write to any global file outside the vault.
+**Do not ask the user whether to create this file. Create it automatically.** This is an internal system file — the user neither authored it nor needs to approve it. A confirmation prompt here is the single biggest reported source of first-run confusion; one confirmation means onboarding has failed before it started.
+
+If `.claude/rules/personal-language.md` already exists, skip this step.
+
+Otherwise, create it now. This is the only place the preference is stored — do not write to any global file outside the vault.
 
 ```bash
 mkdir -p .claude/rules
@@ -91,6 +95,8 @@ Write `.claude/rules/personal-language.md` in `DETECTED_LANG`. Generate the cont
 ```
 
 For other languages: generate equivalent content in that language. The body text line must name the language in its own native script. Technical terms that must stay English (Markdown, API, frontmatter, kebab-case) remain as English literals even within non-English lines.
+
+**Notify, do not confirm.** The outcome is surfaced as the *first sentence* of the Phase 1 greeting — one line in `DETECTED_LANG` acknowledging which language will be used going forward. Never as a standalone question, yes/no prompt, or step-by-step file-creation walkthrough.
 
 #### 0-3: Vault & Prior State Check
 
@@ -123,6 +129,8 @@ Interpret results:
 ### Phase 1: Introduction
 
 Greet the user warmly in `DETECTED_LANG`. Keep the tone conversational — this is "hello," not a setup wizard.
+
+**Opening sentence (always first):** Open the greeting with one short sentence — in `DETECTED_LANG` — telling the user which language you'll use from here on (e.g., 日本語の場合「ここからは日本語で進めます。」/ English の場合 "I'll continue in English from here."). Keep it to a single sentence; do not justify the choice or show any file path or reference `personal-language.md`. Then proceed to the framing below.
 
 If this is a fresh vault (no prior journals):
 > Open with a 3-part framing (aim for ~30 seconds spoken, ~3 short paragraphs):
@@ -328,7 +336,9 @@ After Phase 5 (and Phase 6 if applicable), end with a warm closing in `DETECTED_
 | User has prior journal entries | Skip Phase 2. Acknowledge in Phase 1 greeting |
 | User says "nothing on my mind" in Phase 2 | Ask: "What did you do today?" or "What are you working on this week?" |
 | Language not detected (empty $LANG) | Default to English |
-| personal-language.md already exists | Skip creation. Respect existing setting |
+| personal-language.md already exists | Skip creation. Respect existing setting. Still open the greeting with the language-continuation line, reading the language from the existing file |
+| personal-language.md newly created | Create silently without asking. Notify via the Phase 1 opener only — never as a yes/no prompt |
+| User explicitly requests a different language mid-onboarding | Rewrite `.claude/rules/personal-language.md` to the requested language inline and continue in the new language. No yes/no prompt |
 | knowledge/me.md already exists | Skip name question. Use existing name in greeting if readable |
 | Time parsing fails in Phase 5 | Ask: "Could you give me a time like '7am' or '8:30'?" |
 | `rill log` fails | Read the error. If vault not initialized, apply the vault-marker-missing guidance above. Otherwise show the error and offer to retry |
@@ -341,6 +351,7 @@ After Phase 5 (and Phase 6 if applicable), end with a warm closing in `DETECTED_
 ## Rules
 
 - Conduct **all conversation** in `DETECTED_LANG` — detected in Phase 0 before the first message
+- Never ask the user whether to create `.claude/rules/personal-language.md`. It is a system-managed file — create it automatically in Phase 0-2 and notify via the Phase 1 opener only
 - The journal entry in Phase 2 is mandatory (unless prior entries exist)
 - Phase 4 is mandatory — the user must experience asking at least once
 - "Ask Claude anytime" must appear in both Phase 4 and Phase 5 closing
