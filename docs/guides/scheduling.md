@@ -88,7 +88,7 @@ Create `~/Library/LaunchAgents/com.rillmd.morning-sync.plist`:
     <array>
         <string>/bin/zsh</string>
         <string>-lc</string>
-        <string>cd ~/Documents/my-rill &amp;&amp; claude -p --output-format stream-json --permission-mode bypassPermissions "/sync" &amp;&amp; claude -p --output-format stream-json --permission-mode bypassPermissions "/distill" &amp;&amp; git add -A &amp;&amp; git commit -m "sync: $(date +%Y-%m-%d) morning" &amp;&amp; git push</string>
+        <string>cd ~/Documents/my-rill &amp;&amp; claude -p --output-format stream-json --permission-mode auto "/sync" &amp;&amp; claude -p --output-format stream-json --permission-mode auto "/distill" &amp;&amp; git add -A &amp;&amp; git commit -m "sync: $(date +%Y-%m-%d) morning" &amp;&amp; git push</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>
@@ -123,9 +123,9 @@ For headless servers or Linux desktops.
 **cron example** (`crontab -e`):
 
 ```cron
-55 7 * * * cd ~/my-rill && claude -p --output-format stream-json --permission-mode bypassPermissions "/sync" && claude -p --output-format stream-json --permission-mode bypassPermissions "/distill" && git add -A && git commit -m "sync: $(date +\%Y-\%m-\%d) morning" && git push
-0  8 * * * cd ~/my-rill && claude -p --output-format stream-json --permission-mode bypassPermissions "/morning" && git add -A && git commit -m "morning: $(date +\%Y-\%m-\%d)" && git push
-0 17 * * * cd ~/my-rill && claude -p --output-format stream-json --permission-mode bypassPermissions "/newsletter" && git add -A && git commit -m "newsletter: $(date +\%Y-\%m-\%d)" && git push
+55 7 * * * cd ~/my-rill && claude -p --output-format stream-json --permission-mode auto "/sync" && claude -p --output-format stream-json --permission-mode auto "/distill" && git add -A && git commit -m "sync: $(date +\%Y-\%m-\%d) morning" && git push
+0  8 * * * cd ~/my-rill && claude -p --output-format stream-json --permission-mode auto "/morning" && git add -A && git commit -m "morning: $(date +\%Y-\%m-\%d)" && git push
+0 17 * * * cd ~/my-rill && claude -p --output-format stream-json --permission-mode auto "/newsletter" && git add -A && git commit -m "newsletter: $(date +\%Y-\%m-\%d)" && git push
 ```
 
 For systemd timers, see `man systemd.timer` — create a `.service` unit per job and a matching `.timer` unit with `OnCalendar=` for the schedule.
@@ -136,6 +136,12 @@ For systemd timers, see `man systemd.timer` — create a `.service` unit per job
 ## Authentication
 
 `claude -p` uses whatever authentication you have already configured with Claude Code — typically a Max Plan login. Rill does not recommend API keys for scheduled runs (see [ADR-068](../decisions/068-claude-code-integration-boundary.md)). If your scheduler runs under a different user than the one logged in to Claude Code, `claude -p` will fail to authenticate; run the scheduler under your normal user account.
+
+## Permission Mode
+
+The examples above use `--permission-mode auto`. In `auto` mode a classifier approves routine tool calls automatically and terminates the run when it encounters a risky action (writing outside the vault, unexpected network calls, etc.). For unattended scheduled runs this is the safe failure mode: there is no human to approve a prompt, so termination prevents a runaway job from causing sustained damage.
+
+`--permission-mode bypassPermissions` still works and skips the classifier entirely. Use it only if you run the scheduler inside an isolated environment (container, VM, dedicated user account) where you explicitly want no guardrails. For a typical personal machine, `auto` is the recommended choice.
 
 ## When to Skip Scheduling
 
