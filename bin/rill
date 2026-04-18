@@ -3428,52 +3428,64 @@ Rill — Personal voice journal + knowledge management
 
 Usage: rill <command> [args]
 
-Commands:
-  log [text]       Create a journal entry (inline or editor)
-  i, interactive   Interactive mode (unlimited input, blank line to save)
-  clip <url>       Save a web page/tweet to inbox/ for later processing
-  push             Git add, commit, and push all changes
-  status [n]       Show recent journal entries (default: 10)
-  edit             Open the latest journal entry in editor
-  plugin <sub>     Plugin management (list, install, uninstall, status)
-  sync [name]      Run adapter to sync external sources
-  task "title"     Create a task ticket file in knowledge/notes/ (ADR-063)
-  touch            Update frontmatter \`updated\` field (called by PostToolUse hook)
-  activity-log     Activity log management (on-write, on-prompt, on-stop, add)
-  open <path>      Open a file in the Rill GUI (--highlight for emphasis)
-  mkfile <dir>     Create file with correct timestamp + frontmatter (for Claude Code skills)
-  strip-entity-tags [files]  Move entity IDs from tags to mentions (deterministic)
-  pages-pending-update       Match new sources to pages via mentions/tags (L2/L3 → pages/.pending)
-  init             Initialize a new Rill vault
-  update           Update source and reproject managed files into vaults
-  config           Open vault-local .rill/config.json in $EDITOR
-  vault <sub>      Vault registry: list | current | use | add | remove | edit
-  guard <path>     Check if a file is managed (used by Claude Code hook)
-  crypt <sub>      Encryption management: crypt init | crypt doctor
-  doctor           Check encryption health status (alias for `rill crypt doctor`)
-  help             Show this help message
+Rill is designed to be used through Claude Code. For daily work, run
+`claude` inside your vault and ask in natural language — Claude routes
+requests to the right skill. The CLI below is grouped by audience so
+you can see at a glance which commands you'd type yourself and which
+ones Claude Code invokes on your behalf.
 
-Plugin management:
+User commands — quick capture from outside Claude Code:
+  log [text]            Create a journal entry (inline or editor)
+  i, interactive        Interactive mode (unlimited input, blank line to save)
+  clip <url>            Save a web page/tweet to inbox/ for later processing
+  push                  Git add, commit, and push all changes
+  status [n]            Show recent journal entries (default: 10)
+  edit                  Open the latest journal entry in editor
+  open <path>           Open a file in the Rill GUI (--highlight for emphasis)
+
+Claude Code helpers — invoked by skills inside your vault, not typed manually:
+  mkfile <dir>          Create file with correct timestamp + frontmatter
+  task "title"          Create a task ticket file (ADR-063)
+  touch                 Update frontmatter \`updated\` field (PostToolUse hook)
+  activity-log          Activity log management (on-write, on-prompt, on-stop, add)
+  strip-entity-tags     Move entity IDs from tags to mentions (deterministic)
+  pages-pending-update  Match new sources to pages via mentions/tags
+  guard <path>          Check if a file is managed (used by Claude Code hook)
+
+System & setup — low-frequency administrative commands:
+  init                  Initialize a new Rill vault
+  update                Update source and reproject managed files into vaults
+  config                Open vault-local .rill/config.json in $EDITOR
+  vault <sub>           Vault registry: list | current | use | add | remove | edit
+  plugin <sub>          Plugin management (list, install, uninstall, status)
+  sync [name]           Run adapter to sync external sources
+  crypt <sub>           Encryption management: crypt init | crypt doctor
+  doctor                Check encryption health status (alias for `rill crypt doctor`)
+  help                  Show this help message
+
+Plugin management (details):
   rill plugin list              List plugins and install status
   rill plugin install <name>    Symlink plugin commands to .claude/commands/
   rill plugin uninstall <name>  Remove symlinks (keeps plugin directory)
   rill plugin status            Show detailed plugin status
 
-Sync:
+Sync (details):
   rill sync                     List available adapters
   rill sync <name>              Run a plugin's adapter.sh
 
-Examples:
+Examples (user commands):
   rill log "Notes from today's meeting"
   rill log                              # Opens editor
   rill i                                # Interactive mode
   rill clip https://example.com/article
-  rill plugin install google-meet
-  rill sync google-meet
   rill open knowledge/notes/whisper-api-comparison.md
   rill open inbox/journal/2026-03-27.md --highlight
   rill push
   rill status 5
+
+For anything beyond these quick-capture commands, ask Claude inside your
+vault — *"give me today's briefing"*, *"pull in new entries and distill them"*,
+*"install the google-meet plugin"* — and Claude will route it correctly.
 EOF
 }
 
