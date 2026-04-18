@@ -171,7 +171,7 @@ Write a narrative where the reader can grasp the "big picture" and "what to thin
 ## Notes
 
 (Write specific notes in prose:
-- **Today's recommended action** — If any `inbox.*.unprocessed` count is non-zero, explicitly recommend running `/sync` (to pull new external sources) followed by `/distill` (to extract knowledge and draft tasks). State the counts per subdirectory. If this recommendation has been appearing for several days in a row, mention `docs/guides/scheduling.md` as a way to automate the pipeline. This section is the primary actionable handoff from the morning report to the user
+- **Today's recommended action** — If any `inbox.*.unprocessed` count is non-zero, write a prose nudge that states the counts per subdirectory and invites the user to **ask Claude to pull in the new entries and extract knowledge from them** (Claude will route this to `/sync` and `/distill` internally — do not quote the slash commands as a user instruction). If this nudge has been appearing for several days in a row, suggest "you can also ask Claude to set this up as a daily automation" rather than linking to `docs/guides/scheduling.md` directly. This section is the primary actionable handoff from the morning report to the user and must read as a request the user makes to Claude, never as a terminal command
 - Tasks approaching deadlines
 - Items left unattended for long periods
 - Other observations)

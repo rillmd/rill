@@ -188,15 +188,15 @@ Show the output path to confirm capture, then say something brief like:
 
 ### Phase 3: Core Concepts
 
-Explain `/focus` and `/distill` concisely in `DETECTED_LANG`. Use a two-item list. Aim for 2-3 sentences per item — no more.
+Explain the two core moves in `DETECTED_LANG`: **thinking through something with Claude** and **letting Claude make sense of what you've captured**. Use a two-item list. Aim for 2-3 sentences per item — no more. Do **not** present bare slash commands as the call-to-action — frame both moves as things the user asks Claude to do.
 
 Template (adapt wording to language and tone):
 
-> **`/focus`** — for thinking through something. Type `/focus your topic` when you want to go deep. I'll gather context and help you think it through.
+> **Think something through** — when you want to go deep on a topic, just tell me. Something like *"help me think through whether I should refactor this module"* is enough. I'll gather the relevant context from your vault and work through it with you (internally this runs `/focus`).
 >
-> **`/distill`** — for making sense of everything. After you've accumulated some journals and notes, type `/distill`. I'll extract insights and connect the dots automatically.
+> **Make sense of what you've captured** — once you have a handful of journals and notes, ask me to *"go through my inbox and pull out the useful bits"*. I'll extract insights, connect the dots, and draft any tasks that come up (internally this runs `/distill`).
 >
-> You don't need to organize anything. Just keep capturing.
+> You don't need to organize anything or remember command names. Just keep capturing, and ask me when you want to do something with it.
 
 ---
 
@@ -218,14 +218,14 @@ User asks (verbatim or paraphrased): "How do I get a personalized newsletter?"
 
 Respond with something like (in `DETECTED_LANG`):
 
-> Rill has a `/newsletter` skill that generates a daily research briefing tailored to your interests.
+> Rill can generate a daily research briefing tailored to your interests.
 >
 > It pulls from what you've been capturing — journals, meetings, and notes — and adds relevant news and insights from outside.
 >
-> Once you've built up a few more entries, just type `/newsletter`. The more you capture, the more personalized it gets.
+> Once you've built up a few more entries, just ask me *"give me today's newsletter"* or *"what's worth reading today based on my interests?"*. The more you capture, the more personalized it gets. (Internally this runs `/newsletter`.)
 
 After answering, add:
-> "You can always come back here with questions like that."
+> "You can always come back here with questions like that — you don't need to remember command names."
 
 **If the user asks a different question instead:** Answer it genuinely. The newsletter prompt is a suggestion, not a script. After answering, say: "You can always ask me things like that — that's what I'm here for."
 
@@ -239,7 +239,7 @@ Transition into the closing. In `DETECTED_LANG`:
 
 > "You're all set. You have your first entry, and Rill can start working for you."
 >
-> "Tomorrow morning, try `/morning` — it'll give you a briefing based on what you've captured and help you plan your day."
+> "Tomorrow morning, ask me for *'today's briefing'* — I'll look at what you've captured and help you plan your day (internally this runs `/morning`, but you don't need to remember that)."
 >
 > "And remember: if you ever get stuck or want to try something new, just open Claude Code here and ask."
 >
@@ -259,14 +259,14 @@ After receiving the time:
    ```
 2. Parse the user's time into hour/minute (e.g., "7am" → hour=7, min=0; "8:30" → hour=8, min=30).
 3. Build cron expression: `{min} {hour} {DD} {MM} *`
-4. Use the `schedule` skill or CronCreate to schedule `/morning` for that time with the cron expression.
+4. Use the `schedule` skill or CronCreate to schedule `/morning` for that time with the cron expression. **This is an internal tool call — do not surface the skill name to the user.**
 5. Confirm to the user:
 
-   > "Done — I'll run `/morning` for you at {time} tomorrow."
+   > "Done — you'll get your briefing at {time} tomorrow morning."
 
 **If no:**
 
-> "No problem. When you're ready, just type `/morning` anytime."
+> "No problem. Whenever you want a briefing, just ask me for it."
 
 Then proceed to Phase 6.
 
@@ -324,14 +324,14 @@ After Phase 5 (and Phase 6 if applicable), end with a warm closing in `DETECTED_
 
 | Situation | Handling |
 |---|---|
-| vault marker missing | Warn before Phase 1. Guide to run `rill init` |
+| vault marker missing | Warn before Phase 1. Tell the user the vault hasn't been initialized yet — they can either ask Claude to *"initialize the vault here"* (Claude will run `rill init`) or run `rill init` themselves from the terminal. Do not lead with the CLI command |
 | User has prior journal entries | Skip Phase 2. Acknowledge in Phase 1 greeting |
 | User says "nothing on my mind" in Phase 2 | Ask: "What did you do today?" or "What are you working on this week?" |
 | Language not detected (empty $LANG) | Default to English |
 | personal-language.md already exists | Skip creation. Respect existing setting |
 | knowledge/me.md already exists | Skip name question. Use existing name in greeting if readable |
 | Time parsing fails in Phase 5 | Ask: "Could you give me a time like '7am' or '8:30'?" |
-| `rill log` fails | Read the error. If vault not initialized, guide to `rill init`. Otherwise show the error and offer to retry |
+| `rill log` fails | Read the error. If vault not initialized, apply the vault-marker-missing guidance above. Otherwise show the error and offer to retry |
 | Rill app already installed | Skip Phase 6 entirely |
 | DMG download fails (offline, 404) | Show fallback URL, don't block onboarding |
 | Linux user (no .app support) | Skip Phase 6 entirely (detect with `uname`) |
