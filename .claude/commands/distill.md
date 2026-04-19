@@ -117,7 +117,7 @@ Shared context:
 {task_extraction_rules}
 ```
 
-- **Phase 1**: `_distill/journal-agent.md` (1 file/Agent)
+- **Phase 1**: `_distill/journal-agent.md` (1 file/Agent). **Launch via Agent tool with `model: "sonnet"`** — this task is journal organization + atomic knowledge extraction with task-candidate inference, and Sonnet has been validated as production-equivalent to Opus on this workload (Tier 2 LLM-as-judge eval, 2026-04-19: 0/3 DEGRADED-MAJOR, 1/3 EQUIVALENT, 1/3 DIFFERENT-OK, 1/3 DEGRADED-MINOR — the minor case missed one inferred task and one cross-reference, neither blocking; cost reduced ~50% vs Opus). Monitor /distill output 1–2 weeks for task-extraction completeness; revert to Opus if regressions appear.
 - **Phase 2**: Resolved plugin `distill.md` (1 file/Agent). Read the plugin's distill.md, extract the ``` block template from `## Agent Prompt` section → expand template variables (`{file_path}`, `{taxonomy_yaml}`, `{people_mapping}`, `{orgs_mapping}`, `{projects_mapping}`, `{task_extraction_rules}`) → pass expanded prompt directly to Agent's prompt
 
 **Error handling**: If an agent reports an error, skip that file and proceed to the next. Skipped files are not appended to `.processed`.
