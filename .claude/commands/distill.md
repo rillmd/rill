@@ -161,7 +161,7 @@ Phase 2.5 and Phase 3 are mutually independent, so execute in parallel.
 
 ### Step 8: Group 3
 
-- **Phase 4**: Update Interest Profile with `_distill/profile-agent.md`. Inject the following summary into prompt:
+- **Phase 4**: Update Interest Profile with `_distill/profile-agent.md`. **Launch via Agent tool with `model: "haiku"`** — this task is conservative metadata maintenance (add/skip judgments against an existing profile) and Haiku has been validated as quality-equivalent to Opus on this workload (3/3 PASS in Tier 1 routing eval, 2026-04-19). Inject the following summary into prompt:
   ```
   Follow the instructions in .claude/commands/_distill/profile-agent.md to update the Interest Profile.
   First Read that template file to review instructions.
