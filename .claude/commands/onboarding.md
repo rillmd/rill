@@ -322,9 +322,46 @@ If the download or install fails, don't block — just provide the fallback:
 
 ---
 
+### Step: Hand off to the GUI (conditional)
+
+Before the closing, hand the session off to the Rill app visually. **Skip this step entirely on Linux or if the Rill app is not installed.**
+
+Check for the app:
+```bash
+ls /Applications/Rill.app ~/Applications/Rill.app 2>/dev/null | head -1
+```
+
+If no app is found, skip to Closing.
+
+If the app is present:
+
+1. Determine a repo-relative path to name for the user, in priority order. Use the first that exists; if none do, skip to Closing.
+   - `reports/daily/{today}.md` — today's briefing, if it exists
+   - Most recent `inbox/journal/*.md` — typically the entry the user just wrote in Phase 2
+   - `knowledge/me.md` — fallback
+
+2. Bring the app to the foreground. **Do not** run `rill open` — this would force-navigate the GUI, which is prohibited for skills (see `.claude/rules/rill-claude-code-integration.md`). Use the plain shell `open` command to launch / front the app only:
+   ```bash
+   open -a Rill 2>/dev/null || open ~/Applications/Rill.app 2>/dev/null || open /Applications/Rill.app
+   ```
+
+3. Tell the user in `DETECTED_LANG`. Name the file in prose (backticks or Markdown link) and point them at `Cmd+P`:
+
+   > "Your latest entry is saved at `{repo-relative path}`. The app is now open — you can find it in the timeline, or hit `Cmd+P` (the header search box) and start typing the filename to jump straight to it. Any file in your vault opens the same way."
+
+---
+
 ### Closing
 
-After Phase 5 (and Phase 6 if applicable), end with a warm closing in `DETECTED_LANG`:
+End with a warm closing in `DETECTED_LANG`. Wording depends on whether the GUI hand-off step ran:
+
+**If the app was handed off to:**
+
+> "The app is your visual home — come back here whenever you want to browse what you've been capturing. And if you ever get stuck or want to explore something new, just open Claude Code in your vault and ask."
+>
+> "See you around. ✦"
+
+**Fallback (no app / Linux / declined install):**
 
 > "And remember: if you ever get stuck or want to explore something new, just open Claude Code in your vault and ask."
 >
@@ -346,9 +383,11 @@ After Phase 5 (and Phase 6 if applicable), end with a warm closing in `DETECTED_
 | knowledge/me.md already exists | Skip name question. Use existing name in greeting if readable |
 | Time parsing fails in Phase 5 | Ask: "Could you give me a time like '7am' or '8:30'?" |
 | `rill log` fails | Read the error. If vault not initialized, apply the vault-marker-missing guidance above. Otherwise show the error and offer to retry |
-| Rill app already installed | Skip Phase 6 entirely |
+| Rill app already installed | Skip Phase 6 entirely. Still run the GUI hand-off step before Closing |
 | DMG download fails (offline, 404) | Show fallback URL, don't block onboarding |
-| Linux user (no .app support) | Skip Phase 6 entirely (detect with `uname`) |
+| Linux user (no .app support) | Skip Phase 6 entirely (detect with `uname`). Also skip the GUI hand-off step; use the fallback closing |
+| GUI hand-off: `.app` not present (Linux, declined install) | Skip the hand-off step. Use the fallback closing |
+| GUI hand-off: no briefing / journal / me.md exists | Skip the hand-off step. Use the fallback closing |
 
 ---
 
@@ -364,3 +403,4 @@ After Phase 5 (and Phase 6 if applicable), end with a warm closing in `DETECTED_
 - Use `CronCreate` (via the `schedule` skill) only after explicit user confirmation
 - Always end with a warm closing in `DETECTED_LANG`
 - When writing `knowledge/me.md`, always get the timestamp from `date` — never hardcode it
+- In the GUI hand-off step, bring the app forward with the shell `open` command only. **Do not** run `rill open` — skills and assistant turns must not force-navigate the GUI (see `rill-claude-code-integration.md`). Display the target path in prose and let the user open it themselves via the `Cmd+P` palette
