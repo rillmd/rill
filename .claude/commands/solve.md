@@ -231,11 +231,9 @@ All artifacts land inside the task directory `tasks/{slug}/` (ADR-077 D77-1). /s
      ```
    - When the blocker stems from missing knowledge in Rill (paths, credentials, external service specs, etc.), describe the missing information concretely so that a future /solve run or a human can fill it in
 
-5. **Show in the GUI**:
-   ```bash
-   rill open {artifact path or task file path}
-   ```
-   For Research pattern show the main artifact; for Enrich pattern show `_task.md`.
+5. **Display the result path to the user**:
+   - Print the repo-relative path as a Markdown link or in backticks. For Research pattern show the main artifact; for Enrich pattern show `_task.md`.
+   - Do **not** call `rill open` — the user opens files themselves via the header search box (or `Cmd+P`) in the Rill GUI.
 
 ## Rules
 

@@ -45,24 +45,18 @@ rill mkfile pages --slug rill-roadmap --type page
 - System files like `.claude/rules/*.md`, subdirectory `CLAUDE.md` etc. have no frontmatter, so `rill mkfile` is not needed
 - Not needed for editing existing files (use Edit tool)
 
-## GUI Integration: `rill open`
+## GUI Integration: show paths, don't auto-navigate
 
-When you want to show the user a file you've explored or analyzed, run `rill open <repo-relative-path>` to open it in the Rill GUI.
+When you want to point the user at a file you've explored, created, or analyzed, **display the repo-relative path as text** — as a Markdown link `[display name](relative/path.md)` or in backticks. The user opens it themselves via the header search box (or `Cmd+P` palette) in the Rill GUI, which accepts a pasted path directly.
 
-### Timing Rule (important)
-**`rill open` must be called AFTER content has been written to the file**, not immediately after `rill mkfile`. `rill mkfile` creates a file with only frontmatter and a placeholder body (`_Generating content..._`). If opened at this stage, the user sees an empty-looking file and may think creation is complete. Always write the actual content first (via Edit/Write), then call `rill open`.
+**Do not run `rill open` to force-navigate the GUI.** Forcible navigation disrupts the user while they are reading a different document. The header search box is the user-controlled entry point — keep the decision to switch views on their side.
 
-### When to Use
-1. After the user asks "where is this file?"
-2. After `/distill` or `/focus` creates artifacts
-3. When you discover and want to highlight a related file
+This applies to:
+1. Artifacts produced by `/distill`, `/focus`, `/solve`, etc. — list the resulting paths at the end of the run
+2. Files the user asked "where is this?" about — reply with the path, not an open command
+3. Related files you want to highlight — mention the path in prose
 
-### Flags
-- `--highlight`: Add highlight effect to draw attention
-
-### Path Format
-- Relative path from repository root (no leading `/`)
-- Example: `rill open workspace/2026-04-07-X/_workspace.md`
+The `rill open` CLI still exists for manual / scripted use, but skills and ad-hoc assistant turns must not invoke it.
 
 ## Activity Log
 
