@@ -182,7 +182,11 @@ If `knowledge/me.md` does not exist, ask for the user's name at the end of the g
 
 Ask the user what's on their mind right now. Use conversational language. Examples (adapt to `DETECTED_LANG`):
 
-> "Rill starts with your thoughts. What's on your mind right now? It can be anything — a task you've been putting off, something you're curious about, or just how you're feeling today."
+> "Rill starts with one of your thoughts. Whatever you drop in here becomes the seed Claude works with — it'll show up in tomorrow's briefing and shape the news it pulls for you."
+>
+> "So: what's on your mind right now? Anything works — a task you've been putting off, something you're curious about, or just how today's going."
+>
+> "If it helps, it can be as casual as: *'I've been stuck on the pricing deck all week and I can feel it bleeding into the weekend.'* One line like that is enough."
 
 After the user responds, run:
 ```bash
@@ -334,7 +338,7 @@ After Phase 5 (and Phase 6 if applicable), end with a warm closing in `DETECTED_
 |---|---|
 | vault marker missing | Warn before Phase 1. Tell the user the vault hasn't been initialized yet — they can either ask Claude to *"initialize the vault here"* (Claude will run `rill init`) or run `rill init` themselves from the terminal. Do not lead with the CLI command |
 | User has prior journal entries | Skip Phase 2. Acknowledge in Phase 1 greeting |
-| User says "nothing on my mind" in Phase 2 | Ask: "What did you do today?" or "What are you working on this week?" |
+| User says "nothing on my mind" in Phase 2 | Offer a more concrete prompt: *"What took up most of your attention today? Even something like 'spent 2 hours debugging a flaky test' works — it'll still give Claude something to respond to tomorrow."* Accept any one-line answer |
 | Language not detected (empty $LANG) | Default to English |
 | personal-language.md already exists | Skip creation. Respect existing setting. Still open the greeting with the language-continuation line, reading the language from the existing file |
 | personal-language.md newly created | Create silently without asking. Notify via the Phase 1 opener only — never as a yes/no prompt |
