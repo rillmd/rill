@@ -104,9 +104,11 @@ fi
 
 echo ""
 
+path_ok=true
 if command -v rill &>/dev/null; then
     ok "rill is on PATH: $(command -v rill)"
 else
+    path_ok=false
     warn "~/.local/bin is not in your PATH"
     echo ""
     info "Add this to your shell profile (~/.zshrc or ~/.bashrc):"
@@ -168,8 +170,25 @@ echo "  ───────────────────"
 echo ""
 ok "Rill installed"
 echo ""
-info "Next step:"
-info "  cd ~/Documents/my-rill && claude"
-info ""
-info "  Then type /onboarding to start your first session."
+if [ "$path_ok" = true ]; then
+    info "Next: open Claude Code in your vault and start /onboarding."
+else
+    info "Next: finish the PATH setup printed above, then open Claude Code"
+    info "      in your vault and start /onboarding."
+fi
+echo ""
+echo "      cd ~/Documents/my-rill"
+echo "      claude"
+echo ""
+info "  Then type:   /onboarding"
+echo ""
+info "/onboarding takes about 5 minutes and walks you through:"
+info "  • Capturing your first journal entry"
+info "  • Asking Claude about your own vault (this is the core habit)"
+info "  • Setting a reminder for tomorrow's morning briefing (optional)"
+echo ""
+info "By the end you won't have memorized a command list — you'll"
+info "have one thing working and can ask about the rest."
+echo ""
+info "New to Claude Code? → https://docs.anthropic.com/en/docs/claude-code"
 echo ""
