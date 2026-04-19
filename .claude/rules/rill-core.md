@@ -44,7 +44,7 @@ Each area's detailed rules are in the following split files. All auto-loaded fro
 - **workspace/ working layer**: [rill-workspace.md](rill-workspace.md) — completion conditions, artifact numbering, file-first principle
 - **tasks/ tickets**: [rill-tasks.md](rill-tasks.md) — status values, due/scheduled, subtasks
 - **reports/ + pages/**: [rill-outputs.md](rill-outputs.md) — Daily Note, Newsletter, pages recipe pairs
-- **Claude Code integration**: [rill-claude-code-integration.md](rill-claude-code-integration.md) — `rill mkfile`, `rill open`, zsh compatibility
+- **Claude Code integration**: [rill-claude-code-integration.md](rill-claude-code-integration.md) — `rill mkfile`, GUI path-display convention, zsh compatibility
 
 Additionally, container directory `CLAUDE.md` files (e.g., `inbox/meetings/`, `knowledge/people/`) are loaded on-demand, providing type-specific rules.
 
