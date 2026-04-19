@@ -73,7 +73,7 @@ Shared context:
 {entity_ids}
 ```
 
-Launch with Agent tool using `run_in_background: true`.
+Launch with Agent tool using `run_in_background: true` and `model: "sonnet"`. The Sonnet routing was validated 2026-04-19 in the Tier 1 routing eval (3/3 PASS, 53% cost reduction vs Opus). Haiku was tested but failed (1/3 PASS — catastrophic field hallucination on multi-rule cases including invented tags and corrupted source/created fields), so do not downgrade further.
 
 ### Step 5: Aggregate Results + Deterministic Post-processing
 
