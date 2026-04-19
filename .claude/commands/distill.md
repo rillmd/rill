@@ -150,7 +150,7 @@ Phase 2.5 and Phase 3 are mutually independent, so execute in parallel.
 - **Phase 3: Knowledge Extraction** (`_distill/knowledge-agent.md`, launch Agent per organized file):
   1. Identify files with status `organized` from each subdirectory's `.processed` (exclude `extracted`, `skipped`)
   2. If no candidates, display "No knowledge extraction candidates" and skip
-  3. Launch Agent per file (max 5 parallel, `run_in_background: true`)
+  3. **Launch Agent per file with `model: "sonnet"`** (max 5 parallel, `run_in_background: true`) — knowledge extraction's defining behavior is the Evergreen check (merge/skip/create-new judgment), and Sonnet has been validated as production-equivalent on this dimension (Tier 2 LLM-as-judge eval, 2026-04-19: 3/3 Evergreen judgments agreed with Opus baseline; 0/3 DEGRADED-MAJOR; 1/3 EQUIVALENT, 1/3 DIFFERENT-OK, 1/3 DEGRADED-MINOR — the minor case had thinner body prose but correct Evergreen call; cost reduced ~49% vs Opus). Monitor /distill output 1–2 weeks for note-body richness and speculative content; revert to Opus if regressions appear.
   4. Inject shared context (taxonomy_yaml, people/orgs/projects mappings)
 
 ### Step 7: Group 2 Result Collection
