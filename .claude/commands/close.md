@@ -130,6 +130,7 @@ Read `.claude/commands/_close/distillation-agent.md` once. For each approved can
 
 **Dispatch strategy**:
 
+- Spawn each sub-agent via the Agent tool with **`model: "sonnet"`** (Tier 2 LLM-as-judge eval, 2026-04-19: 3/3 EQUIVALENT vs Opus baseline across evergreen-duplicate, novel-verified, and verification-contradicted fixtures; both models caught the planted cross-deliverable contradiction; verification rigor equivalent; 0/3 DEGRADED; cost reduced ~50% vs Opus on this workload). Monitor the `related:` field usage in production — Sonnet occasionally mixes workspace deliverable paths into `related` where the spec calls for knowledge/notes/ paths only; roll back if this appears systematically
 - If total candidates ≤ 5: spawn all in parallel in a single message (multiple Agent tool calls in one response)
 - If total candidates > 5: process in batches of 5. Spawn 5 in parallel, wait for all to return, then spawn the next 5, and so on
 
