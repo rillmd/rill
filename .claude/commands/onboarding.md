@@ -188,13 +188,32 @@ Ask the user what's on their mind right now. Use conversational language. Exampl
 >
 > "If it helps, it can be as casual as: *'I've been stuck on the pricing deck all week and I can feel it bleeding into the weekend.'* One line like that is enough."
 
-After the user responds, run:
-```bash
-rill log "{user's text verbatim}"
-```
+After the user responds, capture it using the Write tool (do **not** use `rill log` — it would expose the CLI to the user):
 
-Show the output path to confirm capture, then say something brief like:
+1. Get the filename timestamp:
+   ```bash
+   date +%Y-%m-%d-%H%M%S
+   ```
+2. Get the ISO timestamp for frontmatter:
+   ```bash
+   date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/'
+   ```
+3. Write the journal file using the Write tool:
+   - Path: `inbox/journal/{TIMESTAMP_FROM_STEP_1}.md`
+   - Content:
+     ```
+     ---
+     created: {ISO_TIMESTAMP_FROM_STEP_2}
+     ---
+
+     {user's text verbatim}
+     ```
+
+Show the output path to confirm capture, then say something brief like (in `DETECTED_LANG`):
 > "That's your first Rill entry. Every thought you capture here becomes material Claude can work with."
+
+Then add:
+> "For future entries: click 'New Entry' in the Rill app, or just tell me what's on your mind here — I'll capture it for you."
 
 ---
 
