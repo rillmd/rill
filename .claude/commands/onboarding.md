@@ -104,9 +104,6 @@ For other languages: generate equivalent content in that language. The body text
 # Check vault marker
 ls .rill/ 2>/dev/null && echo "vault_ok" || echo "vault_missing"
 
-# Check for existing journal entries
-ls inbox/journal/*.md 2>/dev/null | head -1
-
 # Check for existing me.md
 ls knowledge/me.md 2>/dev/null
 
@@ -119,7 +116,7 @@ uname
 
 Interpret results:
 - **`vault_missing`**: Warn the user that `rill init` hasn't been run. Guide them to run it before proceeding. Do not continue.
-- **journal entries exist AND `--refresh` not set**: Skip Phase 2 (journal creation). Note this for Phase 1 greeting.
+- **`--refresh` set**: Skip Phase 2 (journal creation). Default mode always runs Phase 2 — writing one's own journal is the core onboarding experience, and file presence (sample preload or earlier captures) is not a signal that the user has onboarded.
 - **`knowledge/me.md` exists**: Skip the name question in Phase 1.
 - **Rill.app found OR not macOS**: Skip Phase 6.
 - **Rill.app not found AND macOS**: Run Phase 6 after Phase 5.
@@ -132,17 +129,17 @@ Greet the user warmly in `DETECTED_LANG`. Keep the tone conversational — this 
 
 **Opening sentence (always first):** Open the greeting with one short sentence — in `DETECTED_LANG` — telling the user which language you'll use from here on (e.g., 日本語の場合「ここからは日本語で進めます。」/ English の場合 "I'll continue in English from here."). Keep it to a single sentence; do not justify the choice or show any file path or reference `personal-language.md`. Then proceed to the framing below.
 
-If this is a fresh vault (no prior journals):
-> Open with a 3-part framing (aim for ~30 seconds spoken, ~3 short paragraphs):
+If `--refresh` is set (returning user):
+> Acknowledge they've already onboarded, skip the "first time" framing, and offer a quick overview.
+
+Otherwise (default mode):
+> Open with a 3-part framing (aim for ~30 seconds spoken, ~3 short paragraphs). Run this even if sample or earlier journal entries already exist in the vault — file presence is not a signal that the user has been through onboarding.
 >
 > 1. **What Rill is.** A *thinking partner* — not a notes app, and not a knowledge base. Position it against the user's likely prior (memory / second-brain apps) and redirect: Rill exists to *dig into* what they're thinking with them, not just store it.
 > 2. **What they'll have by the end.** Their thoughts start feeding back into their morning briefing and a personalized news stream. The feeling to aim for: "if I get stuck, I just ask Claude."
 > 3. **What the next 5–8 minutes look like.** A small intro question, capturing their first entry together, and a quick setup for tomorrow morning.
 >
 > Do **not** use the words `distill`, `workspace`, `session`, or `vault` in this framing. Land on everyday language. After the framing, hand off to the next step (name question below).
-
-If prior journals exist (returning user or `--refresh`):
-> Acknowledge they've already started, skip the "first time" framing, and offer a quick overview.
 
 If `knowledge/me.md` does not exist, ask for the user's name at the end of the greeting. After they respond:
 1. Get the current timestamp:
@@ -178,7 +175,7 @@ If `knowledge/me.md` does not exist, ask for the user's name at the end of the g
 
 ### Phase 2: First Journal Entry
 
-(Skip this phase if journal entries already exist and `--refresh` is not set.)
+(Skip this phase only if `--refresh` is set. Default mode always runs Phase 2, even if sample or earlier journal entries are already present — writing one's own journal is the core onboarding experience.)
 
 Ask the user what's on their mind right now. Use conversational language. Examples (adapt to `DETECTED_LANG`):
 
@@ -393,7 +390,8 @@ End with a warm closing in `DETECTED_LANG`. Wording depends on whether the GUI h
 | Situation | Handling |
 |---|---|
 | vault marker missing | Warn before Phase 1. Tell the user the vault hasn't been initialized yet — they can either ask Claude to *"initialize the vault here"* (Claude will run `rill init`) or run `rill init` themselves from the terminal. Do not lead with the CLI command |
-| User has prior journal entries | Skip Phase 2. Acknowledge in Phase 1 greeting |
+| User runs `/onboarding --refresh` | Skip Phase 2 regardless of journal count. Use the returning-user greeting in Phase 1 |
+| Sample or earlier journal entries already exist in default mode | Do NOT skip Phase 2. File presence is not a signal the user has onboarded |
 | User says "nothing on my mind" in Phase 2 | Offer a more concrete prompt: *"What took up most of your attention today? Even something like 'spent 2 hours debugging a flaky test' works — it'll still give Claude something to respond to tomorrow."* Accept any one-line answer |
 | Language not detected (empty $LANG) | Default to English |
 | personal-language.md already exists | Skip creation. Respect existing setting. Still open the greeting with the language-continuation line, reading the language from the existing file |
@@ -414,7 +412,7 @@ End with a warm closing in `DETECTED_LANG`. Wording depends on whether the GUI h
 
 - Conduct **all conversation** in `DETECTED_LANG` — detected in Phase 0 before the first message
 - Never ask the user whether to create `.claude/rules/personal-language.md`. It is a system-managed file — create it automatically in Phase 0-2 and notify via the Phase 1 opener only
-- The journal entry in Phase 2 is mandatory (unless prior entries exist)
+- The journal entry in Phase 2 is mandatory in default mode — it runs even when sample or earlier journal entries already exist. Skip only when `--refresh` is set
 - Phase 4 is mandatory — the user must experience asking at least once
 - "Ask Claude anytime" must appear in both Phase 4 and Phase 5 closing
 - Total session time should stay under 8 minutes — if any phase runs long, trim explanations
