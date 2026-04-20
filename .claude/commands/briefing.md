@@ -171,7 +171,10 @@ Write a narrative where the reader can grasp the "big picture" and "what to thin
 ## Notes
 
 (Write specific notes in prose:
-- **Today's recommended action** — If any `inbox.*.unprocessed` count is non-zero, write a prose nudge that states the counts per subdirectory and invites the user to **ask Claude to pull in the new entries and extract knowledge from them** (Claude will route this to `/sync` and `/distill` internally — do not quote the slash commands as a user instruction). If this nudge has been appearing for several days in a row, suggest "you can also ask Claude to set this up as a daily automation" rather than linking to `docs/guides/scheduling.md` directly. This section is the primary actionable handoff from the morning report to the user and must read as a request the user makes to Claude, never as a terminal command
+- **Today's recommended action** — Two nudge cases, both must read as a request the user makes to Claude, never as a terminal command. **Never output `rill log`, `rill clip`, or any `rill *` CLI command in the Notes section.**
+  1. **Journal capture nudge** (trigger: `journal-count` from frontmatter is 0, OR the past 3+ days have had journal-count=0): Write a warm, brief nudge in `DETECTED_LANG` inviting the user to start capturing — e.g. *"When you're ready to capture a thought, click 'New Entry' in the Rill app, or open a Claude Code session in your vault and just tell me what's on your mind — I'll handle the rest. No commands needed."* Do not suggest a specific number of entries (e.g., "create 3 journals").
+  2. **Inbox processing nudge** (trigger: any `inbox.*.unprocessed` count is non-zero): Write a prose nudge stating the counts per subdirectory and inviting the user to **ask Claude to pull in the new entries and extract knowledge from them** (Claude will route this to `/sync` and `/distill` internally — do not quote the slash commands as a user instruction). If this nudge has been appearing for several days in a row, suggest "you can also ask Claude to set this up as a daily automation."
+  Both nudges may appear together if both conditions apply. If neither applies, omit this item.
 - Tasks approaching deadlines
 - Items left unattended for long periods
 - Other observations)
