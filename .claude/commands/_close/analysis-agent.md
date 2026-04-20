@@ -81,6 +81,8 @@ Then Edit the output path to append the body. Use this structure:
 - **Proposed in**: {deliverable path}
 - **Invalidated by**: {deliverable path + reason}
 - **Why it matters**: {1 line — why recording this is useful for future distillation}
+  - HIGH priority (preserve with detail): the rejected design is a plausible candidate to reconsider later (alternative architecture, alternative algorithm, different abstraction) AND the rejection reasoning is non-obvious (would require re-deriving from deliverables).
+  - LOW priority (concise — 1 line Why it matters is sufficient): the rejection reasoning can be trivially re-derived from current code/docs, or the rejected approach is definitively settled (e.g., dead API, syntax typo).
 
 ## Open Issues
 
@@ -94,11 +96,26 @@ Then Edit the output path to append the body. Use this structure:
 - Technical terms in English
 - Follow the repository CLAUDE.md language rules
 
+### IA discovery heuristics (scan order)
+
+Invalidated Approaches are the most commonly under-enumerated section. For each deliverable, actively look for these patterns:
+
+1. **"Replaced state" patterns**: Background descriptions of prior implementations ("the old /briefing did X"), pre-session conventions ("workspace/daily/ was used for Daily Notes"), or legacy designs that a Decision in this workspace overrides. The pre-existing state is the IA; the Decision is what replaced it.
+
+2. **"Considered and rejected" patterns**: Explicit comparisons in deliverable prose — "we evaluated A, B, C and chose A" (B and C are IAs), "option X was considered but Y is better because...", "first tried X then switched to Y".
+
+3. **"Evolution arc" patterns**: When a design went through multiple iterations within the workspace (deliverable 003 proposes X, 004 refines to Y, 005 settles on Z), X and Y are IAs relative to Z. Each intermediate form is a separate IA — do not collapse them.
+
+4. **"Fundamental assumption reversal" patterns**: When the workspace identifies a root-cause assumption that was wrong, that assumption is itself an IA even if never written as a concrete proposal — because it governed the design space. Example: if the workspace concludes "we were trying to make one view serve three user needs, which is why three redesigns failed", the assumption "one view can serve three needs" is IA-X even though no one explicitly proposed it as a design.
+
+For each Decision, ask explicitly: "what was the pre-existing state or competing proposal this Decision replaced?" If the answer is non-trivial, that is an IA. Some Decisions have no pre-existing state to replace (e.g., greenfield naming choices) — that is fine, record only the IAs that actually exist.
+
 ### Quality requirements
 
 - Every deliverable must be mentioned in the `Deliverables` table
 - Every Decision must include `Adopted from` pointing to the source deliverable
 - Every Invalidated Approach must identify both `Proposed in` and `Invalidated by`
+- When a Decision's rationale contains a non-obvious causal history (e.g., "we reached this by realizing our initial rationale was wrong but the conclusion still holds", "we returned to the first option after trying alternatives"), preserve that history in the rationale — not just the final conclusion
 - Open Issues must reflect the unchecked items from `_workspace.md`'s checklist (if any)
 
 ## Phase 3: Enumerate knowledge extraction candidates
@@ -123,6 +140,8 @@ candidate = {
 }
 ```
 
+**Strict scope**: Layer 1 candidates correspond ONE-TO-ONE with entries in the `Decisions` section of `_summary.md`. If you find yourself promoting a specific implementation choice, a diagnostic heuristic, a design principle, or a pattern observation to Layer 1 without it appearing as a Decision, STOP — those belong in Layer 2. Layer 1 is a log of "what this project decided"; Layer 2 is the pool of "transferable principles learned from this project".
+
 ### Layer 2: Per-deliverable atomic units
 
 For each deliverable `F` (excluding `_workspace.md`, `_summary.md`, `.processed`), scan for atomic knowledge units that deserve their own note. Candidates include:
@@ -130,6 +149,19 @@ For each deliverable `F` (excluding `_workspace.md`, `_summary.md`, `.processed`
 - **research findings** (type: reference) — summaries of external information: industry surveys, vendor comparisons, official documentation findings
 - **insights** (type: insight) — observations, interpretations, design patterns identified during the work
 - **records** (type: record) — facts, numerical results, empirical measurements
+
+Types of atomic unit to actively extract (these are commonly embedded in deliverable prose rather than called out as Decisions, and are the most-missed Layer 2 candidates):
+
+- **Design principles**: generalizable rules ("X pattern breaks when Y")
+- **Diagnostic heuristics**: methods to detect a class of problem ("if log shows N events per minute, the event is too noisy")
+- **Anti-patterns**: configurations that looked reasonable but caused failure
+- **Methodology notes**: techniques used to arrive at a decision (e.g., "mental model simulation reversed a YAGNI judgment")
+- **Comparison records**: side-by-side evaluation of options, even when one clearly won
+
+**When a Decision's rationale embeds a transferable principle** (e.g., the rationale says "X pattern breaks when Y, so we chose Z"), emit BOTH:
+- L1 candidate for the Decision itself (slug: kebab-case of decision title)
+- L2 candidate for the underlying principle (slug: kebab-case of the principle)
+Link them via `related`. Decisions and transferable principles have different reuse patterns — separate them even if they appear in the same sentence.
 
 For each unit `U`:
 
@@ -231,3 +263,4 @@ The parent /close skill injects the following into this prompt before spawning:
 - Do not modify `_workspace.md` — parent handles that after user approval
 - Do not modify any deliverable's frontmatter — parent handles that in Phase 6
 - Total Read budget is generous since fresh context: read all deliverables in full, read `_summary.md`, no other reads are required unless you need to resolve entity references from `knowledge/people/` etc.
+- **Do not fabricate external references.** ADR numbers, ticket IDs, external spec names, and any identifier not explicitly written in the deliverables must NOT appear in `_summary.md` or candidates unless verified by Grep in the workspace. If you are tempted to cite an ADR or ticket to strengthen a rationale but cannot verify its existence in the deliverables, write the rationale without the citation.
