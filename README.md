@@ -114,6 +114,8 @@ Every skill is a single Markdown file in `.claude/commands/`. Read the file to s
 curl -fsSL https://raw.githubusercontent.com/rillmd/rill/main/install.sh | bash
 ```
 
+Inspect the script first: [install.sh on GitHub](https://github.com/rillmd/rill/blob/main/install.sh).
+
 The installer clones Rill, creates a vault at `~/Documents/my-rill`, and symlinks the `rill` CLI. It does not modify your shell profile; it prints the PATH line for you to add.
 
 ### First run
