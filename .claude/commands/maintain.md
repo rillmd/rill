@@ -1,5 +1,7 @@
 # /maintain — Quality Maintenance
 
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+
 Runs note quality inspection and repair sequentially. Diagnoses issues with /inspect, then fixes them with /repair if any are found.
 
 ## Arguments

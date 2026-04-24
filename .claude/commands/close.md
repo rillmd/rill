@@ -11,6 +11,8 @@ gui:
 
 # /close — Workspace Completion
 
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+
 Completes an active workspace with exhaustive knowledge distillation. Uses a two-layer sub-agent architecture (ADR-073) to isolate heavy work from the parent session's context budget and to enforce multi-layer defense against error propagation.
 
 ## Arguments
