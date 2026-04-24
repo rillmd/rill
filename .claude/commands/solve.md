@@ -11,6 +11,8 @@ gui:
 
 # /solve — Plan-Embedded Breakpoint Task Execution
 
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+
 The default is to solve a task in a single ticket. Each step in the Plan declares **who acts** and **whether a breakpoint is required**, and Claude navigates that Plan seamlessly. There is no explicit "AI autonomous mode" → "human-in-the-loop" toggle — the Plan itself dictates when Claude proceeds and when the user is called.
 
 If the session is cleared (`/clear`) and `/solve {slug}` is invoked again later, the `## Current Position` section at the top of `_task.md` is enough to identify the resumption point. Worst-case rework is "one step that was started but not completed".
