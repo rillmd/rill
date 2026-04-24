@@ -11,6 +11,8 @@ gui:
 
 # /briefing — Daily Note Generation
 
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+
 Generates a Daily Note that aggregates the day's situation. Uses internal data only, fully automated (no interaction). Aims for prose-quality readable reports.
 
 ## Arguments

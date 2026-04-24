@@ -12,6 +12,8 @@ gui:
 
 # /distill — Unified Distillation Command
 
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+
 Batch-processes unprocessed inbox/journal/ and inbox/*/ files. Uses flat orchestrator pattern with external templates + parallel agent spawning (D48). Workspace distillation is handled by /close in the parent context (ADR-072).
 
 ## Arguments

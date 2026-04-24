@@ -1,5 +1,7 @@
 # /morning — Morning Routine
 
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+
 Runs the two user-facing daily reports in sequence: Daily Note (/briefing) and research newsletter (/newsletter). Both run inline within the current Claude Code session via the Skill tool.
 
 Background processing (external source sync, knowledge distillation) is **not** part of /morning (ADR-075). When you want to catch up, ask inside your vault — *"pull in new entries and extract anything useful"* — and Claude will route to `/sync` then `/distill`. For unattended automation, see [docs/guides/scheduling.md](../../docs/guides/scheduling.md).

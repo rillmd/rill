@@ -11,6 +11,8 @@ gui:
 
 # /focus — Workspace Start / Resume
 
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+
 Starts (or resumes) a workspace from a theme or file. Automatically collects related information and builds a workspace in `workspace/`, then begins an interactive session.
 
 ## Arguments

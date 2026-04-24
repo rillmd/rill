@@ -1,5 +1,7 @@
 # /inspect — Note Quality Inspection (weekly. Detect issues and queue them for repair)
 
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+
 > Workflow: `/inspect` -> `/repair` -> `/eval` (Inspect -> Repair -> Verify)
 
 Diagnoses taxonomy health, metadata accuracy, and file integrity, and reports any issues found. Performs diagnostics + minor queue operations (ADR-046 D46-8). Does not modify file body content. Files where sampling audits detect mismatches are appended to `.refresh-queue` and repaired by `/repair`.

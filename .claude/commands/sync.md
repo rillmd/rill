@@ -1,5 +1,7 @@
 # /sync — Bulk External Source Sync
 
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+
 Run all plugins sequentially to bulk-sync external sources.
 
 ## Arguments
