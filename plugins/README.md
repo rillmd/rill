@@ -62,21 +62,26 @@ plugins/
 ├── .gitignore          # Ignores .synced, .config
 ├── .installed          # Installed plugin list (user state, git-tracked)
 ├── .enabled            # Enabled plugin list (user state, git-tracked)
-└── {plugin-name}/      # For source plugins
-    ├── plugin.md       # Documentation (overview, setup instructions, usage)
-    ├── adapter.sh      # Transport script (executed by rill sync)
-    ├── requires.sh     # Dependency check script (optional)
-    ├── distill.md      # Source-specific distill prompt (optional)
-    ├── commands/       # Claude Code skill originals
-    │   └── *.md        # Symlinked to .claude/commands/ on enable
-    └── .gitignore      # Excludes .synced
-└── {plugin-name}/      # For workflow + hooks plugins
-    ├── plugin.md       # Capabilities declaration (data-dir, search-scope, hooks)
-    ├── requires.sh     # Dependency check script (optional)
-    ├── commands/       # workflow capability: skill originals
-    ├── hooks/          # hooks capability: core skill extension prompts
-    ├── data/           # workflow capability: plugin-specific data
-    └── .gitignore
+├── {plugin-name}/      # Bundled plugin — for source plugins
+│   ├── plugin.md       # Documentation (overview, setup instructions, usage)
+│   ├── adapter.sh      # Transport script (executed by rill sync)
+│   ├── requires.sh     # Dependency check script (optional)
+│   ├── distill.md      # Source-specific distill prompt (optional)
+│   ├── commands/       # Claude Code skill originals
+│   │   └── *.md        # Symlinked to .claude/commands/ on enable
+│   └── .gitignore      # Excludes .synced
+├── {plugin-name}/      # Bundled plugin — for workflow + hooks plugins
+│   ├── plugin.md       # Capabilities declaration (data-dir, search-scope, hooks)
+│   ├── requires.sh     # Dependency check script (optional)
+│   ├── commands/       # workflow capability: skill originals
+│   ├── hooks/          # hooks capability: core skill extension prompts
+│   ├── data/           # workflow capability: plugin-specific data
+│   └── .gitignore
+└── local/              # Optional — vault-private plugins (see "Local Track" below)
+    └── {plugin-name}/
+        ├── plugin.md
+        ├── ui/         # ui capability: React component entry
+        └── ...
 ```
 
 ## _lib.sh API
@@ -126,12 +131,14 @@ requires_check                            # Finalize: exit 0 if all met, 1 if an
 ## CLI Commands
 
 ```bash
-rill plugin list              # List plugins with state
+rill plugin list              # List plugins with state (bundled + local)
+rill plugin list --json       # Machine-readable output (see "Local Track" below)
 rill plugin install <name>    # Install + dependency diagnostics
 rill plugin enable <name>     # Enable (requires check → symlink commands)
 rill plugin disable <name>    # Disable (remove symlinks, keep installed)
 rill plugin uninstall <name>  # Full removal (disable + uninstall)
 rill plugin status [name]     # Detailed status
+rill plugin status <name> --json  # Machine-readable status for one plugin
 
 rill sync                     # List enabled adapters
 rill sync <name>              # Execute adapter.sh (no enable check for explicit calls)
@@ -156,6 +163,7 @@ Plugins are defined by a combination of capabilities.
 | source | adapter.sh, distill.md, inbox-dir | google-meet |
 | workflow | commands/, data/ | CRM |
 | hooks | post-distill, briefing, etc. | CRM |
+| ui | Rill GUI sidebar entry + scope-bound filesystem access | english-practice |
 
 ### Extended frontmatter in plugin.md
 
@@ -176,13 +184,97 @@ hooks:                             # hooks capability
   post-distill: hooks/post-distill.md
   briefing: hooks/briefing.md
 ---
+
+# Plugin with ui capability (GUI extension)
+---
+ui:                                # ui capability
+  sidebar:
+    label: "English Practice"
+    icon: GraduationCap            # lucide-react icon name
+    order: 50                      # sort order within Plugins section
+  route: english-practice          # internal route id (kebab-case)
+  entry: ui/EnglishPracticeView.tsx  # relative path to React component (default export)
+scope:                             # ui capability: filesystem scope (required alongside ui)
+  rw:                              # read/write allowlist (vault-relative paths)
+    - english-practice
+  read:                            # read-only allowlist (optional)
+    - knowledge/people
+---
 ```
+
+The `ui` capability declares a GUI sidebar entry whose React component is loaded
+by the Rill GUI's Vite-based plugin loader. Declared `scope.rw` / `scope.read`
+paths bound the filesystem access exposed to the plugin through
+`window.rill.plugin.fs.*`. Writes to Rill-managed directories (`knowledge/`,
+`inbox/`, `tasks/`, `workspace/`) are rejected by the loader even if declared.
+See Rill's internal GUI extension ADR (rill-dev) for the full mechanism.
 
 ### Hook Execution Specification
 
 - Control stays with the core: after /distill completes all phases, it reads `plugins/.enabled` and runs hooks from enabled plugins that have a `hooks` field as sub-agents
 - Failures are non-fatal: hook execution errors are logged and processing continues (does not affect core processing results)
 - Backward compatible: existing source-only plugins have no hooks field and are unaffected
+
+## Local Track (vault-private plugins)
+
+Plugins ship on one of two **tracks**:
+
+| Track | Location | Distribution | Typical use |
+|-------|----------|--------------|-------------|
+| **bundled** | `plugins/{name}/` | Distributed to every vault via `rill update` | Public plugins: google-meet, twitter, etc. |
+| **local** | `plugins/local/{name}/` | Never distributed — owned by the vault directly | Vault-private plugins the user authors for themselves |
+
+### Properties of the local track
+
+- `plugins/local/` is **excluded from `rill update`**: files inside it are never
+  created, overwritten, or removed by `rill update`. Vault owners manage the
+  contents directly.
+- Each local plugin is a regular plugin directory — same `plugin.md` + `ui/` +
+  `commands/` + `adapter.sh` layout as bundled plugins, same capability model.
+  Anything expressible in a bundled plugin is expressible in a local plugin.
+- The CLI treats bundled and local plugins as a single flat namespace keyed by
+  plugin name. `.installed` and `.enabled` store plain names (no `local/`
+  prefix); track is inferred from where the plugin directory is found.
+
+### Name conflicts
+
+If the same name exists in both tracks (e.g. `plugins/google-meet/` and
+`plugins/local/google-meet/`), the CLI **prefers the local copy** and emits a
+one-line warning to stderr on every invocation of `rill plugin list`, `status`,
+`install`, `enable`, `disable`, and `uninstall`. This lets a vault owner shadow
+a bundled plugin with a locally modified version while staying aware of the
+override.
+
+`rill plugin list --json` reports any such overlap in the top-level
+`conflicts: []` array (see JSON output section below).
+
+### Version-control recommendations
+
+- **Private vaults**: committing `plugins/local/*` is fine — the plugin stays
+  with your vault and is not exposed elsewhere.
+- **Public vaults (OSS, demo)**: add `plugins/local/` to the vault's
+  `.gitignore` so individual contributors' private plugins do not leak through
+  the public repository.
+
+### JSON output for tool integration
+
+Two commands emit machine-readable output for GUI / editor integrations that
+want to inspect plugin state without parsing human-facing text:
+
+```bash
+rill plugin list --json
+# → { "available": [...], "installed": [...], "enabled": [...], "conflicts": [...] }
+
+rill plugin status <name> --json
+# → { "name", "state", "track", "capabilities": { source, workflow, hooks, ui },
+#     "requires": { "status": "met" | "unmet" | "none" },
+#     "ui":    { sidebar: {...}, route, entry } | null,
+#     "scope": { rw: [...], read: [...] }         | null }
+```
+
+Names in `list --json` are track-less plain strings; use `status --json` to
+discover which track a given plugin lives on. The output is built with `printf`
+alone (no `jq` / `yq` dependency).
 
 ## 3-Tier Classification
 

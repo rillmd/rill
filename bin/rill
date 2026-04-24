@@ -547,26 +547,171 @@ _state_remove() {  # $1=file, $2=name
     mv "$1.tmp" "$1"
 }
 
+# Plugin management — track helpers (bundled + local)
+
+# Reserved directory names under plugins/ that are not plugins themselves.
+# Currently only `local` (the local-track container). `.state`, `.installed`,
+# etc. are already filtered by the `*/` glob + dotfile rules.
+_is_reserved_plugin_dir() {
+    case "$1" in
+        local) return 0 ;;
+        *)     return 1 ;;
+    esac
+}
+
+# Resolve plugin name → directory, preferring local over bundled.
+# On name conflict between tracks, prints a single-line warning to stderr and
+# returns the local path. Prints nothing and returns 1 if the plugin is not
+# found on either track.
+_resolve_plugin_dir() {
+    local name="$1"
+    local bundled="$PLUGINS_DIR/$name"
+    local local_dir="$PLUGINS_DIR/local/$name"
+
+    if [ -d "$local_dir" ] && [ -d "$bundled" ]; then
+        echo "warning: plugin '$name' exists in both local and bundled; using local" >&2
+        echo "$local_dir"
+        return 0
+    fi
+    if [ -d "$local_dir" ]; then
+        echo "$local_dir"
+        return 0
+    fi
+    if [ -d "$bundled" ]; then
+        echo "$bundled"
+        return 0
+    fi
+    return 1
+}
+
+# Report which track a plugin lives on: `local` or `bundled`.
+# Prints nothing and returns 1 if the plugin is not found.
+_plugin_track() {
+    local name="$1"
+    if [ -d "$PLUGINS_DIR/local/$name" ]; then
+        echo "local"
+        return 0
+    fi
+    if [ -d "$PLUGINS_DIR/$name" ]; then
+        echo "bundled"
+        return 0
+    fi
+    return 1
+}
+
+# True if the given plugin name is shadowed (exists in both tracks).
+_plugin_has_conflict() {
+    local name="$1"
+    [ -d "$PLUGINS_DIR/local/$name" ] && [ -d "$PLUGINS_DIR/$name" ]
+}
+
+# Enumerate plugin names across both tracks (deduplicated, sorted).
+# Skips reserved directory names and hidden entries.
+_enumerate_plugin_names() {
+    {
+        local d
+        for d in "$PLUGINS_DIR"/*/; do
+            [ -d "$d" ] || continue
+            local name
+            name="$(basename "$d")"
+            _is_reserved_plugin_dir "$name" && continue
+            echo "$name"
+        done
+        for d in "$PLUGINS_DIR"/local/*/; do
+            [ -d "$d" ] || continue
+            echo "$(basename "$d")"
+        done
+    } | sort -u
+}
+
 # Plugin management — commands
 
 _plugin_list() {
     echo "Plugins:"
     local found=false
-    for d in "$PLUGINS_DIR"/*/; do
-        [ -d "$d" ] || continue
-        local name
-        name="$(basename "$d")"
+    local name
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
         found=true
 
-        if _is_plugin_enabled "$name"; then
-            printf "  ✓ %-20s (enabled)\n" "$name"
-        elif _is_plugin_installed "$name"; then
-            printf "  ● %-20s (installed)\n" "$name"
-        else
-            printf "    %-20s (available)\n" "$name"
+        local track_label=""
+        if [ "$(_plugin_track "$name")" = "local" ]; then
+            track_label=" [local]"
         fi
-    done
+        local conflict_mark=""
+        if _plugin_has_conflict "$name"; then
+            conflict_mark=" (conflict: shadowing bundled)"
+            echo "warning: plugin '$name' exists in both local and bundled; using local" >&2
+        fi
+
+        if _is_plugin_enabled "$name"; then
+            printf "  ✓ %-20s (enabled)%s%s\n" "$name" "$track_label" "$conflict_mark"
+        elif _is_plugin_installed "$name"; then
+            printf "  ● %-20s (installed)%s%s\n" "$name" "$track_label" "$conflict_mark"
+        else
+            printf "    %-20s (available)%s%s\n" "$name" "$track_label" "$conflict_mark"
+        fi
+    done < <(_enumerate_plugin_names)
     $found || echo "  (no plugins found)"
+}
+
+# Emit a JSON array of strings from stdin (one value per line).
+# Uses printf only — no jq dependency. Escapes backslash and double-quote.
+_json_string_array() {
+    local first=true
+    local line
+    printf '['
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        if $first; then
+            first=false
+        else
+            printf ', '
+        fi
+        # Escape \ and " for JSON string literal.
+        local escaped="${line//\\/\\\\}"
+        escaped="${escaped//\"/\\\"}"
+        printf '"%s"' "$escaped"
+    done
+    printf ']'
+}
+
+_plugin_list_json() {
+    local available_tmp installed_tmp enabled_tmp conflicts_tmp
+    available_tmp="$(mktemp)"
+    installed_tmp="$(mktemp)"
+    enabled_tmp="$(mktemp)"
+    conflicts_tmp="$(mktemp)"
+    # shellcheck disable=SC2064
+    trap "rm -f '$available_tmp' '$installed_tmp' '$enabled_tmp' '$conflicts_tmp'" RETURN
+
+    local name
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        # `available` in the plugin lifecycle means "present on disk but not
+        # installed yet". Every enumerated name is on-disk; filter by state.
+        if _is_plugin_enabled "$name"; then
+            echo "$name" >> "$enabled_tmp"
+            echo "$name" >> "$installed_tmp"
+        elif _is_plugin_installed "$name"; then
+            echo "$name" >> "$installed_tmp"
+        else
+            echo "$name" >> "$available_tmp"
+        fi
+        if _plugin_has_conflict "$name"; then
+            echo "$name" >> "$conflicts_tmp"
+        fi
+    done < <(_enumerate_plugin_names)
+
+    printf '{"available": '
+    _json_string_array < "$available_tmp"
+    printf ', "installed": '
+    _json_string_array < "$installed_tmp"
+    printf ', "enabled": '
+    _json_string_array < "$enabled_tmp"
+    printf ', "conflicts": '
+    _json_string_array < "$conflicts_tmp"
+    printf '}\n'
 }
 
 _plugin_install() {
@@ -576,8 +721,8 @@ _plugin_install() {
         return 1
     fi
 
-    local plugin_dir="$PLUGINS_DIR/$name"
-    if [ ! -d "$plugin_dir" ]; then
+    local plugin_dir
+    if ! plugin_dir="$(_resolve_plugin_dir "$name")"; then
         echo "Plugin not found: $name"
         echo "Run 'rill plugin list' to see available plugins."
         return 1
@@ -613,8 +758,25 @@ _plugin_install() {
     fi
 
     if [ -f "$plugin_dir/plugin.md" ]; then
+        local rel_dir="${plugin_dir#$RILL_HOME/}"
         echo ""
-        echo "Setup instructions: plugins/$name/plugin.md"
+        echo "Setup instructions: $rel_dir/plugin.md"
+    fi
+}
+
+# Relative path fragment used when building command symlinks.
+# Symlinks live at $RILL_HOME/.claude/commands/*.md, so the relative prefix
+# from that directory back to the plugin's commands/ depends on the track:
+#   bundled: ../../plugins/{name}/commands/...
+#   local:   ../../plugins/local/{name}/commands/...
+_plugin_commands_relpath() {
+    local name="$1"
+    local track
+    track="$(_plugin_track "$name")" || return 1
+    if [ "$track" = "local" ]; then
+        echo "../../plugins/local/$name/commands"
+    else
+        echo "../../plugins/$name/commands"
     fi
 }
 
@@ -636,7 +798,14 @@ _plugin_enable() {
         return 0
     fi
 
-    local plugin_dir="$PLUGINS_DIR/$name"
+    local plugin_dir
+    if ! plugin_dir="$(_resolve_plugin_dir "$name")"; then
+        echo "Plugin directory missing for '$name' (installed but not on disk)."
+        return 1
+    fi
+
+    local rel_commands
+    rel_commands="$(_plugin_commands_relpath "$name")" || return 1
 
     # Run dependency check (blocks enable on failure)
     if [ -f "$plugin_dir/requires.sh" ]; then
@@ -664,7 +833,7 @@ _plugin_enable() {
             elif [ -f "$target" ]; then
                 echo "  WARN: $cmd_basename exists as a regular file. Remove it first to enable symlink."
             else
-                ln -s "../../plugins/$name/commands/$cmd_basename" "$target"
+                ln -s "$rel_commands/$cmd_basename" "$target"
                 echo "  linked: $cmd_basename"
                 count=$((count + 1))
             fi
@@ -687,17 +856,32 @@ _plugin_disable() {
         return 0
     fi
 
+    # Build the grep pattern for this plugin's commands directory.
+    # Must match both tracks: `plugins/{name}/commands/` (bundled) and
+    # `plugins/local/{name}/commands/` (local). Using a single alternation
+    # pattern keeps the readlink scan O(N) rather than O(N × tracks).
+    local rel_commands
+    rel_commands="$(_plugin_commands_relpath "$name" 2>/dev/null)" || rel_commands=""
+
     # Remove command symlinks
     local count=0
     for link in "$COMMANDS_DIR"/*.md; do
         [ -L "$link" ] || continue
         local target
         target="$(readlink "$link")"
-        if echo "$target" | grep -q "plugins/$name/"; then
-            rm "$link"
-            echo "  unlinked: $(basename "$link")"
-            count=$((count + 1))
+        # Match either relative track path. Fall back to the bundled pattern
+        # if `_plugin_commands_relpath` failed (plugin dir already removed).
+        if [ -n "$rel_commands" ] && [[ "$target" == *"$rel_commands/"* ]]; then
+            :
+        elif [[ "$target" == *"plugins/local/$name/commands/"* ]] \
+          || [[ "$target" == *"plugins/$name/commands/"* ]]; then
+            :
+        else
+            continue
         fi
+        rm "$link"
+        echo "  unlinked: $(basename "$link")"
+        count=$((count + 1))
     done
 
     _state_remove "$PLUGINS_DIR/.enabled" "$name"
@@ -723,22 +907,29 @@ _plugin_uninstall() {
 
     _state_remove "$PLUGINS_DIR/.installed" "$name"
     echo "Uninstalled: $name"
-    echo "Plugin directory preserved: plugins/$name/"
+
+    local plugin_dir
+    if plugin_dir="$(_resolve_plugin_dir "$name" 2>/dev/null)"; then
+        local rel_dir="${plugin_dir#$RILL_HOME/}"
+        echo "Plugin directory preserved: $rel_dir/"
+    fi
 }
 
 _plugin_status() {
     local target_name="${1:-}"
     local found=false
 
-    for d in "$PLUGINS_DIR"/*/; do
-        [ -d "$d" ] || continue
-        local name
-        name="$(basename "$d")"
+    local name
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
 
         # If a specific plugin was requested, skip others
         if [ -n "$target_name" ] && [ "$name" != "$target_name" ]; then
             continue
         fi
+
+        local d
+        d="$(_resolve_plugin_dir "$name")" || continue
 
         found=true
         echo ""
@@ -750,7 +941,14 @@ _plugin_status() {
         elif _is_plugin_installed "$name"; then
             state="installed"
         fi
-        echo "[$name] ($state)"
+        local track
+        track="$(_plugin_track "$name")"
+        local track_suffix=""
+        [ "$track" = "local" ] && track_suffix=" [local]"
+        if _plugin_has_conflict "$name"; then
+            track_suffix="$track_suffix (shadows bundled)"
+        fi
+        echo "[$name] ($state)$track_suffix"
 
         # Commands
         local cmd_total=0 cmd_linked=0
@@ -780,7 +978,7 @@ _plugin_status() {
             echo "  Dependencies:"
             bash "$d/requires.sh" 2>&1 | sed 's/^/  /'
         fi
-    done
+    done < <(_enumerate_plugin_names)
 
     if [ -n "$target_name" ] && ! $found; then
         echo "Plugin not found: $target_name"
@@ -789,19 +987,295 @@ _plugin_status() {
     $found || echo "  (no plugins found)"
 }
 
+# Detect whether a plugin.md declares a given top-level key (e.g. `ui:`).
+# Only checks for the bare "key:" at column 0; does not follow YAML anchors
+# or multi-line structures beyond that.
+_plugin_md_has_key() {
+    local md="$1" key="$2"
+    [ -f "$md" ] || return 1
+    grep -qE "^${key}:[[:space:]]*\$|^${key}:[[:space:]]+\\S" "$md"
+}
+
+# Extract the YAML block that starts at `^<key>:` and continues until either
+# another top-level key (`^[A-Za-z_-]+:`) or end-of-file. Emits the block
+# body only (without the leading key line).
+# Used for the narrow case of reading `ui:` and `scope:` in plugin.md.
+_plugin_md_block_body() {
+    local md="$1" key="$2"
+    [ -f "$md" ] || return 1
+    awk -v k="$key" '
+        BEGIN { in_block = 0 }
+        /^---[[:space:]]*$/ { next }
+        {
+            if (in_block) {
+                if ($0 ~ /^[A-Za-z_][A-Za-z0-9_-]*:/) {
+                    exit
+                }
+                print
+                next
+            }
+            if ($0 ~ "^" k ":[[:space:]]*$") {
+                in_block = 1
+                next
+            }
+        }
+    ' "$md"
+}
+
+# Read a nested scalar field from an already-extracted block.
+# `path` uses dot notation starting at the block root: "sidebar.label" means
+# "under `sidebar:`, the value of `label:`".
+# Handles common YAML scalar forms:
+#   key: value              → value
+#   key: "value"            → value
+#   key: 'value'            → value
+# Returns empty string if not found. Caller must treat empty as "missing".
+_yaml_scalar_from_block() {
+    local block="$1" path="$2"
+    # Split path into dotted components. The block's lines start at indent=2
+    # (they were emitted from under a top-level key), so level = indent/2.
+    awk -v p="$path" '
+        function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+        function unquote(s) {
+            if (s ~ /^".*"$/) { return substr(s, 2, length(s) - 2) }
+            if (s ~ /^'\''.*'\''$/) { return substr(s, 2, length(s) - 2) }
+            return s
+        }
+        BEGIN {
+            n = split(p, parts, ".")
+            depth = 0
+        }
+        /^[[:space:]]*#/ { next }
+        /^[[:space:]]*$/ { next }
+        {
+            line = $0
+            match(line, /^[[:space:]]*/)
+            indent = RLENGTH
+            current_level = int(indent / 2)
+            if (current_level < 1 || current_level > n) { next }
+
+            # The leading spaces should separate nested keys; we only look at
+            # keys whose position in the tree lines up with the requested path.
+            key_val = substr(line, indent + 1)
+            colon = index(key_val, ":")
+            if (colon == 0) { next }
+            key = substr(key_val, 1, colon - 1)
+            value = substr(key_val, colon + 1)
+            value = trim(value)
+            key = trim(key)
+
+            if (key != parts[current_level]) { next }
+
+            if (current_level == n) {
+                print unquote(value)
+                exit
+            }
+        }
+    ' <<< "$block"
+}
+
+# Read a YAML list-of-scalars under `path` (dot notation into the block).
+# Emits one element per line to stdout. Handles `- value` and `- "value"`
+# forms on sequential indented lines.
+_yaml_list_from_block() {
+    local block="$1" path="$2"
+    awk -v p="$path" '
+        function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
+        function unquote(s) {
+            if (s ~ /^".*"$/) { return substr(s, 2, length(s) - 2) }
+            if (s ~ /^'\''.*'\''$/) { return substr(s, 2, length(s) - 2) }
+            return s
+        }
+        BEGIN {
+            n = split(p, parts, ".")
+            in_list = 0
+            list_indent = -1
+        }
+        /^[[:space:]]*#/ { next }
+        /^[[:space:]]*$/ { next }
+        {
+            line = $0
+            match(line, /^[[:space:]]*/)
+            indent = RLENGTH
+
+            # Inside a list: collect items at a deeper indent than the key.
+            if (in_list) {
+                if (indent <= list_indent && line ~ /^[[:space:]]*[^-[:space:]]/) {
+                    # A sibling key at or above the list key — stop.
+                    exit
+                }
+                stripped = substr(line, indent + 1)
+                if (stripped ~ /^-[[:space:]]/) {
+                    item = substr(stripped, 3)
+                    print unquote(trim(item))
+                }
+                next
+            }
+
+            current_level = int(indent / 2)
+            if (current_level < 1 || current_level > n) { next }
+            key_val = substr(line, indent + 1)
+            colon = index(key_val, ":")
+            if (colon == 0) { next }
+            key = trim(substr(key_val, 1, colon - 1))
+            value = trim(substr(key_val, colon + 1))
+            if (key != parts[current_level]) { next }
+
+            if (current_level == n) {
+                # Opening a list. Remember the indent so we stop correctly.
+                list_indent = indent
+                in_list = 1
+                next
+            }
+        }
+    ' <<< "$block"
+}
+
+_plugin_status_json() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        echo "Usage: rill plugin status <name> --json" >&2
+        return 1
+    fi
+
+    local plugin_dir track
+    if ! plugin_dir="$(_resolve_plugin_dir "$name" 2>/dev/null)"; then
+        echo "Plugin not found: $name" >&2
+        return 1
+    fi
+    track="$(_plugin_track "$name")"
+
+    local state="available"
+    if _is_plugin_enabled "$name"; then
+        state="enabled"
+    elif _is_plugin_installed "$name"; then
+        state="installed"
+    fi
+
+    # Capabilities — detected by file-presence rules, not by parsing YAML.
+    # This is intentional: it mirrors the CLI's existing behaviour where
+    # directory structure is the manifest.
+    local cap_source="false" cap_workflow="false" cap_hooks="false" cap_ui="false"
+    [ -f "$plugin_dir/adapter.sh" ] && cap_source="true"
+    [ -d "$plugin_dir/commands" ] && cap_workflow="true"
+    [ -d "$plugin_dir/hooks" ] && cap_hooks="true"
+    local plugin_md="$plugin_dir/plugin.md"
+    if _plugin_md_has_key "$plugin_md" "ui"; then
+        cap_ui="true"
+    fi
+
+    # requires.status
+    local requires_status='"none"'
+    if [ -f "$plugin_dir/requires.sh" ]; then
+        if bash "$plugin_dir/requires.sh" >/dev/null 2>&1; then
+            requires_status='"met"'
+        else
+            requires_status='"unmet"'
+        fi
+    fi
+
+    # ui block (null unless `ui:` is present)
+    local ui_json="null"
+    if [ "$cap_ui" = "true" ]; then
+        local ui_block label icon order route entry
+        ui_block="$(_plugin_md_block_body "$plugin_md" "ui")"
+        label="$(_yaml_scalar_from_block "$ui_block" "sidebar.label")"
+        icon="$(_yaml_scalar_from_block "$ui_block" "sidebar.icon")"
+        order="$(_yaml_scalar_from_block "$ui_block" "sidebar.order")"
+        route="$(_yaml_scalar_from_block "$ui_block" "route")"
+        entry="$(_yaml_scalar_from_block "$ui_block" "entry")"
+
+        local order_json
+        if [ -z "$order" ]; then
+            order_json="null"
+        elif [[ "$order" =~ ^-?[0-9]+$ ]]; then
+            order_json="$order"
+        else
+            # Non-numeric order — emit as string so the JSON stays valid.
+            order_json="\"${order//\"/\\\"}\""
+        fi
+
+        ui_json="$(printf '{"sidebar": {"label": %s, "icon": %s, "order": %s}, "route": %s, "entry": %s}' \
+            "$(_json_quote "$label")" \
+            "$(_json_quote "$icon")" \
+            "$order_json" \
+            "$(_json_quote "$route")" \
+            "$(_json_quote "$entry")")"
+    fi
+
+    # scope block (null unless `scope:` is present)
+    local scope_json="null"
+    if _plugin_md_has_key "$plugin_md" "scope"; then
+        local scope_block
+        scope_block="$(_plugin_md_block_body "$plugin_md" "scope")"
+        local rw_array read_array
+        rw_array="$(_yaml_list_from_block "$scope_block" "rw" | _json_string_array)"
+        read_array="$(_yaml_list_from_block "$scope_block" "read" | _json_string_array)"
+        scope_json="$(printf '{"rw": %s, "read": %s}' "$rw_array" "$read_array")"
+    fi
+
+    printf '{"name": %s, "state": %s, "track": %s, "capabilities": {"source": %s, "workflow": %s, "hooks": %s, "ui": %s}, "requires": {"status": %s}, "ui": %s, "scope": %s}\n' \
+        "$(_json_quote "$name")" \
+        "$(_json_quote "$state")" \
+        "$(_json_quote "$track")" \
+        "$cap_source" "$cap_workflow" "$cap_hooks" "$cap_ui" \
+        "$requires_status" \
+        "$ui_json" \
+        "$scope_json"
+}
+
+# Emit a JSON-encoded string (with surrounding quotes) from a single argument.
+# Used by _plugin_status_json.
+_json_quote() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    printf '"%s"' "$s"
+}
+
 cmd_plugin() {
     local subcmd="${1:-list}"
     shift 2>/dev/null || true
 
     case "$subcmd" in
-        list)      _plugin_list ;;
+        list)
+            # `rill plugin list [--json]`
+            local json=false
+            local arg
+            for arg in "$@"; do
+                case "$arg" in
+                    --json) json=true ;;
+                esac
+            done
+            if $json; then
+                _plugin_list_json
+            else
+                _plugin_list
+            fi
+            ;;
         install)   _plugin_install "$@" ;;
         enable)    _plugin_enable "$@" ;;
         disable)   _plugin_disable "$@" ;;
         uninstall) _plugin_uninstall "$@" ;;
-        status)    _plugin_status "$@" ;;
+        status)
+            # `rill plugin status [name] [--json]`
+            local json=false
+            local positional=()
+            local arg
+            for arg in "$@"; do
+                case "$arg" in
+                    --json) json=true ;;
+                    *)      positional+=("$arg") ;;
+                esac
+            done
+            if $json; then
+                _plugin_status_json "${positional[0]:-}"
+            else
+                _plugin_status "${positional[0]:-}"
+            fi
+            ;;
         *)
-            echo "Usage: rill plugin [list|install|enable|disable|uninstall|status] [name]"
+            echo "Usage: rill plugin [list|install|enable|disable|uninstall|status] [name] [--json]"
             return 1
             ;;
     esac
@@ -813,20 +1287,27 @@ cmd_sync() {
     if [ -z "$target" ]; then
         echo "Enabled adapters:"
         local found=false
-        for d in "$PLUGINS_DIR"/*/; do
-            [ -d "$d" ] || continue
-            local pname
-            pname="$(basename "$d")"
-            if _is_plugin_enabled "$pname" && [ -f "$d/adapter.sh" ]; then
+        local pname
+        while IFS= read -r pname; do
+            [ -n "$pname" ] || continue
+            local pdir
+            pdir="$(_resolve_plugin_dir "$pname" 2>/dev/null)" || continue
+            if _is_plugin_enabled "$pname" && [ -f "$pdir/adapter.sh" ]; then
                 printf "  %s\n" "$pname"
                 found=true
             fi
-        done
+        done < <(_enumerate_plugin_names)
         $found || echo "  (no enabled adapters found)"
         return 0
     fi
 
-    local adapter="$PLUGINS_DIR/$target/adapter.sh"
+    local pdir
+    if ! pdir="$(_resolve_plugin_dir "$target" 2>/dev/null)"; then
+        echo "Adapter not found: $target"
+        echo "Run 'rill sync' to list available adapters."
+        return 1
+    fi
+    local adapter="$pdir/adapter.sh"
     if [ ! -f "$adapter" ]; then
         echo "Adapter not found: $target"
         echo "Run 'rill sync' to list available adapters."
@@ -3457,17 +3938,19 @@ System & setup — low-frequency administrative commands:
   update                Update source and reproject managed files into vaults
   config                Open vault-local .rill/config.json in $EDITOR
   vault <sub>           Vault registry: list | current | use | add | remove | edit
-  plugin <sub>          Plugin management (list, install, uninstall, status)
+  plugin <sub>          Plugin management (list, install, enable, disable, uninstall, status; bundled + local tracks)
   sync [name]           Run adapter to sync external sources
   crypt <sub>           Encryption management: crypt init | crypt doctor
   doctor                Check encryption health status (alias for `rill crypt doctor`)
   help                  Show this help message
 
 Plugin management (details):
-  rill plugin list              List plugins and install status
-  rill plugin install <name>    Symlink plugin commands to .claude/commands/
-  rill plugin uninstall <name>  Remove symlinks (keeps plugin directory)
-  rill plugin status            Show detailed plugin status
+  rill plugin list [--json]         List plugins (bundled + local); --json for machine-readable output
+  rill plugin install <name>        Mark installed + run dependency diagnostics
+  rill plugin enable <name>         Symlink commands into .claude/commands/
+  rill plugin disable <name>        Remove command symlinks (keeps installed state)
+  rill plugin uninstall <name>      Full removal (disable + mark uninstalled; keeps plugin directory)
+  rill plugin status [name] [--json]  Detailed status; --json emits {name, state, track, capabilities, requires, ui, scope}
 
 Sync (details):
   rill sync                     List available adapters
