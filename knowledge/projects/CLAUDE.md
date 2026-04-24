@@ -48,6 +48,9 @@ tags: [acme-saas]
 - "keyword 1"
 - "keyword 2"
 
+## Repository (optional, development projects only)
+- `repo-name` — one-line purpose. `~/src/path/to/repo`
+
 ## Key Facts
 - Fact 1 (/distill auto-accumulates, up to 20 items)
 
@@ -81,6 +84,20 @@ tags: [acme-saas]
 `/newsletter` automatically references this to fetch the latest on competitors and keywords:
 - Competitors: List of competitor companies
 - Keywords: Search keywords (mixed languages OK)
+
+## Repository Section (optional)
+
+For development projects (`relationship: own | client-work | oss`), list the repositories that make up the project:
+
+```markdown
+## Repository
+- `repo-name` — one-line purpose. `~/src/github.com/owner/repo-name`
+```
+
+- One line per repository
+- Format: `` `name` `` — purpose. local path (no backticks on the path)
+- Omit this section for non-development projects (`relationship: personal`, learning tracks, etc.)
+- `/solve` reads this section when a task needs to reach a project's codebase. If missing, `/solve`'s knowledge-gap handling attempts to auto-discover the paths and may add this section itself.
 
 ## Creating New
 

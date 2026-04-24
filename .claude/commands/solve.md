@@ -248,6 +248,57 @@ for step in Plan.steps:
 - If the step ended without a breakpoint, move to the next step (Current Position is overwritten at the next step's start, not here)
 - Do not append per-step entries to `## History` (too granular). Phase 5 Wrap-up logs the run as a single entry
 
+#### knowledge-gap blocker handling
+
+When a Plan step stalls because Rill's `knowledge/` is missing information the step needs, treat it as a **knowledge-gap blocker** rather than a generic fatal blocker. The goal is to **write the missing fact into `knowledge/` in-flight and resume**, so the same gap never blocks a future run.
+
+##### Step 1: Classify the gap
+
+Claude classifies the gap into one of two buckets at runtime:
+
+- **Auto-recoverable** — the information exists somewhere reachable (filesystem, `knowledge/` entities, `inbox/` sources) and can be found via `find` / `Glob` / `Grep`. Typical examples: repository paths, references to existing entity files, content already captured in `inbox/`.
+- **Human-input-required** — the information lives outside Rill and depends on user recall or private sources. Typical examples: contract amounts, PII (names, emails, phone numbers — ADR-047 requires these to live in `knowledge/people/` or `knowledge/orgs/`), verbal commitments, private API specs.
+
+The qualitative test: **is the fact findable by grepping Rill or the filesystem?** If yes, treat as auto-recoverable.
+
+##### Step 2: Handle by classification
+
+**Auto-recoverable**:
+
+1. Run the search (`find ~/src -maxdepth 4 -name '<pattern>*'`, `Glob`, `Grep`, etc.)
+2. If the fact is found:
+   - Edit the target `knowledge/` file (the `suggest:` location) to add the missing fact
+   - Append to `## History`: `- YYYY-MM-DD: knowledge-gap resolved: {what} → added to {path}`
+   - Resume the Plan step
+3. If the fact is not found or the candidate set is ambiguous:
+   - Create a draft task inline: `rill mkfile tasks/fix-knowledge-{parent-slug}-{topic} --slug _task --type task`, then Edit its frontmatter `status: draft`
+   - Draft task Goal: `Add {what} to {path}`
+   - Draft task Background: autopopulate from the blocker context
+   - Append to the parent task's `## History`: `- YYYY-MM-DD: knowledge-gap deferred: {what} → draft task [fix-knowledge-...](../fix-knowledge-{...}/_task.md)`
+   - Exit Phase 4 with the parent task `status: open` (standard external-response exit)
+
+**Human-input-required**:
+
+1. Ask the user via `AskUserQuestion`: "I need {what}. If you give it to me, I'll add it to {suggest-path} and continue. Provide it, or skip?"
+2. If the user provides the information:
+   - Edit the target `knowledge/` file to add it
+   - Append to `## History`: `- YYYY-MM-DD: knowledge-gap resolved: {what} → added to {path} (user-provided)`
+   - Resume the Plan step
+3. If the user skips:
+   - Append to `## History`: `- YYYY-MM-DD: knowledge-gap unresolved: {what} (user deferred)`
+   - Exit Phase 4 with `status: open` (standard blocker exit)
+
+##### Writing rules
+
+- **Never write PII anywhere other than `knowledge/people/` or `knowledge/orgs/`** (ADR-047)
+- If the target section does not exist in the destination file, add it as free text. The corresponding `knowledge/{type}/CLAUDE.md` may or may not define the section explicitly; structure is adjustable later
+- Use `Edit` to add a section to an existing file; use `rill mkfile` only when a wholly new file is required
+
+##### Draft task naming
+
+- Path: `tasks/fix-knowledge-{parent-task-slug}-{topic}/_task.md`
+- Keep `{topic}` short and identifying — e.g. `tasks/fix-knowledge-axios-investigation-bellhop-repo/_task.md`
+
 ### Phase 5: Wrap-up (completion criteria check)
 
 #### 5.1 Check completion criteria
@@ -256,7 +307,7 @@ Judge whether the Plan's "Completion criteria" is met:
 
 - Met → 5.2 (`status: done`)
 - Not met but Claude is no longer the actor (waiting on user execution / external response) → leave `status: open`, update Current Position to "{what} pending; Next action: {what}", exit
-- Stopped by a fatal blocker → leave `status: open`, record the blocker in Current Position, append details to `## History`, exit
+- Stopped by a fatal blocker → leave `status: open`, record the blocker in Current Position, append details to `## History`, exit. **If the blocker is a knowledge-gap, apply the Phase 4 knowledge-gap blocker handling first — it may auto-resolve or emit a draft task before this branch is reached.**
 
 #### 5.2 Transition to status: done
 
