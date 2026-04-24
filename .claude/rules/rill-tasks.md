@@ -86,6 +86,15 @@ related:                           # optional
 
 Scaffolded by `rill task`. See Substance below for how to fill each field.
 
+### Dynamic sections (managed by /solve)
+
+When /solve runs against a task, it writes two additional sections into `_task.md`:
+
+- `## Current Position` — placed directly under the title; updated at each Phase / Step transition. Removed when the task reaches `status: done`.
+- `## Plan` — written between `## Context` and `## Request` after the user approves the Phase 3 Plan. Stays even after completion (it documents how the task was solved).
+
+These sections are managed by /solve and do not need to be hand-authored.
+
 ## Substance
 
 The task file is the primary handoff between creator and executor (human or AI). Thin fields force the executor to re-derive intent from scratch — which defeats the point of persisting a ticket.
