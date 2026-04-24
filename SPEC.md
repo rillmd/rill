@@ -520,7 +520,7 @@ No `priority` field. Urgency is calculated from `due` and `scheduled`:
 - YYYY-MM-DD: Event
 ```
 
-`rill task` CLI auto-generates the section scaffold. `--background` pre-sets background text, `--context` pre-sets context (related file links, etc.). Goal can be empty at capture time (filled during /solve understanding phase). Request is optional (added by creator as needed).
+`rill task` CLI auto-generates the section scaffold. `--background` pre-sets background text, `--context` pre-sets context (related file links, etc.). Goal can be empty at capture time (filled during /solve Phase 3 Planning, or by a human). Request is optional (added by creator as needed).
 
 **Lifecycle**: Captured (just created: title + background only) → Ready (goal + context sufficient) → In Progress (execution records in history log) → Done.
 
