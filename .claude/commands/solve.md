@@ -1,7 +1,7 @@
 ---
 gui:
   label: "/solve"
-  hint: "AI autonomously researches, analyzes, and resolves a task"
+  hint: "Solve a task collaboratively via a Plan with embedded breakpoints"
   match:
     - "tasks/*/_task.md"
   arg: path
@@ -9,242 +9,308 @@ gui:
   mode: live
 ---
 
-# /solve — AI Autonomous Task Execution
+# /solve — Plan-Embedded Breakpoint Task Execution
 
-The AI reads a task, gathers context, and autonomously runs research and analysis to produce deliverables. It carries the task forward until it is waiting on human review (status: waiting).
+The default is to solve a task in a single ticket. Each step in the Plan declares **who acts** and **whether a breakpoint is required**, and Claude navigates that Plan seamlessly. There is no explicit "AI autonomous mode" → "human-in-the-loop" toggle — the Plan itself dictates when Claude proceeds and when the user is called.
+
+If the session is cleared (`/clear`) and `/solve {slug}` is invoked again later, the `## Current Position` section at the top of `_task.md` is enough to identify the resumption point. Worst-case rework is "one step that was started but not completed".
 
 ## Arguments
 
-{arg} — one of the following:
+{arg} — one of:
 - Full path to a task's `_task.md` (e.g. `tasks/research-kids-carsickness/_task.md`)
 - A task slug (e.g. `research-kids-carsickness`) → resolved to `tasks/{slug}/_task.md`
-- Omitted → use AskUserQuestion to ask "Which task should I run?"
+- Omitted → ask "Which task should I run?" via AskUserQuestion
 
-Legacy flat-file paths (`tasks/{slug}.md`) are no longer accepted. If one is passed, fail with a message asking the user to run `rill migrate tasks-v1` first (ADR-076).
+Legacy flat-file paths (`tasks/{slug}.md`) are not accepted. If one is passed, ask the user to run `rill migrate tasks-v1` first (ADR-076).
 
 ## Safety Boundary
 
-The AI autonomously performs "know, think, write." Actions that "change, send, or execute" must go through human review.
+Operations are governed not by a fixed table but by what the Phase 3 Plan declares. Each step has a `[Claude]` or `[User]` tag, and any step where reversibility is low or external side effects occur is given a `⚠️ Breakpoint` so the user is consulted before it runs.
 
-| Operation | Permission |
-|-----------|------------|
-| Reading files, WebSearch, Grep | Autonomous |
-| Creating artifacts under the task directory (`tasks/{slug}/NNN-*.md`) | Autonomous |
-| Updating the task file (status, related, history) | Autonomous |
-| Appending procedural details to the task file | Autonomous |
-| Code changes | **Investigation and planning only.** Implementation requires human approval |
-| Sending email / external communication | **Drafting only.** Sending is performed by a human |
-| File deletion, git push, external API calls | **Forbidden** |
+| Operation | Default placement |
+|---|---|
+| File reads, WebSearch, Grep | `[Claude]` (autonomous) |
+| Creating / editing artifacts under `tasks/{slug}/NNN-*.md` | `[Claude]` (autonomous) |
+| Updates to `_task.md` (status, Plan, Current Position, History) | `[Claude]` (autonomous) |
+| Code changes in a target repository | `[Claude]` step preceded by `⚠️ Breakpoint` for user approval, OR `[User]` step |
+| Email / external messaging | Draft only by Claude. Sending is a `[User]` step with `⚠️ Breakpoint` |
+| File deletion, git push, external API calls | Must be declared in the Plan. Do not run without user approval, except where repository convention permits (e.g. routine push on a working branch) |
+
+`[Claude]` vs `[User]` is not a fixed rule — it is a Plan-time decision based on the task's nature and the reversibility of each step.
+
+## State Persistence — `## Current Position` in `_task.md`
+
+Treat `_task.md` as a state document where the current position and next action can be read from the top. A new section `## Current Position` sits directly under the title (after the frontmatter, before `## Goal`).
+
+### Format
+
+```markdown
+## Current Position
+
+- Phase 3 Step 2 complete; stopped at the Step 3 breakpoint (waiting for the broker's confirmation)
+- Next action: user receives the confirmation from the broker and reports the date when running /solve again
+```
+
+Two or three lines is enough. State the Phase / Step / status, and who must act next plus what they must do.
+
+### Update Cadence (not per tool call)
+
+| Event | Value to write |
+|---|---|
+| Phase 1 Intake complete | "Intake complete; judging in Phase 2 Enrichment" |
+| Phase 2 judgment complete | "Phase 3 Planning in progress" |
+| Right after Phase 3 Plan approval | "Step 1 in progress" + fill the `## Plan` section |
+| At the start of each Step | **Write "Step N in progress" as the very first Edit of Step N** |
+| Breakpoint reached | "Stopped at the Step M breakpoint ({what}); next action: {what}" |
+| Plan complete | Delete this section (the frontmatter `status: done` is sufficient) |
+
+### Critical trick — write at *step start*, not step end
+
+Current Position is written as the **first Edit of the next Step**, not as the last Edit of the previous Step. If Claude is interrupted, what remains in the file is "the step Claude most recently opened" — which is exactly the right resume point. Do this at the top of every step in Phase 4 Execute.
+
+State lives in this single `_task.md` file. Do not introduce a separate `_state.md`. Section order at the top of the file is fixed: `## Current Position` → `## Goal` → `## Background` → `## Context` → `## Plan` → `## Request` → `## History`.
 
 ## Procedure
 
-### Phase 0: Load Task + Validation + Context Collection
+### Phase 1: Intake (read related files + transparency)
 
-#### 0.1 Resolve and validate arguments
+#### 1.1 Resolve and validate
 
-1. Resolve the argument and determine the task file path
-2. Read the task file
+1. Resolve the argument and determine the `_task.md` path
+2. Read `_task.md`
 3. Validation:
-   - Confirm `type: task`. If it is `type: insight` or similar, notify "This file is not a task (type: {actual_type})" and exit
-   - `status: done` or `status: cancelled` → notify "This task is already completed/cancelled" and exit
+   - Confirm `type: task`. Otherwise: "This file is not a task (type: {actual_type})" and exit
+   - `status: done` / `status: cancelled` → "This task is already completed/cancelled" and exit
    - `status: draft` → "This task is a draft (an unapproved AI-generated task). Approve and run it?" via AskUserQuestion. Approved → Edit `status` to `open` and continue. Rejected → exit
-4. If the `related` field contains a workspace path, Read its `_workspace.md` for context (it may be a pre-ADR-077 leftover from the old task-originated /focus flow, or a sibling Deep Think workspace). Do not branch on it — /solve always writes under the task directory, never to a workspace (ADR-077 D77-1).
+4. Check whether `_task.md` already has a `## Current Position` section:
+   - **Present**: this is a resume. Read its content, announce "Resuming from {Phase X Step Y}", and jump to the corresponding Phase
+   - **Absent**: this is a fresh run. Add the section at the end of Phase 1
 
-#### 0.2 Context collection
+#### 1.2 Read related files
 
-To deepen understanding of the task, dynamically gather related information:
+To deepen understanding of the task, read:
 
-1. **Read the source**: Read the file in the task's `source` field. If a file with the same name exists under `_organized/`, prefer that
-2. **Read the related items**: Read the files in the `related` field (if it is a workspace path, Read `_workspace.md`)
-3. **Cross-cutting search**: Extract 2–3 keywords from the task's `tags` and `mentions` and run a single Grep:
+1. **source**: the file in `source` (prefer the same-named file under `_organized/` if present)
+2. **related**: every file listed in `related` (if it is a workspace path, read `_workspace.md`)
+3. **mentions**: each `people/{id}` / `orgs/{id}` / `projects/{id}` file
+4. **User profile**: `knowledge/me.md`
+5. **Cross-cutting Grep** (single call): pick 2–3 keywords from the task's `tags` and `mentions`
    ```
    Grep(pattern="{keyword}", glob="{knowledge,inbox,workspace,reports,tasks}/**/*.md",
         output_mode="files_with_matches", head_limit=30)
    ```
-   - pages/ is excluded from the search
-   - From the results, Read a handful of the most relevant files
-4. **User profile**: Read `knowledge/me.md`
-5. **Person info**: If `mentions` contains `people/{id}`, Read `knowledge/people/{id}.md`
-6. **Latest context**: Grep recent `inbox/journal/` for task-related keywords, and Read any related entries (prefer _organized/)
+   Exclude pages/. Read the most relevant handful from the result
+6. **Recent context**: Grep recent `inbox/journal/` for task keywords and Read related entries (prefer `_organized/`)
 
-### Phase 1: Understand
+#### 1.3 Transparency — list the files that were read
 
-Understand the task correctly and align with the user.
+Output a Markdown list of every file Read in Phase 1, so the user can see the knowledge base Claude is operating from and flag gaps.
 
-#### 1.1 Fact-check
+```markdown
+## Phase 1 Intake — files read
 
-Verify whether the assumptions and issues stated in the task are still accurate:
-
-- Cross-check the situation described in the task's background and context against the current state of related files
-- For code-change tasks: Read the target files and confirm the current implementation
-- For business tasks: check the latest state in knowledge/people/ and knowledge/projects/
-- **Surface stale assumptions explicitly**: "The task background says 'X is in state Y,' but it is currently Z."
-
-#### 1.2 Scoping
-
-Verify whether the task's scope is appropriate:
-
-- Consider whether the task's goal has been missing any angles in the background or context
-- If there is a request, consider whether that request is sufficient to achieve the goal
-- Identify dependencies: are there other tasks or prerequisites that should be resolved first
-- **Propose adjustments when scope is too narrow or too broad**: "Achieving the goal also seems to require X." "Should Y be considered out of scope for now?"
-
-#### 1.3 Briefing
-
-Organize the fact-check and scoping results and present them to the user:
-
-```
-## Task Understanding Briefing
-
-**Goal**: {summary of the task's goal}
-
-**Current State**:
-- {fact-check results}
-- {flags about changed assumptions}
-
-**Scope Confirmation**:
-- {missing considerations}
-- {scope boundary proposals}
+- [tasks/{slug}/_task.md](tasks/{slug}/_task.md) — this task
+- [{source}]({source}) — source
+- [{related-1}]({related-1}) — related
+- knowledge/me.md — Interest Profile
+- {a few files actually Read from the Grep result}
+- {related entries from recent journal}
 ```
 
-- **If the goal is empty**: Infer the goal from the Phase 0 context (source, related, background) and propose it. If inference is not possible, ask via AskUserQuestion
-- **If the goal is not empty**: Present the briefing. If the fact-check is clean and there are no scope concerns, proceed to Phase 2 without asking
-- **If there are issues**: Ask any clarifying questions via AskUserQuestion, then proceed to Phase 2 after the user replies
+#### 1.4 Update Current Position
 
-**Phase 1 completion criteria**:
-- The AI accurately understands the task's goal, background, and current state
-- There is no misalignment with the user
-- Scope is agreed
+For a fresh run, Edit `_task.md` to add `## Current Position` at the top:
 
-### Phase 2: Design
+```markdown
+## Current Position
 
-The AI proposes how to do it and decides the approach interactively with the user. **Do not move on to Phase 3 until the user has approved.**
+- Phase 1 Intake complete; judging in Phase 2 Enrichment
+- Next action: Claude judges whether information is sufficient
+```
 
-#### 2.1 Proposing an approach
+### Phase 2: Enrichment Judgment (conditional, one-line declaration)
 
-Design the execution approach using the context gathered in Phase 0 and the understanding from Phase 1.
+Claude judges at runtime:
 
-1. Safety boundary check:
-   - Code changes needed → state explicitly "I will produce an investigation and implementation plan. The implementation itself will be done by a human"
-   - External communication needed → state explicitly "I will draft email text. Sending will be done by a human"
-2. Decide where the deliverables go. All three patterns stay inside the task directory — /solve never creates a workspace (ADR-077 D77-1/D77-2):
-   - **Enrich pattern**: edit `tasks/{slug}/_task.md` body directly (Background / Context / Request). Use when the work only refines the existing task structure and produces no new content.
-   - **Research pattern**: add `tasks/{slug}/NNN-*.md` artifact(s) next to `_task.md`. Use when producing new content (research results, analysis, comparison tables, design proposals). Quick rule: if WebSearch / WebFetch is used → Research pattern.
-   - **Code pattern**: code changes happen in the actual git repo (rill-dev / rillmd / etc.). The **implementation plan** goes into `tasks/{slug}/NNN-plan.md` for human review. Implementation itself is not performed by /solve.
+- Is the information sufficient?
+- Is best practice known? If not, it is a search candidate
+- Would WebSearch / Vault Search add value?
 
-#### 2.2 Interactive design
-
-Present the proposal to the user and get approval via AskUserQuestion:
+Tell the user the judgment in one line:
 
 ```
-## Execution Plan
+> Information looks sufficient. Skipping Enrichment and moving to Planning.
+```
 
-**Approach**: {summary of the approach}
+Or:
+
+```
+> The latest {procedure / API / fact} for {topic} is not in _task.md, so I'll WebSearch.
+```
+
+Leave room for the user to interject ("no, look up X first") before Phase 3 starts.
+
+If Enrichment runs, summarise the result in 1–2 paragraphs and use it as material for the Plan. Do not create a new artifact file here — Phase 3 decides what gets written and where.
+
+When done, update Current Position to "Phase 3 Planning in progress".
+
+### Phase 3: Planning (required, Plan-Embedded Breakpoint, user approval gate)
+
+The default is "do not split". If the Plan can state "this task is solvable as a single ticket", do not split. Only split when necessary, and then declare it as a single Plan step ("create child tasks {slug-A}, {slug-B} via `rill task`, copy parent Background / Context, add parent path to children's `related`") and **list the child slugs in the parent's Plan** (parent–child visibility holds via that listing alone — no extra tooling needed).
+
+#### 3.1 Fact-check + scoping
+
+- Briefly verify the task's background / context is consistent with the current state of related files
+- Pick up at most 1–2 missing angles or scope clarifications
+- If a fatal inconsistency exists, ask the user for a one-line correction first
+
+#### 3.2 Drafting the Plan
+
+Claude drafts the Plan. **`[Claude]` / `[User]` tags and `⚠️ Breakpoint` markers are required.**
+
+```markdown
+## Plan
+
+**Completion criteria**: {a clear end state under which this task is "solved"}
 
 **Steps**:
-1. {step 1}
-2. {step 2}
-...
-
-**Deliverables**: {tasks/{slug}/NNN-*.md artifact(s) / appended to tasks/{slug}/_task.md}
-**Safety boundary**: {code changes: implementation plan only / external comms: draft only}
-
-May I proceed with this approach?
+1. [Claude] {autonomous work}
+2. [Claude] {autonomous work — produces an intermediate `tasks/{slug}/NNN-*.md`}
+   - ⚠️ **Breakpoint**: user reviews {what} and approves or requests changes
+3. [User] {an action the user performs by hand}
+   - ⚠️ **Breakpoint**: wait for {completion notice / result report}
+4. [Claude] {autonomous work after resume}
+5. [Claude] Edit `_task.md` to `status: done` and append History
 ```
 
-If the user requests modifications, revise the design and present it again. Once approved, proceed to Phase 3.
+#### Step kinds (successors of the old Enrich / Research / Code patterns)
 
-### Phase 3: Execution
+`[Claude]` steps in Phase 3 typically take one of these "kinds". **Kind is per-step, not per-Phase** — a single Plan can mix Research + Code-plan + Refine steps freely.
 
-All artifacts land inside the task directory `tasks/{slug}/` (ADR-077 D77-1). /solve never creates a workspace.
+| Step kind | Target | Deliverable |
+|---|---|---|
+| **Refine** (old "Enrich" — renamed to avoid clashing with Phase 2 "Enrichment") | `_task.md` body | Edit to `_task.md` (sharpens Background / Context / Request) |
+| **Research** | Web / Vault / knowledge search | `tasks/{slug}/NNN-research-*.md` (`--type research`) |
+| **Analysis** | Structuring / comparison | `tasks/{slug}/NNN-analysis-*.md` (`--type analysis`) |
+| **Decision** | Design / implementation plan | `tasks/{slug}/NNN-*-plan.md` (`--type decision`) |
+| **Code (plan)** | Code-change plan for a target repo | `tasks/{slug}/NNN-plan.md`. The implementation step itself is a separate step — typically `[Claude]` after a `⚠️ Breakpoint` for user approval, or `[User]` |
+| **Action** | External submission / send | `[User]` step with `⚠️ Breakpoint`. Claude drafts to `tasks/{slug}/NNN-draft-*.md`; the user sends |
 
-#### Research pattern — adding an artifact
+All deliverables live under `tasks/{slug}/` (ADR-077 D77-1). /solve never creates a workspace. If the task genuinely needs a shared Deep Think surface, halt and suggest the user run `/focus <theme>` manually.
 
-1. Scaffold the artifact file with `rill mkfile`:
-   ```bash
-   rill mkfile tasks/{slug} --slug {description} --type {research|analysis|decision|progress|review}
+#### 3.3 Write the Plan into `_task.md` and gate on user approval
+
+1. Edit `_task.md` to write the drafted Plan into a `## Plan` section (replace any prior Plan)
+2. Ask for approval via AskUserQuestion:
    ```
-   This creates `tasks/{slug}/NNN-{description}.md` with frontmatter pre-populated (numbering auto-increments per task directory).
+   ## Execution Plan
 
-2. Append the body to the printed path with Edit:
-   - **Research**: Gather information with WebSearch + WebFetch. Integrate across multiple sources.
-   - **In-Rill analysis**: Use Grep to consult related knowledge and integrate it with existing insights.
-   - **Structuring**: Structure the gathered information into readable Markdown.
-   - **Additional research**: If the AI judges that "this direction is also worth investigating," it may autonomously run additional research.
-   - **Sources**: Always list the referenced URLs / file paths at the end of the artifact.
+   {summary of the Plan}
 
-3. Multiple artifacts per /solve run are allowed (e.g. `NNN-research-topic-A.md` + `NNN-research-topic-B.md` + `NNN-decision.md`). Numbering is time-ordered; naming is free within the task.
-
-#### Code pattern — implementation plan only
-
-**Code changes are not performed by /solve.** Limit work to investigation and producing an implementation plan; implementation happens after human approval (outside /solve).
-
-1. Read the target code to understand the current state (Grep → Read)
-2. Analyze the cause of the issue and outline a direction
-3. **Write the implementation plan as a task artifact**:
-   ```bash
-   rill mkfile tasks/{slug} --slug plan --type decision
+   May I proceed with this Plan?
    ```
-   Edit the printed path to include:
-   - Concrete description of which files to change and what the changes are
-   - Reasons for the changes and their impact
-   - Test methods and verification steps
-4. Change the task's status to `waiting` (waiting on review of the implementation plan)
-5. **Phase 3 ends here. Do not Edit or Write any code in the target repo.**
+3. Approved → proceed to Phase 4. Revision requested → revise the draft and re-present
 
-#### Enrich pattern — task file refinement
+Do not move on to Phase 4 without approval. After approval, update Current Position to "Step 1 in progress".
 
-- Append directly to `tasks/{slug}/_task.md` with Edit
-- Make the goal, background, and context more concrete and detailed
-- Add new sections as needed (e.g. "## Detailed Procedure")
-- No artifact file is created
+### Phase 4: Execute (seamless navigation)
 
-### Phase 4: Wrap-up
+Navigate the approved Plan step-by-step.
 
-1. **Update the task file** (`tasks/{slug}/_task.md`):
-   - If the AI completed the work: Edit `status` to `waiting`
-   - For tasks that require a physical action by a human (the AI only enriched the procedure): leave `status` as `open`
-   - **Append an execution record to the task's History section**: record the execution plan, what was done, and the outcome. The current state and Next Action should be obvious just from looking at the task
-   - If the task has a "## Context" section, add links to any new artifacts produced in Phase 3 with short role descriptors
-   - Append an execution record to the "## History" section:
-     ```markdown
-     - YYYY-MM-DD: /solve autonomous run. {one-line summary of the deliverable}
-     ```
+#### Per-step loop
 
-2. **Knowledge distillation** (only when marking the task done):
-   If the task contains information with knowledge value, extract it as a knowledge note under knowledge/notes/.
-   - **What to distill**: records of decisions (why a choice was made) → `type: record`; design insights or patterns → `type: insight`; summaries of external information → `type: reference`
-   - **Not to distill**: pure actions (e.g. bring the umbrella home), tasks that are only procedural checklists
-   - **How**: create with `rill mkfile knowledge/notes --slug {slug} --type {record|insight|reference} --field "source=tasks/{task-slug}/_task.md"`. `source` points to the task file
-   - **Backlink to the task**: add the path of the created knowledge note to the task's `related`
-   - **Evergreen check**: confirm there is no existing knowledge/notes/ file on the same topic. If there is, update it instead of creating a new one
+```
+for step in Plan.steps:
+    Edit `_task.md` Current Position to "Step {N} in progress"   # step-start trick
+    if step.tag == "[Claude]":
+        Execute (Research / Code plan / Refine / Action draft / etc.)
+        Save deliverables to tasks/{slug}/NNN-*.md as applicable
+    elif step.tag == "[User]":
+        Tell the user in one line what to do, and confirm completion via AskUserQuestion
+    if step.has_breakpoint:
+        - Review request → wait via AskUserQuestion for approval / change request
+        - User-execution wait → wait for completion report
+        - External-response wait → update Current Position to a stopped state
+          (status unchanged) and exit Phase 4. The next /solve {slug} resumes here
+```
 
-3. **Record in activity-log**:
-   ```bash
-   rill activity-log add task:execute "{task title}" → {artifact path or task file path}
+#### Producing deliverables
+
+- **New artifact**: `rill mkfile tasks/{slug} --slug {desc} --type {research|analysis|decision|progress|review}` scaffolds `tasks/{slug}/NNN-{desc}.md` (numbering auto). Append the body via Edit. Always add a Sources section at the end.
+- **Direct `_task.md` edit** (Refine step): sharpen `## Background` / `## Context` / `## Request` via Edit.
+- **Code change in a target repo** (Code step): only run when the Plan tag is `[Claude]` and the preceding `⚠️ Breakpoint` was approved. Pre-approval implementation is forbidden. After implementation, append "date / files changed / outcome" to the corresponding `tasks/{slug}/NNN-plan.md`.
+
+#### After a step
+
+- If the step ended without a breakpoint, move to the next step (Current Position is overwritten at the next step's start, not here)
+- Do not append per-step entries to `## History` (too granular). Phase 5 Wrap-up logs the run as a single entry
+
+### Phase 5: Wrap-up (completion criteria check)
+
+#### 5.1 Check completion criteria
+
+Judge whether the Plan's "Completion criteria" is met:
+
+- Met → 5.2 (`status: done`)
+- Not met but Claude is no longer the actor (waiting on user execution / external response) → leave `status: open`, update Current Position to "{what} pending; Next action: {what}", exit
+- Stopped by a fatal blocker → leave `status: open`, record the blocker in Current Position, append details to `## History`, exit
+
+#### 5.2 Transition to status: done
+
+1. Edit frontmatter `status` to `done`
+2. Delete the `## Current Position` section (a finished task does not need it)
+3. Append an execution record to `## History`:
+   ```markdown
+   - YYYY-MM-DD: /solve completed. Ran {N} Plan steps; produced {primary deliverable}
    ```
+4. If new artifacts were created, add them to `## Context` with a short role descriptor (Markdown links)
 
-4. **Record blockers** (when the work could not be fully completed):
-   - Record concretely in the task's "## History" what caused work to stop:
-     ```markdown
-     - YYYY-MM-DD: /solve run. {what was accomplished}. **Blocker: {what was missing}** (e.g. could not verify directly because the repository path is not recorded under knowledge/projects/)
-     ```
-   - When the blocker stems from missing knowledge in Rill (paths, credentials, external service specs, etc.), describe the missing information concretely so that a future /solve run or a human can fill it in
+#### 5.3 Knowledge distillation (only when status: done)
 
-5. **Display the result path to the user**:
-   - Print the repo-relative path as a Markdown link or in backticks. For Research pattern show the main artifact; for Enrich pattern show `_task.md`.
-   - Do **not** call `rill open` — the user opens files themselves via the header search box (or `Cmd+P`) in the Rill GUI.
+If the task has knowledge value, extract it as `knowledge/notes/`:
+
+- **Distill**: decision records (why a choice was made) → `type: record`; design insights / patterns → `type: insight`; external-information summaries → `type: reference`
+- **Do not distill**: pure actions (e.g. bring the umbrella home), procedural-only checklists
+- **How**: `rill mkfile knowledge/notes --slug {slug} --type {record|insight|reference} --field "source=tasks/{task-slug}/_task.md"`
+- **Backlink**: add the new note's path to the task's `related`
+- **Evergreen check**: if a knowledge/notes/ on the same theme exists, update it instead of creating a new one
+
+#### 5.4 activity-log
+
+```bash
+rill activity-log add task:execute "{task title}" → {primary deliverable path or _task.md path}
+```
+
+#### 5.5 Display result paths
+
+Print primary deliverable paths as Markdown links or in backticks. **Do not call `rill open`** — the user opens files via the GUI header search box (or `Cmd+P`).
+
+## Resume Operation
+
+If `/solve {slug}` is invoked after a `/clear`:
+
+1. Phase 1.1 validation detects the existing `## Current Position`
+2. Read its content and announce "Resuming from {Phase X Step Y}"
+3. Jump to that Phase / Step (Phase 1 file reads are re-run for cache, which is acceptable)
+4. Tolerate at most one step of rework (real SLA)
+
+## Decomposition
+
+- **Default**: solve in one ticket. If the Plan cannot articulate "why splitting is necessary", do not split
+- **When splitting**: declare it as one Plan step — "[Claude] create child tasks {slug-A}, {slug-B} via `rill task`, copy the parent's Background / Context, add parent path to each child's `related`". After execution, replace the corresponding line in the parent's `## Plan` with "Done — continued in [slug-A](../{slug-A}/_task.md), [slug-B](../{slug-B}/_task.md)"
+- **Parent–child visibility**: holds via the child slugs being listed in the parent's Plan. No additional tooling needed
 
 ## Rules
 
-- Source files under inbox/ are **read-only**. Never modify them
-- When Reading files under knowledge/notes/, apply the ADR-046 metadata fixes:
-  - **Mode A (direct fix)**: remove deprecated tags, migrate entity IDs from tags → mentions
-  - **Mode B (append to .refresh-queue)**: detect empty `tags` arrays, missing mentions/related, etc., and append to the queue
-- If a file with the same name exists under `_organized/`, Read that one in preference
-- Use `rill mkfile tasks/{slug} --slug {desc} --type {type}` to create artifact files under a task
-- Never create a workspace from /solve (ADR-077). If the task genuinely requires a shared Deep Think surface, stop and suggest the user run `/focus <theme>` manually
-- When assigning tags, Read `taxonomy.md` to check existing tags. If none apply, add a new tag
-- When referring to files in body text, use Markdown links of the form `[display name](relative path)`. Backtick references with the ID alone are forbidden
-- Always include a Sources section at the end of the deliverable (URLs for web research, file paths for in-Rill references)
+- Source files under `inbox/` are **read-only**. Never modify them
+- When reading files under `knowledge/notes/`, apply the ADR-046 metadata fixes:
+  - **Mode A (direct fix)**: remove deprecated tags, migrate entity IDs from tags to mentions
+  - **Mode B (append to `.refresh-queue`)**: detect empty `tags`, missing mentions / related, etc., and append to the queue
+- If a same-named file exists under `_organized/`, prefer Reading that one
+- Use `rill mkfile tasks/{slug} --slug {desc} --type {type}` for new artifact files under a task
+- Never create a workspace from /solve (ADR-077). If the task truly needs a shared Deep Think surface, halt and suggest `/focus <theme>` manually
+- When assigning tags, Read `taxonomy.md` to check existing tags. Add a new tag only if none apply
+- For in-body file references, use Markdown links of the form `[display name](relative path)`. Backtick-only ID references are forbidden
+- Always include a Sources section at the end of any deliverable (URLs for web research, file paths for in-Rill references)
 - When Reading a file referenced by `source:`, prefer the `_organized/` version if a same-named file exists there
