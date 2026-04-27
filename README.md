@@ -23,6 +23,21 @@ Everything Rill produces is plain Markdown. Git is the single source of truth. C
 
 > **Status**: v0.1 public preview. Expect rough edges, sharp changes, and short iteration cycles. [Report issues](https://github.com/rillmd/rill/issues).
 
+## Is This for Me
+
+Rill makes the most sense if:
+
+- You already use Claude Code daily and have a Max Plan subscription (~$20/month)
+- You take notes regularly (journals, meetings, idea fragments) and want them distilled rather than just stored
+- You prefer local-first, file-based tools where Git is the system of record
+- You are comfortable with a CLI workflow alongside a desktop GUI
+
+Rill is probably not for you if:
+
+- You want cloud sync, a web-only UI, or multi-user collaboration
+- You want a polished consumer product, not a v0.1 system you can hack on
+- You do not want to add Anthropic to your AI vendor list
+
 ## Why Rill
 
 Most PKM tools are filing cabinets: they store what you put in, exactly how you put it in. Rill is a thinking layer on top of one: you drop in raw input (a voice memo, a meeting transcript, a clipped tweet), and Claude Code distills it into atomic notes, tasks, and entity records. The originals stay immutable; the distilled layer is evergreen.
@@ -105,7 +120,7 @@ Every skill is a single Markdown file in `.claude/commands/`. Read the file to s
 ### Requirements
 
 - macOS 12+ (for the desktop app), or any OS with a terminal (for CLI only)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with a Max Plan
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with a Max Plan subscription (~$20/month, separate from Rill)
 - Git, `jq`
 
 ### Install
