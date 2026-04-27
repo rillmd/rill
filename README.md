@@ -246,7 +246,7 @@ Rill's behavior lives in its source files. When you run `claude` inside a Rill v
 | Directory conventions | [`.claude/rules/rill-*.md`](.claude/rules) |
 | File placement rules | [`inbox/<type>/CLAUDE.md`](inbox) |
 | Plugin authoring | [plugins/README.md](plugins/README.md) |
-| Writing your own skill | [docs/creating-skills.md](docs/creating-skills.md) |
+| Skill spec examples | [docs/skill-specs/](docs/skill-specs/) |
 | Full specification | [SPEC.md](SPEC.md) |
 
 You rarely need to read any of these directly — just ask Claude. They exist for transparency and audit.
