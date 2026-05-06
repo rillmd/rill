@@ -19,7 +19,7 @@ $ARGUMENTS — none
 ### 2. Check for unsynced files
 
 1. Use Bash to list `*.txt` files inside the iCloud Drive folder
-2. Read `plugins/voice-memo/.synced` to exclude files that have already been synced (treat as an empty list if the file does not exist)
+2. Read `plugins/.state/voice-memo.synced` to exclude files that have already been synced (treat as an empty list if the file does not exist). State lives under `plugins/.state/` so it survives `rill update` overwriting plugin directories
 3. If there are no unsynced files, report "Everything is already synced" and exit
 4. Display the list of unsynced files (filename + preview of the first few lines)
 
