@@ -18,7 +18,7 @@ $ARGUMENTS — optional. A keyword if you want to target a specific document
 1. Run `gog --json drive search "Notes by Gemini" --max 100` via Bash
    - **Note**: This query matches English-locale Google accounts. For Japanese-locale accounts, use `"Gemini によるメモ"` instead
 2. Parse the resulting JSON to get the list of documents (id, name, createdTime)
-3. Read `plugins/google-meet/.synced` to exclude already-synced documents
+3. Read `plugins/.state/google-meet.synced` to exclude already-synced documents (state lives under `plugins/.state/` so it survives `rill update` overwriting plugin directories)
 4. List the unsynced documents
 
 ### 3. Import documents
@@ -45,7 +45,7 @@ tags: [{appropriate tags}]
 ---
 ```
 
-5. Append to `plugins/google-meet/.synced` (TSV format: `doc_id\tfilename\ttimestamp`)
+5. Append to `plugins/.state/google-meet.synced` (TSV format: `doc_id\tfilename\ttimestamp`)
 
 ### 4. Suggest follow-up
 
