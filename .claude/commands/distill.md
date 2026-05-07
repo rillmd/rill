@@ -69,8 +69,9 @@ Collect unprocessed files in 2 categories:
 
 - **Root drop zone relocation** (runs first): Glob `inbox/*.md` (root-level Markdown files only, not inside subdirectories). For each match, excluding `inbox/CLAUDE.md`, move it to `inbox/sources/{filename}` using `git mv` when the file is tracked, otherwise `mv`. This enables users to drop arbitrary Markdown files directly into `inbox/` as a generic drop zone; relocated files are then picked up by the Phase 2 `sources/` glob below. If no root-level matches exist, skip silently.
 - **Refresh queue check**: Read `knowledge/.refresh-queue`. If not empty, display "knowledge/.refresh-queue has N pending refreshes. Use /repair to process them" (not processed by /distill itself)
-- **Phase 1**: Glob `inbox/journal/*.md` → compare with `inbox/journal/.processed` → unprocessed journals (exclude `_organized/` files and `.gitkeep`)
-- **Phase 2**: Glob `inbox/{meetings,web-clips,tweets,think-outputs,sources}/*.md` → compare with each subdirectory's `.processed` → unprocessed inbox files (exclude `_organized/`, `.gitkeep`, `.processed`)
+- **Phase 1a (journal)**: Glob `inbox/journal/*.md` → compare with `inbox/journal/.processed` → unprocessed journals (exclude `_organized/` files and `.gitkeep`)
+- **Phase 1b (think-outputs)**: Glob `inbox/think-outputs/*.md` → compare with `inbox/think-outputs/.processed` → unprocessed think-outputs (AI-extracted microfiles structured at write time; exclude `.gitkeep`. No `_organized/` is generated for this category)
+- **Phase 2**: Glob `inbox/{meetings,web-clips,tweets,sources}/*.md` → compare with each subdirectory's `.processed` → unprocessed inbox files (exclude `_organized/`, `.gitkeep`, `.processed`)
 
 ※ Workspace distillation is handled by /close in the parent context (ADR-072). Not processed in batch pipeline
 
@@ -119,7 +120,8 @@ Shared context:
 {task_extraction_rules}
 ```
 
-- **Phase 1**: `_distill/journal-agent.md` (1 file/Agent). **Launch via Agent tool with `model: "sonnet"`** — this task is journal organization + atomic knowledge extraction with task-candidate inference, and Sonnet has been validated as production-equivalent to Opus on this workload (Tier 2 LLM-as-judge eval, 2026-04-19: 0/3 DEGRADED-MAJOR, 1/3 EQUIVALENT, 1/3 DIFFERENT-OK, 1/3 DEGRADED-MINOR — the minor case missed one inferred task and one cross-reference, neither blocking; cost reduced ~50% vs Opus). Monitor /distill output 1–2 weeks for task-extraction completeness; revert to Opus if regressions appear.
+- **Phase 1a (journal)**: `_distill/journal-agent.md` (1 file/Agent). **Launch via Agent tool with `model: "sonnet"`** — this task is journal organization + atomic knowledge extraction with task-candidate inference, and Sonnet has been validated as production-equivalent to Opus on this workload (Tier 2 LLM-as-judge eval, 2026-04-19: 0/3 DEGRADED-MAJOR, 1/3 EQUIVALENT, 1/3 DIFFERENT-OK, 1/3 DEGRADED-MINOR — the minor case missed one inferred task and one cross-reference, neither blocking; cost reduced ~50% vs Opus). Monitor /distill output 1–2 weeks for task-extraction completeness; revert to Opus if regressions appear.
+- **Phase 1b (think-outputs)**: `_distill/think-output-agent.md` (1 file/Agent). **Launch via Agent tool with `model: "sonnet"`** — same routing rationale as Phase 1a (atomic microfile + Evergreen extraction; no organize step is performed because AI structures the file at write time). Inherit Sonnet eval until think-outputs accumulate enough volume for a separate evaluation.
 - **Phase 2**: Resolved plugin `distill.md` (1 file/Agent). Read the plugin's distill.md, extract the ``` block template from `## Agent Prompt` section → expand template variables (`{file_path}`, `{taxonomy_yaml}`, `{people_mapping}`, `{orgs_mapping}`, `{projects_mapping}`, `{task_extraction_rules}`) → pass expanded prompt directly to Agent's prompt
 
 **Error handling**: If an agent reports an error, skip that file and proceed to the next. Skipped files are not appended to `.processed`.
@@ -129,7 +131,8 @@ Shared context:
 After all agents complete:
 1. Batch-update `.processed` (do not append files that errored/skipped):
    - journal: Append filenames to `inbox/journal/.processed`
-   - inbox/*: Append `filename:organized` to each subdirectory's `.processed`
+   - think-outputs: Append filenames to `inbox/think-outputs/.processed` (journal-style format, no status suffix; AI structures at write time so no organize step occurs)
+   - inbox/* (meetings/web-clips/tweets/sources): Append `filename:organized` to each subdirectory's `.processed`
 2. **Entity ID stripping (deterministic post-processing)**: Run `rill strip-entity-tags <file-paths ...>` on created/updated knowledge/notes/ (ADR-046 D46-2)
 3. Aggregate task candidates from all Phase 1 + Phase 2 agents. For each candidate, launch `_task/create-agent.md` as a sub-agent in `mode=extract` (max 5 parallel, `run_in_background: true`, **`model: "sonnet"`** — see the Sonnet-routing rationale on the single-file-mode invocation above; same eval applies). Pass the candidate pipe line, the `source_path` already recorded in it, and the shared context (taxonomy_yaml, people/orgs/projects mappings). The sub-agent handles duplicate checking, substance-rule-compliant body writing, and file creation via `rill mkfile tasks --field 'status=draft' ...` (ADR-069). Legacy parent-side parsing of `| background:` / `| context:` fields and `Title::path` conversion is no longer performed here — substance writing is owned by the sub-agent per `.claude/rules/rill-tasks.md`
 4. If new tags are reported, append to `taxonomy.md` (verify no conflict with deprecated tags)
