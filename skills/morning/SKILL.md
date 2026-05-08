@@ -1,0 +1,62 @@
+---
+name: morning
+description: Run the daily morning routine — invoke /briefing (Daily Note) followed by /newsletter (research report) inline within the current session. Use when the user starts the day or explicitly asks for the morning routine.
+---
+
+# /morning — Morning Routine
+
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+
+> **Tool references in this skill** ("skill invocation") describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in Skill tool; Codex CLI uses its own skill invocation mechanism (mention / implicit / `/skills`).
+
+Runs the two user-facing daily reports in sequence: Daily Note (/briefing) and research newsletter (/newsletter). Both run inline within the current session via the harness's skill mechanism.
+
+Background processing (external source sync, knowledge distillation) is **not** part of /morning (ADR-075). When you want to catch up, ask inside your vault — *"pull in new entries and extract anything useful"* — and the assistant will route to `/sync` then `/distill`. For unattended automation, see [docs/guides/scheduling.md](../../docs/guides/scheduling.md).
+
+## Why sequential (not parallel)
+
+Earlier revisions of /morning spawned `/briefing` and `/newsletter` as parallel sub-processes. When the parent session runs in `auto` mode (the recommended default), the harness's classifier reliably refuses to spawn in-session sub-agents with elevated permissions — this is the classifier's intended behavior, not a bug. Inline skill invocation stays inside the user's single top-level intent ("run my morning routine"), so each underlying tool call is judged routine and no subprocess spawn is attempted. Runtime cost: roughly 2–3 minutes longer than the old parallel pipeline.
+
+## Dependencies
+
+```
+Step 1: /briefing
+Step 2: /newsletter
+Step 3: Completion summary
+```
+
+Neither skill depends on the other's output. /briefing reads yesterday's activity window; /newsletter is WebSearch-based.
+
+## Arguments
+
+$ARGUMENTS — none
+
+## Procedure
+
+### Step 1: Daily Note (/briefing)
+
+Invoke the `briefing` skill (via the harness's skill mechanism) and wait for it to complete. Capture the path of the generated Daily Note from the skill's summary output.
+
+### Step 2: Newsletter (/newsletter)
+
+Invoke the `newsletter` skill (via the harness's skill mechanism) and wait for it to complete. Capture the path of the generated newsletter.
+
+If /briefing failed in Step 1, still run /newsletter — the two are independent.
+
+### Step 3: Completion summary
+
+Concisely summarize the execution result of each skill:
+- /briefing: path of generated Daily Note + success/failure
+- /newsletter: path of generated newsletter + success/failure
+
+The Daily Note already surfaces unprocessed inbox counts and recommends `/sync` and `/distill` when there is pending work (see /briefing's Notes section). The morning summary does not need to duplicate that.
+
+After the summary, exit (do not transition to assistant mode).
+
+## Rules
+
+- Both skills run in the current session via the harness's skill mechanism. Do **not** spawn separate sub-processes from this skill
+- Sequential execution. Parallel was tried and abandoned because the `auto` mode classifier (correctly) refuses skill-initiated subprocess spawns with elevated permissions
+- If /briefing fails, still attempt /newsletter (they are independent)
+- After everything completes, display the summary and exit
+- Do not call `/sync` or `/distill` from inside /morning (ADR-075)
