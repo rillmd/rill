@@ -34,7 +34,7 @@ $ARGUMENTS — one of the following:
 
 **3-Layer Context Collection** (execute in parallel):
 
-5. **Identity: Interest Profile** — Read `knowledge/self/profile.md` + `knowledge/self/interests.md` + `knowledge/self/direction.md` (the Identity layer is the static + medium-velocity combination). **Legacy fallback**: if `knowledge/self/profile.md` does not exist, read `knowledge/me.md` instead (~50 lines, treat as a single combined Identity source)
+5. **Identity: Interest Profile** — Read `knowledge/self/profile.md` + `knowledge/self/interests.md` + `knowledge/self/direction.md` (the Identity layer is the static + medium-velocity combination)
 6. **Identity: Project Entities** — Read all `knowledge/projects/*.md` (get Competitors, Watch Keywords)
 7. **Attention: Workspaces** — From all directories under `workspace/`, read `_workspace.md` (or `_session.md`) for **workspaces created within the past 2 weeks**, extracting (regardless of status — both active and completed):
    - `# heading` (workspace name)
@@ -56,13 +56,13 @@ $ARGUMENTS — one of the following:
 Integrate the 3-layer context (Identity / Attention / Impulse) and generate search keywords divided into **3 categories**.
 
 **3-Layer Context Model**:
-- **Identity** (self/profile.md + self/interests.md + self/direction.md + projects/; or `me.md` if self/ not present): Stable interest categories. Changes monthly
+- **Identity** (self/profile.md + self/interests.md + self/direction.md + projects/): Stable interest categories. Changes monthly
 - **Attention** (workspace/ past 2 weeks): Currently active themes. Changes weekly
 - **Impulse** (journal/ past 7 days): Not-yet-formed interests/thoughts. Changes daily
 
 #### Alert Category (2-3 items) — Focused on detecting changes
 
-**Source**: knowledge/projects/ Competitors + Watch Keywords + self/interests.md Career (fallback: me.md Career)
+**Source**: knowledge/projects/ Competitors + Watch Keywords + self/interests.md Career
 **Purpose**: Detect competitor movements and changes directly affecting projects
 
 - Generate keywords from each Active Project's Watch Keywords and major competitor names
@@ -73,7 +73,7 @@ Integrate the 3-layer context (Identity / Attention / Impulse) and generate sear
 
 #### Deep Dive Category (1-2 items) — Thorough investigation
 
-**Source**: self/interests.md Deep Interests (fallback: me.md Deep Interests) + **weighted by Attention layer (workspace themes)**
+**Source**: self/interests.md Deep Interests + **weighted by Attention layer (workspace themes)**
 **Purpose**: Deeply explore one theme to a level where user thinks "I didn't know that"
 
 - Select 1-2 themes from Deep Interests
@@ -85,7 +85,7 @@ Integrate the 3-layer context (Identity / Attention / Impulse) and generate sear
 
 #### Discovery Category (2-3 items) — Findings & Recommendations
 
-**Source**: self/interests.md Curiosity (fallback: me.md Curiosity) + **adjacent areas of Attention/Impulse layers**
+**Source**: self/interests.md Curiosity + **adjacent areas of Attention/Impulse layers**
 **Purpose**: "If you're interested in this, you might find that interesting too"
 
 - Select themes from Curiosity section

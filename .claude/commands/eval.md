@@ -54,10 +54,9 @@ Thoroughly explore for files related to the following queries, without concern f
 Only include the following files in the ground truth set. Do not include other files even if discovered.
 - knowledge/notes/ — Atomic knowledge (core eval target)
 - knowledge/people/, orgs/, projects/ — Entity files
-- knowledge/self/profile.md — Core Identity (preferred when present)
+- knowledge/self/profile.md — Core Identity
 - knowledge/self/interests.md — Interests (Deep / Curiosity / Obligations / Career)
 - knowledge/self/direction.md — Cross-project meta-direction
-- knowledge/me.md — Interest Profile (legacy fallback; used only if `knowledge/self/profile.md` does not exist)
 - workspace/{id}/_workspace.md — MOC (as navigation hubs)
 - docs/decisions/ — ADRs (when relevant to design-related queries)
 - tasks.md — Task information
