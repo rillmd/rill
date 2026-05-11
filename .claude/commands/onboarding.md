@@ -104,7 +104,8 @@ For other languages: generate equivalent content in that language. The body text
 # Check vault marker
 ls .rill/ 2>/dev/null && echo "vault_ok" || echo "vault_missing"
 
-# Check for existing me.md
+# Check for an existing user profile — new (self/profile.md) or legacy (me.md)
+ls knowledge/self/profile.md 2>/dev/null
 ls knowledge/me.md 2>/dev/null
 
 # Check for Rill app (used in Phase 6)
@@ -117,7 +118,7 @@ uname
 Interpret results:
 - **`vault_missing`**: Warn the user that `rill init` hasn't been run. Guide them to run it before proceeding. Do not continue.
 - **`--refresh` set**: Skip Phase 2 (journal creation). Default mode always runs Phase 2 — writing one's own journal is the core onboarding experience, and file presence (sample preload or earlier captures) is not a signal that the user has onboarded.
-- **`knowledge/me.md` exists**: Skip the name question in Phase 1.
+- **`knowledge/self/profile.md` exists OR `knowledge/me.md` exists**: Skip the name question in Phase 1.
 - **Rill.app found OR not macOS**: Skip Phase 6.
 - **Rill.app not found AND macOS**: Run Phase 6 after Phase 5.
 
@@ -141,35 +142,79 @@ Otherwise (default mode):
 >
 > Do **not** use the words `distill`, `workspace`, `session`, or `vault` in this framing. Land on everyday language. After the framing, hand off to the next step (name question below).
 
-If `knowledge/me.md` does not exist, ask for the user's name at the end of the greeting. After they respond:
-1. Get the current timestamp:
-   ```bash
-   date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/'
-   ```
-2. Create `knowledge/me.md` with that timestamp and the user's name. Use the Write tool with this structure:
-   ```markdown
-   ---
-   created: {timestamp from date command}
-   type: interest-profile
-   ---
+If neither `knowledge/self/profile.md` nor `knowledge/me.md` exists, ask for the user's name at the end of the greeting. After they respond, scaffold the self/ knowledge layer — 8 files total, with profile / interests / direction getting initial bodies (014 §3.6.1) and the other 5 left as skeletons.
 
+**Scaffolding sequence**:
+
+1. Create the 8 self/ skeleton files. Use `rill mkfile` for each so the `created` timestamp is correct, then rename to bare names (the singleton-entity convention; same idea as `knowledge/projects/{id}.md`):
+
+   ```bash
+   for slug in profile interests direction current-state decisions observations history constraints; do
+     rill mkfile knowledge/self --slug "$slug" --type self
+   done
+   # rill mkfile prefixes a date — strip it so the files match the entity-directory pattern
+   cd knowledge/self && for f in $(date +%Y-%m-%d)-*.md; do mv "$f" "${f#$(date +%Y-%m-%d)-}"; done && cd -
+   ```
+
+2. Edit `knowledge/self/profile.md`, replacing the placeholder body with this minimal Core Identity (the `## Background` / `## Current Role` sections are optional placeholders the user can fill in later):
+
+   ```markdown
    # {name}
 
+   (Short self-introduction in 1-3 sentences. Background, current affiliation, central interests. Onboarding Phase 1 asks the user conversationally; if they don't elaborate, leave this paragraph short.)
+
+   ## Background
+
+   (Career / history summary. May be left blank during onboarding and filled later.)
+
+   ## Current Role
+
+   (Current role or main activity. Same as above — may be filled later.)
+   ```
+
+3. Edit `knowledge/self/interests.md`, replacing the placeholder with the 4-subheading template:
+
+   ```markdown
+   # Interests
+
    ## Deep Interests
-   (to be filled by /distill)
+   (常に追いたいテーマ。Newsletter では Deep Dive の主要候補とする)
 
    ## Curiosity
-   (to be filled by /distill)
+   (たまに知りたいテーマ。Newsletter では Discovery の候補とする)
 
    ## Obligations
-   (to be filled by /distill)
+   (興味は薄いが対応が必要なテーマ。大きな変化があったときだけ Alert で通知する)
 
    ## Career
-   (to be filled by /distill)
+   (キャリア関心。求人動向や企業の動きを Alert で監視する)
+   ```
+
+   (Localize the parenthetical hints into `DETECTED_LANG` if not Japanese.)
+
+4. Edit `knowledge/self/direction.md`, replacing the placeholder with:
+
+   ```markdown
+   # Direction
+
+   ## 現在のメインテーマ
+
+   (4-6 lines of prose describing the user's current main theme, priority ordering, and what is intentionally excluded. Ask conversationally in Phase 1, or leave for the user to fill later.)
 
    ## Active Projects
-   (to be filled by /distill)
+
+   (Linked list of projects. Each line: `[Project Name](../projects/{id}.md) — 1-line description`. Empty in a fresh vault.)
+
+   ## Career
+
+   (Long-term career direction in 2-4 lines: job-seeking, switching, going independent, etc.)
    ```
+
+   (Localize headings into `DETECTED_LANG` if not Japanese.)
+
+5. Leave `current-state.md` / `decisions.md` / `observations.md` / `history.md` / `constraints.md` as skeletons (frontmatter + `# Title` heading only). Each is populated by its responsible skill (`/pulse`, `/retrospective`) later.
+
+**Legacy compatibility**: if `knowledge/me.md` already exists (a vault that pre-dates the self/ migration), **do not** auto-scaffold self/. Skip the name question (the legacy file has the user identity) and continue. The migration is handled separately by the Dream-system Phase 1 task, not by `/onboarding`.
 
 ---
 
@@ -354,7 +399,7 @@ If the app is present:
 1. Determine a repo-relative path to name for the user, in priority order. Use the first that exists; if none do, skip to Closing.
    - `reports/daily/{today}.md` — today's briefing, if it exists
    - Most recent `inbox/journal/*.md` — typically the entry the user just wrote in Phase 2
-   - `knowledge/me.md` — fallback
+   - `knowledge/self/profile.md` — fallback (or `knowledge/me.md` in legacy vaults where self/ is absent)
 
 2. Bring the app to the foreground. **Do not** run `rill open` — this would force-navigate the GUI, which is prohibited for skills (see `.claude/rules/rill-claude-code-integration.md`). Use the plain shell `open` command to launch / front the app only:
    ```bash
@@ -397,14 +442,14 @@ End with a warm closing in `DETECTED_LANG`. Wording depends on whether the GUI h
 | personal-language.md already exists | Skip creation. Respect existing setting. Still open the greeting with the language-continuation line, reading the language from the existing file |
 | personal-language.md newly created | Create silently without asking. Notify via the Phase 1 opener only — never as a yes/no prompt |
 | User explicitly requests a different language mid-onboarding | Rewrite `.claude/rules/personal-language.md` to the requested language inline and continue in the new language. No yes/no prompt |
-| knowledge/me.md already exists | Skip name question. Use existing name in greeting if readable |
+| knowledge/self/profile.md or knowledge/me.md already exists | Skip name question. Use existing name in greeting if readable (prefer self/profile.md; fall back to me.md) |
 | Time parsing fails in Phase 5 | Ask: "Could you give me a time like '7am' or '8:30'?" |
 | `rill log` fails | Read the error. If vault not initialized, apply the vault-marker-missing guidance above. Otherwise show the error and offer to retry |
 | Rill app already installed | Skip Phase 6 entirely. Still run the GUI hand-off step before Closing |
 | DMG download fails (offline, 404) | Show fallback URL, don't block onboarding |
 | Linux user (no .app support) | Skip Phase 6 entirely (detect with `uname`). Also skip the GUI hand-off step; use the fallback closing |
 | GUI hand-off: `.app` not present (Linux, declined install) | Skip the hand-off step. Use the fallback closing |
-| GUI hand-off: no briefing / journal / me.md exists | Skip the hand-off step. Use the fallback closing |
+| GUI hand-off: no briefing / journal / self/profile.md / me.md exists | Skip the hand-off step. Use the fallback closing |
 
 ---
 
@@ -419,5 +464,5 @@ End with a warm closing in `DETECTED_LANG`. Wording depends on whether the GUI h
 - Never explain more than 2 features in Phase 3 (/focus + /distill only)
 - Use `CronCreate` (via the `schedule` skill) only after explicit user confirmation
 - Always end with a warm closing in `DETECTED_LANG`
-- When writing `knowledge/me.md`, always get the timestamp from `date` — never hardcode it
+- When scaffolding `knowledge/self/` (Phase 1), always create files via `rill mkfile` so timestamps are authoritative — never hardcode them. In legacy vaults that still have `knowledge/me.md`, do not regenerate it
 - In the GUI hand-off step, bring the app forward with the shell `open` command only. **Do not** run `rill open` — skills and assistant turns must not force-navigate the GUI (see `rill-claude-code-integration.md`). Display the target path in prose and let the user open it themselves via the `Cmd+P` palette

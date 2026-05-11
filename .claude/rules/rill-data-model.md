@@ -6,7 +6,7 @@ Common frontmatter schema, reference conventions, and link rules for all Rill fi
 
 ### Required Fields
 - `created`: Required. ISO 8601 format (e.g., `2026-04-07T18:30+09:00`). **LLMs must never write this directly** (auto-assigned via `rill mkfile`)
-- `type`: Required. File type identifier (`record` / `insight` / `reference` / `task` / `workspace` / `page` / `person` / `org` / `project` / `daily-note` / `interest-profile`, etc.)
+- `type`: Required. File type identifier (`record` / `insight` / `reference` / `task` / `workspace` / `page` / `person` / `org` / `project` / `self` / `daily-note` / `interest-profile`, etc.)
 
 ### Optional Fields
 - `source`: Source file path (relative to repo root, no leading `/`). Required for knowledge/notes/
