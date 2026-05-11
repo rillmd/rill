@@ -84,15 +84,21 @@ related:
 - What to write: Goal, Current Focus, Watch (Competitors + Keywords), Key Facts, See Also (links)
 - See Also contains links, not aggregation results (/distill auto-manages)
 
-## knowledge/me.md
+## knowledge/self/ (Interest Profile + state layer)
 
-- User's Interest Profile (`type: interest-profile`)
-- Referenced by /newsletter, /briefing and other skills
-- Located directly under knowledge/ (not inside notes/)
-- Categories: Deep Interests / Curiosity / Obligations / Career
-- Active Projects links to knowledge/projects/
+- Singleton-entity directory (`type: self`), located directly under `knowledge/` alongside `notes/` / `people/` / `orgs/` / `projects/`
+- **8 files**, each owned by a distinct velocity / skill (per `workspace/2026-05-07-dream-system-rill-application/006-self-knowledge-layer-design.md`):
+  - `profile.md` — Core Identity (year-scale)
+  - `interests.md` — Deep Interests / Curiosity / Obligations / Career (monthly)
+  - `direction.md` — Active Projects + cross-project meta-direction + Career direction (monthly)
+  - `current-state.md` — pulse snapshot (high-velocity, updated by `/pulse`, capped at 80 lines)
+  - `decisions.md` — curated decision digest (3-month window, updated by `/retrospective`)
+  - `observations.md` — longitudinal self-observations (updated by `/retrospective` with user `[x]` approval)
+  - `history.md` — career / event history (manual)
+  - `constraints.md` — constraints (family / financial / health, etc., manual)
+- Referenced by `/briefing`, `/newsletter`, `/pulse`, `/solve`, `/eval`, `/distill profile-agent`
 - **Guide, not constraint**: LLMs may suggest adjacent areas outside listed categories
-- Auto-updated by /distill
+- `interests.md` / `direction.md` are auto-updated by `/distill profile-agent` (with conservative rules)
 
 ## Contact Information (ADR-047, important)
 
