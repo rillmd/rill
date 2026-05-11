@@ -227,6 +227,20 @@ After all Phases complete, display the following summary:
 - **Phase 5**: Hook execution results (plugin name, result summary)
 - Task candidate list (Phase 1-2 total) — created as ticket files (/briefing will highlight new tasks)
 
+### Step 11: /pulse refresh (NEW)
+
+After Step 10 (Summary) completes, invoke `/pulse` via the harness's Skill tool to refresh `knowledge/self/current-state.md`. This Auto-chain keeps the snapshot fresh after each distillation cycle (015 §2.1):
+
+```
+Skill(name: "pulse", args: "")
+```
+
+The invocation is synchronous. /pulse handles its own 12h cooldown — if recently run it no-ops silently. Do **not** parse, display, or summarize /pulse's output in /distill's summary — discard the return value.
+
+**Non-recursion guarantee** (009 §1.5): /distill's path scoping already excludes `knowledge/self/`, and /pulse never invokes /distill, so this chain is structurally one-way.
+
+If the /pulse invocation fails for any reason, log a 1-line warning to stdout and continue — /pulse refresh failure is not fatal to /distill.
+
 ## Rules
 
 - **Never modify inbox/ original files** (read-only. Exception: auto-adding frontmatter is allowed)
