@@ -295,6 +295,20 @@ workspace/{id}/_summary.md
 - [ ] Issue 1 (from _summary.md)
 ```
 
+### Phase 10: /pulse refresh (NEW)
+
+After Phase 9 (Post-processing and Completion Report) completes, invoke `/pulse` via the harness's Skill tool to refresh `knowledge/self/current-state.md`. The just-closed workspace will drop out of the "進行中" section in the new snapshot (015 §2.2):
+
+```
+Skill(name: "pulse", args: "")
+```
+
+The invocation is synchronous. /pulse handles its own 12h cooldown — if a recent /close or /distill already ran /pulse within the window, this is a silent no-op. Do **not** display /pulse's output as part of the close report.
+
+**Non-recursion guarantee**: /pulse only reads from `workspace/` + `tasks/` + `knowledge/self/` (and writes only to `current-state.md`), and never invokes /close back. The chain is structurally one-way.
+
+If the /pulse invocation fails, log a 1-line warning to stdout and treat the /close run as successful — /pulse refresh failure is not fatal.
+
 ## Rules
 
 - **Never modify `inbox/journal/` and `inbox/*/` original files** (read-only)

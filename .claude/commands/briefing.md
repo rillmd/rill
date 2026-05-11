@@ -85,6 +85,19 @@ The content collection is split by mode.
     - Completion candidates: All checklist items checked + related ADR exists in docs/decisions/
     - Long-term active warning: No updates for 7+ days (determinable from Step A's days_old / last_modified)
 
+#### Step C.0 (NEW, new mode only): /pulse on-demand pre-check
+
+Before reading `knowledge/self/current-state.md` in Step C, check freshness so the briefing always reads a snapshot that is at most 5 minutes old (009 §1.4 — briefing-on-demand bypasses /pulse's 12h cooldown):
+
+```
+read .claude/state/pulse.json
+if (now - last_pulse_at) > 5 min OR file missing:
+  invoke /pulse with --force flag  # via the harness's Skill invocation primitive
+# else: current-state.md is fresh enough, skip /pulse invocation
+```
+
+The invocation is synchronous (the harness's Skill tool blocks until /pulse returns). After /pulse completes, proceed to Step C. /pulse handles its own non-recursion contract (it never invokes /briefing back).
+
 #### Step C (NEW, new mode only): Read self/ Snapshot
 
 When new mode is active, read the following self/ files. **Skip a file silently if it is not present** — the migration plan keeps `decisions.md` etc. as Phase 2 deliverables, so they may be empty skeletons or absent during Phase 1.
@@ -98,6 +111,22 @@ These files are the **primary input** for Phase 2 generation in new mode:
 - "Snapshot" section is rendered from `self/current-state.md` (compressed to 5 lines)
 - "Today's Focus" filters from `self/current-state.md` "判断ゲート" + "進行中タスク (急ぎ)" plus the Step B task collection
 - Analytical work (contradictions, longitudinal observations) is **not** regenerated here — it lives in `self/observations.md` and the `/retrospective` skill instead
+
+#### Step C.5 (NEW, both modes): Stale Workspaces detection
+
+After Step C completes (or in legacy mode, after Step B), run a separate scan for stale active workspaces and surface the count in the Notes section (015 §3.2):
+
+```
+Grep(pattern="^status: active", path="workspace/", glob="**/_workspace.md", output_mode="files_with_matches")
+for each hit:
+  read frontmatter, get updated (or created)
+  if (now - updated) > 7 days: stale_count++
+
+if stale_count >= 3:
+  notes_extra_line = "⚠ 7 日以上停滞: {stale_count} 件 (詳細は次回 /retrospective)"
+```
+
+The check is cheap (1 Grep + frontmatter Reads of ~30 files). In Phase 2 the resulting line is appended to the Notes section (after the recommended-action nudges). If `stale_count < 3`, omit the line silently.
 
 ### Phase 1.5: Plugin Hook Data Collection
 
