@@ -9,11 +9,12 @@ knowledge/
 ├── self/         # Interest Profile + state layer (8 files; see "knowledge/self/" section below)
 ├── notes/        # Distilled atomic knowledge (pool, flat)
 ├── people/       # Person entities
-├── orgs/         # Organization entities
-└── projects/     # Project entities
+└── orgs/         # Organization entities
 ```
 
-Each container directory (people/orgs/projects/) has its own `CLAUDE.md` (on-demand loaded).
+Each container directory (people/orgs/self/) has its own `CLAUDE.md` (on-demand loaded).
+
+Projects (execution hubs) live under top-level `projects/` (ADR-080), not under `knowledge/`. See `.claude/rules/rill-projects.md` for details.
 
 ## knowledge/notes/ Principles
 
@@ -55,7 +56,7 @@ related:
 - knowledge/notes/ has many files but **stays flat**. Do not create subdirectories (breaking change, conflicts with fluid mention/tag classification)
 - Categorization is done via **filename prefix + mentions + tags**
 
-## Entity Files (people/orgs/projects/)
+## Entity Files (people/orgs/)
 
 ### Common Principles
 
@@ -77,16 +78,15 @@ related:
 
 → These belong in `journal/`, `tasks/`, `workspace/`, `pages/` as appropriate. Dynamic aggregation is executed by Claude Code via grep/read.
 
-### projects/ Specifics
+## projects/ (execution hub layer)
 
-- Project = an initiative the user is actively pursuing (business, personal, or learning)
-- Independent from workspace/. No 1:1 correspondence enforced (ADR-042, ADR-049)
-- What to write: Goal, Current Focus, Watch (Competitors + Keywords), Key Facts, See Also (links)
-- See Also contains links, not aggregation results (/distill auto-manages)
+Projects (execution hubs) are placed under top-level `projects/`, not under `knowledge/` (ADR-080). See `.claude/rules/rill-projects.md` for details.
+
+Within `knowledge/`, only people and orgs remain as entities (self/ is a singleton entity with its own scope).
 
 ## knowledge/self/ (Interest Profile + state layer)
 
-- Singleton-entity directory (`type: self`), located directly under `knowledge/` alongside `notes/` / `people/` / `orgs/` / `projects/`
+- Singleton-entity directory (`type: self`), located directly under `knowledge/` alongside `notes/` / `people/` / `orgs/`
 - **8 files**, each owned by a distinct velocity / skill (per `workspace/2026-05-07-dream-system-rill-application/006-self-knowledge-layer-design.md`):
   - `profile.md` — Core Identity (year-scale)
   - `interests.md` — Deep Interests / Curiosity / Obligations / Career (monthly)
