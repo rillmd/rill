@@ -52,15 +52,16 @@ For people mentioned in the source, determine if there is new information to add
 - Key fact guideline limit: 20 items
 
 ## Key Fact Accumulation (projects/)
-For projects mentioned in the source, determine if there is new information to add to knowledge/projects/{id}.md key facts or Competitors.
-- Target: Only projects listed in the shared context Projects mapping
-- Read the target projects/ file to check existing content
-- Key facts: Project progress, important decisions, numerical results
-- Competitors: New competitive info (new services, pricing changes, partnerships, exits)
-- Watch Keywords: New keywords to monitor
+For projects mentioned in the source, determine if there is new information to add to `projects/{id}/_project.md` Key Facts, Watch (Competitors / Keywords), or Current Focus.
+- Target: Only projects listed in the shared context Projects mapping (ADR-080: path is `projects/{id}/_project.md`, not the legacy `knowledge/projects/{id}.md`)
+- Read the target `projects/{id}/_project.md` file to check existing content
+- **Key Facts**: Project progress, important decisions, numerical results — append under `## Key Facts`
+- **Watch → Competitors**: New competitive info (new services, pricing changes, partnerships, exits) — append under `## Watch → ### Competitors`
+- **Watch → Keywords**: New keywords to monitor — append under `## Watch → ### Keywords`
+- **Section ownership**: do NOT touch `## Active Tasks` or `## Related Workspaces` (those are owned by `/refresh-project`). `## Goal` and `## Current Focus` are owned by `/distill profile-agent`, not this agent — write only into Watch / Key Facts here
 - Do not add semantically duplicate information
 - If adding, use Edit to append to the relevant section
-- Key fact guideline limit: 20 items
+- Key Facts guideline limit: 20 items (when exceeded, route the overflow to `knowledge/notes/` instead)
 
 ## Shared Context
 The following data is injected from the orchestrator's prompt (not included in this file):
@@ -72,7 +73,7 @@ The following data is injected from the orchestrator's prompt (not included in t
 ## Read Budget
 - Target file: Full Read — 1 time
 - knowledge/notes/ existing files: **Frontmatter only** (up to first 10 lines for type/tags comparison during Evergreen check. Full Read prohibited)
-- knowledge/people/, knowledge/projects/: Read only for key fact targets (max 3 files)
+- `knowledge/people/`, `projects/`: Read only for key fact targets (max 3 files). Project path is `projects/{id}/_project.md` per ADR-080
 
 ## Output
 After processing, report the following **concisely** (do not return file contents):

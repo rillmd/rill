@@ -48,12 +48,23 @@ See [ADR-073](../../docs/decisions/2026-04-08-073-close-two-layer-subagent-deleg
 3. Verify the metadata file's `status` is `active`
    - If `completed`, display "This workspace is already completed" and exit
 
+### Phase 0.5: /promote predeclare (ADR-080 D80-7)
+
+Decide up-front whether this `/close` should chain into `/promote` at the end. The decision is made *now* (before Phase 1) because users want to know the full plan before the long-running distillation begins, but the actual `/promote` invocation must happen *after* Phase 9 (because `/promote` requires `_summary.md`, which is produced by Phase 2's analysis sub-agent).
+
+1. Read the workspace metadata file's frontmatter `mentions`. Extract `projects/{id}` entries
+2. Branch:
+   - **At least one project mentioned** AND the workspace body contains unchecked actionable items (`- [ ] ...`) → ask via AskUserQuestion: "After this /close completes, should I chain /promote {id} to crystallise into [{project}]?". Store the answer (yes / no) in parent state
+   - **No project mentioned** but the workspace has actionable items → ask: "This workspace does not link to a project. After /close, should I run /promote {id} to either link a new project or create one?" Store the answer
+   - **No actionable items** → skip the predeclare (no promotion candidates)
+3. The stored answer is applied in Phase 9.5 (new). Non-interactive `--auto-approve` mode skips this predeclare entirely (the user can run `/promote` manually after `/close` returns)
+
 ### Phase 1: Shared Context Preparation (parent)
 
 Prepare context data once in the parent, so both the Analysis sub-agent and the Distillation sub-agents can use it without re-computing.
 
 1. Read the "Topic Tags" table from `taxonomy.md` and generate **YAML list format (name + desc)** (exclude deprecated tags)
-2. Read `knowledge/people/*.md`, `knowledge/orgs/*.md`, `knowledge/projects/*.md` and compress into one-line mapping format
+2. Read `knowledge/people/*.md`, `knowledge/orgs/*.md`, `projects/*/_project.md` and compress into one-line mapping format. (ADR-080: projects moved from `knowledge/projects/*.md` flat layout to top-level `projects/{slug}/_project.md` per-directory layout)
 3. Generate entity ID list (for post-processing `rill strip-entity-tags`)
 
 This is the same preparation that /distill Step 1 performs. Hold the result in parent state for injection into sub-agent prompts.
@@ -294,6 +305,16 @@ workspace/{id}/_summary.md
 ### Open issues (carried forward)
 - [ ] Issue 1 (from _summary.md)
 ```
+
+### Phase 9.5: /promote chain (if predeclared in Phase 0.5)
+
+If Phase 0.5 stored a `yes` answer, chain into `/promote {workspace-id}` now. By this point `_summary.md` exists (written in Phase 2) and `/promote`'s prerequisite is satisfied.
+
+1. Invoke `/promote {workspace-id}` via the harness's Skill mechanism. Synchronous wait
+2. `/promote` runs its own AskUserQuestion flow for candidate review — `/close` does not need to relay anything
+3. After `/promote` returns, continue to Phase 10
+
+If Phase 0.5 stored `no` (or was skipped), continue directly to Phase 10 without chaining.
 
 ### Phase 10: /pulse refresh (NEW)
 

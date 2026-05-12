@@ -12,7 +12,7 @@ Child agents return task candidates as text; ticket writing is delegated to `_ta
 Return one candidate per line in pipe format:
 
 ```
-- Title | slug: suggested-slug | mentions: people/id,projects/id | source: <source file path> | hint: brief one-line trigger note
+- Title | slug: suggested-slug | mentions: people/id,projects/id | source: <source file path> | hint: brief one-line trigger note | depends-on: tasks/foo,tasks/bar | blocks: tasks/qux
 ```
 
 - Title: short, imperative
@@ -20,6 +20,8 @@ Return one candidate per line in pipe format:
 - mentions: type-prefixed IDs taken from the shared entity mappings (`people/alex-chen`, `projects/acme-saas`). Omit the field if none match
 - source: the organized source file path passed by the caller
 - hint: a single line distilling the trigger, so the downstream writing agent knows what to expand into full Background. Keep it brief — full substance writing happens in `_task/create-agent.md`, not here
+- depends-on (optional): comma-separated `tasks/{slug}` references when the source explicitly states this action must wait on another task being completed first. Omit the field if no dependency signal is present
+- blocks (optional): comma-separated `tasks/{slug}` references when the source explicitly states this action unblocks named downstream tasks. Omit the field if no signal. Prefer setting `depends-on` on the downstream task when both directions are equivalent
 
 If no tasks found, report "No tasks".
 
