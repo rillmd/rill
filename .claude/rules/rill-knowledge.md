@@ -6,7 +6,7 @@
 
 ```
 knowledge/
-├── me.md         # Interest Profile (user's interest structure)
+├── self/         # Interest Profile + state layer (8 files; see "knowledge/self/" section below)
 ├── notes/        # Distilled atomic knowledge (pool, flat)
 ├── people/       # Person entities
 ├── orgs/         # Organization entities
