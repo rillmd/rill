@@ -2448,7 +2448,8 @@ EOF
         knowledge/notes/CLAUDE.md \
         knowledge/people/CLAUDE.md \
         knowledge/orgs/CLAUDE.md \
-        knowledge/projects/CLAUDE.md \
+        knowledge/self/CLAUDE.md \
+        projects/CLAUDE.md \
         workspace/CLAUDE.md \
         tasks/CLAUDE.md \
         pages/CLAUDE.md \
@@ -2570,7 +2571,8 @@ LANG
         "$vault_dir/knowledge/notes" \
         "$vault_dir/knowledge/people" \
         "$vault_dir/knowledge/orgs" \
-        "$vault_dir/knowledge/projects" \
+        "$vault_dir/knowledge/self" \
+        "$vault_dir/projects" \
         "$vault_dir/workspace" \
         "$vault_dir/tasks" \
         "$vault_dir/reports/daily" \
@@ -2782,7 +2784,8 @@ EOF
             inbox/CLAUDE.md inbox/journal/CLAUDE.md inbox/meetings/CLAUDE.md \
             inbox/tweets/CLAUDE.md inbox/web-clips/CLAUDE.md inbox/sources/CLAUDE.md \
             knowledge/notes/CLAUDE.md knowledge/people/CLAUDE.md \
-            knowledge/orgs/CLAUDE.md knowledge/projects/CLAUDE.md \
+            knowledge/orgs/CLAUDE.md knowledge/self/CLAUDE.md \
+            projects/CLAUDE.md \
             workspace/CLAUDE.md tasks/CLAUDE.md pages/CLAUDE.md \
             reports/daily/CLAUDE.md reports/newsletter/CLAUDE.md \
             SPEC.md; do
@@ -3075,11 +3078,33 @@ cmd_mkfile() {
             abs_dir="$task_dir"
             filename="_task.md"
             ;;
-        knowledge/notes|knowledge/people|knowledge/orgs|knowledge/projects)
+        knowledge/notes|knowledge/people|knowledge/orgs|knowledge/projects|knowledge/self)
             if [ -z "$slug" ]; then
                 echo "Error: --slug required for $directory" >&2; return 1
             fi
             filename="${slug}.md"
+            ;;
+        projects)
+            # ADR-080: project lives at projects/{slug}/_project.md (one-file directory,
+            # same pattern as tasks/). Artifacts may live alongside as NNN-*.md.
+            if [ -z "$slug" ]; then
+                echo "Error: --slug required for projects" >&2; return 1
+            fi
+            case "$slug" in
+                */*) echo "Error: projects --slug must be a bare slug, not a path" >&2; return 1 ;;
+                _*)  echo "Error: projects --slug cannot start with underscore" >&2; return 1 ;;
+            esac
+
+            local project_dir="$abs_dir/$slug"
+            if [ -e "$project_dir" ] && [ ! -d "$project_dir" ]; then
+                echo "Error: projects/$slug exists and is not a directory" >&2; return 1
+            fi
+            if [ -f "$project_dir/_project.md" ]; then
+                echo "Error: projects/$slug/_project.md already exists" >&2; return 1
+            fi
+            mkdir -p "$project_dir"
+            abs_dir="$project_dir"
+            filename="_project.md"
             ;;
         pages)
             if [ -z "$slug" ]; then
@@ -3145,6 +3170,26 @@ cmd_mkfile() {
                 if [ -n "$name" ]; then echo "name: $name"; fi
                 if [ -n "$desc" ]; then echo "description: $desc"; fi
                 if [ -n "$tags" ]; then echo "tags: $tags"; fi
+                ;;
+            projects)
+                # ADR-080: top-level project — auto fill id/name/status
+                echo "id: $slug"
+                # Default name = slug (caller can override via --field 'name=...')
+                local has_name_field=0
+                if [ -n "$extra_fields" ] && echo "$extra_fields" | grep -q '^name='; then
+                    has_name_field=1
+                fi
+                if [ "$has_name_field" -eq 0 ]; then
+                    echo "name: $slug"
+                fi
+                # Default status = planning (caller can override via --field 'status=...')
+                local has_status_field=0
+                if [ -n "$extra_fields" ] && echo "$extra_fields" | grep -q '^status='; then
+                    has_status_field=1
+                fi
+                if [ "$has_status_field" -eq 0 ]; then
+                    echo "status: planning"
+                fi
                 ;;
         esac
 
@@ -3903,6 +3948,205 @@ cmd_open() {
     open "$url" 2>/dev/null || true
 }
 
+# ── migrate-projects: ADR-080 one-shot migration ───────────────────────
+# Moves knowledge/projects/*.md → projects/{slug}/_project.md, transforms
+# `stage:` → `status:` (active/idea/completed → active/planning/done),
+# replaces JA section headers with EN, and inserts empty `## Active Tasks`
+# and `## Related Workspaces` sections for future /refresh-project use.
+#
+# Hard-coded skip: claude-code-ecosystem (handled manually per ADR-080 D80-4).
+# Idempotent: skips files whose new path already exists (use --force to overwrite).
+#
+# Usage: rill migrate-projects [--dry-run] [--force]
+cmd_migrate_projects() {
+    local dry_run=false
+    local force=false
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --dry-run) dry_run=true; shift ;;
+            --force)   force=true; shift ;;
+            -h|--help|help)
+                cat <<'EOF'
+Usage: rill migrate-projects [--dry-run] [--force]
+
+Migrate knowledge/projects/*.md → projects/{slug}/_project.md (ADR-080).
+
+Options:
+  --dry-run    Print what would happen; do not modify files
+  --force      Overwrite existing projects/{slug}/_project.md and bypass clean-git check
+EOF
+                return 0
+                ;;
+            *)
+                echo "Unknown option: $1" >&2
+                echo "Run 'rill migrate-projects --help' for usage." >&2
+                return 1
+                ;;
+        esac
+    done
+
+    if [ -z "${RILL_HOME:-}" ]; then
+        echo "Error: RILL_HOME is not set." >&2
+        return 1
+    fi
+
+    local src_dir="$RILL_HOME/knowledge/projects"
+    local dst_root="$RILL_HOME/projects"
+
+    if [ ! -d "$src_dir" ]; then
+        echo "knowledge/projects/ not found at $src_dir — nothing to migrate."
+        return 0
+    fi
+
+    # Safety: require clean working tree (unless --force or --dry-run)
+    if [ "$dry_run" = false ] && [ "$force" = false ]; then
+        if [ -d "$RILL_HOME/.git" ] || git -C "$RILL_HOME" rev-parse --git-dir >/dev/null 2>&1; then
+            local dirty
+            dirty="$(git -C "$RILL_HOME" status --porcelain 2>/dev/null)"
+            if [ -n "$dirty" ]; then
+                echo "Error: $RILL_HOME working tree is dirty. Commit or stash first, or pass --force." >&2
+                echo "" >&2
+                echo "$dirty" | head -20 >&2
+                return 1
+            fi
+        fi
+    fi
+
+    mkdir -p "$dst_root"
+
+    local migrated=0
+    local skipped_existing=0
+    local skipped_hardcoded=0
+    local errors=0
+
+    local f
+    for f in "$src_dir"/*.md; do
+        [ -f "$f" ] || continue
+        local base slug
+        base="$(basename "$f" .md)"
+        slug="$base"
+
+        # Skip the container doctrine file
+        if [ "$slug" = "CLAUDE" ]; then continue; fi
+
+        # ADR-080 D80-4: claude-code-ecosystem migrates to knowledge/self/watches.md manually
+        if [ "$slug" = "claude-code-ecosystem" ]; then
+            echo "  ⏭  skip (hard-coded): $slug — handled manually (ADR-080 D80-4)"
+            ((skipped_hardcoded++))
+            continue
+        fi
+
+        local dst_dir="$dst_root/$slug"
+        local dst_file="$dst_dir/_project.md"
+
+        if [ -f "$dst_file" ] && [ "$force" = false ]; then
+            echo "  ⏭  skip (exists): $slug → already at projects/$slug/_project.md"
+            ((skipped_existing++))
+            continue
+        fi
+
+        if [ "$dry_run" = true ]; then
+            echo "  ✓ would migrate: $slug → projects/$slug/_project.md"
+            ((migrated++))
+            continue
+        fi
+
+        mkdir -p "$dst_dir"
+
+        # Transform: stage → status (with value mapping), JA section headers → EN,
+        # insert empty ## Active Tasks + ## Related Workspaces before ## Watch
+        # (or append at body end if no ## Watch).
+        if ! awk '
+            BEGIN { fm=0; section_inserted=0 }
+            /^---$/ {
+                print
+                if (fm == 0) { fm=1; next }
+                else if (fm == 1) { fm=2; next }
+                else { print; next }
+            }
+            fm==1 {
+                if ($0 ~ /^stage:[[:space:]]/) {
+                    val = $0
+                    sub(/^stage:[[:space:]]*/, "", val)
+                    gsub(/[[:space:]]+$/, "", val)
+                    if (val == "active")         print "status: active"
+                    else if (val == "idea")      print "status: planning"
+                    else if (val == "completed") print "status: done"
+                    else                         print "status: " val
+                } else {
+                    print
+                }
+                next
+            }
+            fm==2 {
+                line = $0
+                # JA section renames — use regex sub() rather than ==
+                # because BSD awk on macOS does not compare multibyte strings reliably.
+                if (sub(/^## ゴール$/, "## Goal", line)) { }
+                else if (sub(/^## 現在のフォーカス$/, "## Current Focus", line)) { }
+                else if (sub(/^## キーファクト$/, "## Key Facts", line)) { }
+                else if (sub(/^## リポジトリ$/, "## Repository", line)) { }
+
+                if (section_inserted == 0 && line ~ /^## Watch([[:space:]]|$)/) {
+                    print "## Active Tasks"
+                    print ""
+                    print "## Related Workspaces"
+                    print ""
+                    section_inserted = 1
+                }
+                print line
+                next
+            }
+            END {
+                if (fm == 2 && section_inserted == 0) {
+                    print ""
+                    print "## Active Tasks"
+                    print ""
+                    print "## Related Workspaces"
+                    print ""
+                }
+            }
+        ' "$f" > "$dst_file"; then
+            echo "  ✗ error: failed to transform $slug" >&2
+            ((errors++))
+            continue
+        fi
+
+        # Verify the new file has frontmatter delimiters and a status line
+        if ! grep -q '^status:' "$dst_file"; then
+            echo "  ✗ error: $slug → no status field after transform; reverting" >&2
+            rm -f "$dst_file"
+            rmdir "$dst_dir" 2>/dev/null || true
+            ((errors++))
+            continue
+        fi
+
+        # Remove the source file
+        rm -f "$f"
+
+        echo "  ✓ migrated: $slug"
+        ((migrated++))
+    done
+
+    echo ""
+    echo "Summary:"
+    echo "  migrated:           $migrated"
+    echo "  skipped (existing): $skipped_existing"
+    echo "  skipped (manual):   $skipped_hardcoded"
+    echo "  errors:             $errors"
+
+    if [ "$dry_run" = true ]; then
+        echo ""
+        echo "Dry-run only — no files were modified."
+    fi
+
+    if [ "$errors" -gt 0 ]; then
+        return 1
+    fi
+    return 0
+}
+
 cmd_help() {
     cat <<'EOF'
 Rill — Personal voice journal + knowledge management
@@ -3993,6 +4237,7 @@ case "${1:-help}" in
 
     init)   shift; cmd_init "$@" ;;
     update) shift; cmd_update "$@" ;;
+    migrate-projects) shift; cmd_migrate_projects "$@" ;;
     config) shift; cmd_config "$@" ;;
     vault)  shift; cmd_vault "$@" ;;
     guard)  shift; cmd_guard "$@" ;;

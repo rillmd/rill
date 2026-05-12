@@ -15,7 +15,8 @@ All data is plain Markdown files. GitHub is the single source of truth.
 ```
 <vault>/
 ├── inbox/          # Input layer (immutable): journal, meetings, tweets, web-clips, sources
-├── knowledge/      # Accumulation layer: me.md, notes/, people/, orgs/, projects/
+├── knowledge/      # Accumulation layer: self/, notes/, people/, orgs/
+├── projects/       # Execution hub layer (ADR-080): per-project directory
 ├── workspace/{id}/ # Working layer (stateful)
 ├── tasks/{slug}/   # Per-task directory (_task.md + optional artifacts, ADR-076)
 ├── reports/        # Claude Code outputs: daily/, newsletter/
@@ -43,6 +44,7 @@ Each area's detailed rules are in the following split files. All auto-loaded fro
 - **knowledge/ accumulation layer**: [rill-knowledge.md](rill-knowledge.md) — notes pool, entity principles, contact rules
 - **workspace/ working layer**: [rill-workspace.md](rill-workspace.md) — completion conditions, artifact numbering, file-first principle
 - **tasks/ tickets**: [rill-tasks.md](rill-tasks.md) — status values, due/scheduled, subtasks
+- **projects/ execution hubs**: [rill-projects.md](rill-projects.md) — top-level execution hub layer, frontmatter, body structure, section ownership (ADR-080)
 - **reports/ + pages/**: [rill-outputs.md](rill-outputs.md) — Daily Note, Newsletter, pages recipe pairs
 - **Claude Code integration**: [rill-claude-code-integration.md](rill-claude-code-integration.md) — `rill mkfile`, GUI path-display convention, zsh compatibility
 

@@ -42,10 +42,16 @@ Common frontmatter schema, reference conventions, and link rules for all Rill fi
 
 ## Entity References (mentions)
 
-- Project linkage: `mentions: [projects/{id}]` (ADR-066). The dedicated `project` field is deprecated
+- Project linkage: `mentions: [projects/{id}]` (ADR-066, ADR-080)
+  - Resolution path: `projects/{id}/_project.md` (top-level, moved from the legacy `knowledge/projects/`)
+  - The dedicated `project` field is deprecated
 - Person linkage: `mentions: [people/{id}]`
+  - Resolution path: `knowledge/people/{id}.md`
 - Organization linkage: `mentions: [orgs/{id}]`
+  - Resolution path: `knowledge/orgs/{id}.md`
 - Multiple allowed: `mentions: [people/alex-chen, orgs/sunrise-hotel, projects/acme-saas]`
+
+The mention text itself stays the same across all entity types; only the resolution path differs.
 
 ## Note Metadata Repair (ADR-046 D46-7)
 

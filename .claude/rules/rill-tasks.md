@@ -34,6 +34,8 @@ tags: [rill, crm]                  # optional
 mentions: [projects/rill, people/alex-chen]  # optional
 due: 2026-04-15                    # optional: deadline
 scheduled: 2026-04-10              # optional: planned start date
+depends-on: [tasks/rill-foundation-design]   # optional: prerequisite tasks
+blocks: [tasks/rill-launch-post]             # optional: tasks this one blocks
 related:                           # optional
   - workspace/2026-04-07-rill-feature/_workspace.md
 ---
@@ -57,6 +59,17 @@ related:                           # optional
 - `scheduled`: Planned start date or event date ("when to work on it")
 - They are independent. Tasks with a future `scheduled` are excluded from urgent lists (already planned)
 - **No `priority` field** (urgency is calculated from due/scheduled)
+
+### Dependency Fields (optional)
+
+- **depends-on**: list of tasks that must be completed before this task can be started
+  - Example: `depends-on: [tasks/foo, tasks/bar]`
+  - Format: `tasks/{slug}` (kebab-case task id)
+- **blocks**: downstream tasks that this task blocks (the inverse direction, optional)
+  - Complementary to `depends-on`; either field alone is sufficient
+
+`/project {slug} continue` resolves `depends-on` and picks an unblocked task.
+`/refresh-project` renders the project's `Active Tasks` section in dependency order.
 
 ## Project Linkage
 
