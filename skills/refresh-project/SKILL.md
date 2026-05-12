@@ -20,7 +20,7 @@ gui:
 Recomputes the two auto-maintained sections of a project's main file (`projects/{slug}/_project.md`):
 
 - `## Active Tasks` — tasks whose frontmatter contains `mentions: [..., projects/{slug}, ...]`, filtered to `status: open` / `waiting`, sorted by the dependency-resolved priority defined in `/project` (see "Dependency Resolution" below for the canonical algorithm)
-- `## Related Workspaces` — workspaces whose frontmatter contains `mentions: [..., projects/{slug}, ...]`, filtered to `status: active`
+- `## Related Workspaces` — workspaces whose frontmatter contains `mentions: [..., projects/{slug}, ...]`. Active workspaces are listed first (sorted by `updated` desc), then up to 20 most-recently-touched completed workspaces (also sorted by `updated` desc). Each entry carries an explicit `status:` marker so live vs past surfaces stay visually distinct
 
 Other sections (Goal, Current Focus, Watch, Key Facts, Repository, See Also) are owned by different skills (see `.claude/rules/rill-projects.md` for the section-ownership table) and **must not be touched** by this skill.
 
@@ -68,8 +68,12 @@ $ARGUMENTS — one of the following:
    Grep(pattern="^mentions:.*projects/{slug}\b", path="workspace/", glob="**/_workspace.md", output_mode="files_with_matches")
    ```
 2. For each matched file, Read the frontmatter and extract `status`, `name`, `updated` (or `created` if `updated` is absent).
-3. Filter to `status: active`. Drop completed, on-hold, planning workspaces (they are no longer the project's live execution surface).
-4. Sort by `updated` descending (most recently touched first).
+3. Bucket by status:
+   - **Active bucket**: `status: active`
+   - **Completed bucket**: `status: completed` (these are the workspaces a `/close` has already produced a `_summary.md` for — typically the surface a `/promote` has already crystallised, so they retain provenance value)
+   - **Drop**: `status: on-hold`, `status: planning`, `status: pilot`, etc. (not live, not historical-of-record)
+4. Sort each bucket by `updated` descending (most recently touched first).
+5. Cap the Completed bucket at the 20 most-recently-touched entries (older history lives in `See Also`, plain Grep, or `/project review`).
 
 ### Phase 3: Section rewrite (atomic)
 
@@ -99,10 +103,18 @@ Rewrite `## Active Tasks` and `## Related Workspaces` in `projects/{slug}/_proje
 ```markdown
 ## Related Workspaces
 
-- [{name}](../../workspace/{id}/_workspace.md) — status: {status} / last updated: {updated:YYYY-MM-DD}
+### Active
+
+- [{name}](../../workspace/{id}/_workspace.md) — status: active / last updated: {updated:YYYY-MM-DD}
+
+### Completed (most recent 20)
+
+- [{name}](../../workspace/{id}/_workspace.md) — status: completed / last updated: {updated:YYYY-MM-DD}
 ```
 
-- Empty case: `_No active workspaces. Use `/focus <theme>` to start one._`
+- If `Active` is empty, omit the heading and write `_No active workspaces. Use `/focus <theme>` to start one._` under `## Related Workspaces`
+- If `Completed` is empty, omit the heading entirely (do not write an empty-case marker — completed history is optional surface)
+- If both are empty, emit only the active-empty-case line (no `## Related Workspaces` body otherwise)
 
 #### Atomicity
 
