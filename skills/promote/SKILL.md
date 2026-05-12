@@ -106,7 +106,7 @@ After user approval:
    - {finding} (workspace/{id}, {YYYY-MM-DD})
    ```
    If `## Key Facts` already has 20 items (the soft cap defined in `.claude/rules/rill-projects.md`), warn the user. Do not auto-move overflow to `knowledge/notes/` — that's a `/distill knowledge-agent` responsibility
-2. **Related Workspaces** — `/refresh-project {slug}` will pick up the workspace via `mentions` reverse-lookup automatically. The workspace is already linked via `mentions: [projects/{slug}]`. `/promote` does not directly edit this section; it just makes sure the next `/refresh-project` will reflect the change
+2. **Related Workspaces** — `/refresh-project {slug}` will pick up the workspace via `mentions` reverse-lookup automatically. `/refresh-project` lists both active and completed workspaces (the latter capped at the 20 most-recently-touched), each with an explicit `status:` marker. The workspace is already linked via `mentions: [projects/{slug}]`. `/promote` does not directly edit this section; it just makes sure the next `/refresh-project` will reflect the change
 3. **Task creation** — for each approved actionable item:
    - Check for duplicates against existing tasks in `tasks/` (Grep the title, judge whether the existing one already covers it)
    - If unique, create via `rill mkfile tasks --slug {slug} --type task --field 'status=draft' --field 'source={artifact-path}' --field 'mentions=[projects/{target-slug}]'`. Use `_task:create-agent` for substance authoring — pass the actionable item as `candidate`
