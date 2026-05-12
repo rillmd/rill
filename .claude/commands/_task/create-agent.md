@@ -10,7 +10,7 @@ The caller sets `mode`: `extract` or `enrich`.
 
 Caller supplies:
 - `source_path`: the inbox file that triggered the task (journal entry, organized meeting note, etc.)
-- `candidate` (optional): a short hint about which action to extract, one per invocation when the parent batches candidates in parallel
+- `candidate` (optional): a short hint about which action to extract, one per invocation when the parent batches candidates in parallel. The hint may include optional `depends-on` / `blocks` fields (see `_distill/task-extraction.md`) when the source signals a dependency
 - Shared context: taxonomy (YAML), people/orgs/projects mappings
 
 Procedure:
@@ -21,17 +21,20 @@ Procedure:
 4. Duplicate check: `Grep(pattern="^# ", path="tasks/", glob="**/_task.md", output_mode="content")` (or match on slug by directory name) for overlapping titles/slugs. If a clear duplicate exists with thinner substance, re-invoke self with `mode=enrich` on the existing path instead. If no duplicate, proceed to write.
 5. Gather context: Grep `knowledge/notes/` for supporting notes the Background should reference. Read the 1–3 most relevant.
 6. Draft the body per `.claude/rules/rill-tasks.md` Substance rules. Goal states a checkable completion condition; Background conveys trigger/stakes/context so the executor can work from it cold; Context lists related files with short role descriptors; Request carries creator intent if any; History records provenance in one line.
-7. Build frontmatter and create the file:
+7. **Dependency detection**: if the `candidate` hint carries `depends-on` / `blocks` values, validate that each referenced `tasks/{slug}` directory exists (`Glob` on `tasks/{slug}/_task.md`). For references whose target does not exist, drop them silently — do not fabricate. If the source narrative implies a dependency ("after we hear back from X", "once Y is done") but no concrete `tasks/{slug}` matches via duplicate check or grep, omit the field rather than guess.
+8. Build frontmatter and create the file:
    ```
    rill mkfile tasks --slug <slug> --type task \
      --field 'status=draft' \
      --field 'source=<source_path>' \
      --field 'tags=[...]' \
-     --field 'mentions=[...]'
+     --field 'mentions=[...]' \
+     --field 'depends-on=[tasks/foo,tasks/bar]' \
+     --field 'blocks=[tasks/qux]'
    ```
-   `status=draft` is mandatory for AI-created tasks (ADR-069). Omit `source` if no discrete upstream exists — do not fabricate one. Optional fields (`due`, `scheduled`) only when signaled by the source.
-8. Overwrite the scaffolded body with the full substance body via Write.
-9. Return the created path plus a single-line rationale.
+   `status=draft` is mandatory for AI-created tasks (ADR-069). Omit `source` if no discrete upstream exists — do not fabricate one. Optional fields (`due`, `scheduled`, `depends-on`, `blocks`) only when signaled by the source. `depends-on` / `blocks` schema is documented in `.claude/rules/rill-tasks.md`.
+9. Overwrite the scaffolded body with the full substance body via Write.
+10. Return the created path plus a single-line rationale.
 
 ### enrich — improve an existing thin task
 

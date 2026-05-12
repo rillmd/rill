@@ -16,7 +16,7 @@ $ARGUMENTS — None (no arguments required)
 
 1. Retrieve the list of approved tags from the "Topic Tags" table in `taxonomy.md`
 2. Retrieve the list of deprecated tags from the "Deprecated Tags" table in `taxonomy.md`
-3. Generate an entity ID list from all filenames (without extensions) in knowledge/{people,orgs,projects}/
+3. Generate an entity ID list: collect filenames (without `.md`) from `knowledge/people/` and `knowledge/orgs/`, plus directory names under `projects/` (the project id is the directory name; the main file is `projects/{id}/_project.md`). ADR-080: project moved from `knowledge/projects/{id}.md` (flat) to `projects/{id}/_project.md` (per-directory). Skip non-directory entries under `projects/` (e.g. `projects/CLAUDE.md`)
 4. Aggregate frontmatter from all knowledge/notes/*.md files. If the file count is large (100+), use the Agent tool for parallel processing:
    - Split the file list into batches of 50
    - Each agent uses Grep/Read to collect tags and mentions from frontmatter
@@ -70,7 +70,7 @@ Verify whether the frontmatter metadata of the following files matches their con
 {id -> name (aliases) one-line format}
 
 ### Projects
-{id -> name (stage, tags) one-line format}
+{id -> name (status, tags) one-line format. Path is `projects/{id}/_project.md` per ADR-080. Field is `status` 4-state (planning / active / paused / done), not the legacy `stage`}
 
 ## Evaluation Criteria
 Read each file and verify on the following 5 axes:
@@ -249,9 +249,13 @@ Use Phase 1-2 aggregation data and Phase 1.5 tag accuracy audit results to appen
    - `type` is not one of `record` / `insight` / `reference`
    - `tags` contains a deprecated tag (migration gap)
 2. Add files judged as **MINOR or MAJOR** in the Phase 1.5 metadata accuracy sampling audit
-3. Read `knowledge/.refresh-queue` if it exists to get existing entries (empty list if it doesn't exist)
-4. Append only paths that do not duplicate existing entries (one file path per line)
-5. Include the number of appended entries in the report
+3. **Orphan notes**: when Phase 1.7's `orphan_rate` exceeds its target (default 0.05), append every orphan note to `.refresh-queue`. A note is an orphan when **both** are true:
+   - `mentions` is empty / absent
+   - The filename's leading slug does not match any entity id from `knowledge/people/`, `knowledge/orgs/`, or `projects/` (the entity-id list generated in Phase 1 Step 3; project ids are directory names under `projects/`)
+   `/repair` resolves these by inferring an appropriate `mentions` entry from the body when possible (otherwise leaves them as flagged for manual triage)
+4. Read `knowledge/.refresh-queue` if it exists to get existing entries (empty list if it doesn't exist)
+5. Append only paths that do not duplicate existing entries (one file path per line)
+6. Include the number of appended entries in the report (broken down by reason: empty-tags / generic-tag / no-mentions / wrong-type / deprecated-tag / sampling-mismatch / **orphan**)
 
 ### Phase 3: Report Output
 

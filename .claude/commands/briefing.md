@@ -163,6 +163,17 @@ P0/P1 selection rules (007 §3):
 - **P1** = `due` within 7 days + `status: open`, OR a stale active WS in self/current-state.md "進行中の WS" (last update 3+ days ago), OR a recent decision in self/decisions.md (past 7 days) with unfinalized follow-up
 - **P2 and below** = `due` 14+ days out, `status: waiting`, monthly/weekly routines → omit entirely from briefing
 
+**Dependency-aware filtering (ADR-080 D80-6, depends-on/blocks recognition)**:
+
+A task that would otherwise qualify as P0 or P1 but is **blocked** by an unmet `depends-on` is demoted:
+
+- A task is **blocked** if its frontmatter `depends-on: [tasks/foo, tasks/bar]` lists at least one entry whose target task has `status` other than `done` / `cancelled`. Broken `depends-on` links (target task file missing) also count as blocked
+- Blocked P0 candidates → demote to a `## Notes` line: `Blocked: [{title}](../../tasks/{slug}/_task.md) — waiting on [{dep-title}](../../tasks/{dep-slug}/_task.md)` (max 2 such lines in Notes; older P0 first)
+- Blocked P1 candidates → omit silently (they live in `/project {slug} review`)
+- Unblocked tasks pass through the P0/P1 rules unchanged
+
+The check is cheap: for each candidate task, Read its frontmatter `depends-on`, then Read each referenced task's frontmatter `status`. Reuse the same check that `/refresh-project` performs — both skills implement the same canonical algorithm defined in the `/project` SKILL.md "Dependency Resolution Algorithm" section. If a task has no `depends-on` field at all, it is unblocked by default (the common case).
+
 ## Notes
 
 (Bulleted prose, **5 items maximum**. Include:

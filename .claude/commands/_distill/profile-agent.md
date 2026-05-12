@@ -28,8 +28,8 @@ Detect the following changes and route each to the appropriate self/ file.
 ### 1. Active Projects Changes
 
 - Repeated mentions of a new project → Consider adding to Active Projects
-  (Only add if `knowledge/projects/{id}.md` exists. Otherwise report only)
-- Stage change of an existing project (e.g., planning → pilot) → Update link description
+  (Only add if `projects/{id}/_project.md` exists. Otherwise report only. ADR-080: project moved from `knowledge/projects/{id}.md` to `projects/{id}/_project.md`)
+- Status change of an existing project (e.g., `planning` → `active`, `active` → `paused`) → Update link description. Per ADR-080 the status field is `status` (4-state: planning / active / paused / done), not the legacy `stage`
 
 **Write target**: `knowledge/self/direction.md` "Active Projects" section
 

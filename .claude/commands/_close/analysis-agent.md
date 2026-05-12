@@ -259,7 +259,7 @@ The parent /close skill injects the following into this prompt before spawning:
 ## Constraints
 
 - Use `rill mkfile` for `_summary.md` creation (do not hand-write the `created` field)
-- Do not create any file under `knowledge/notes/`, `knowledge/people/`, `knowledge/projects/`, or `tasks/` — only `_summary.md` under the workspace directory
+- Do not create any file under `knowledge/notes/`, `knowledge/people/`, `projects/`, or `tasks/` — only `_summary.md` under the workspace directory
 - Do not modify `_workspace.md` — parent handles that after user approval
 - Do not modify any deliverable's frontmatter — parent handles that in Phase 6
 - Total Read budget is generous since fresh context: read all deliverables in full, read `_summary.md`, no other reads are required unless you need to resolve entity references from `knowledge/people/` etc.
