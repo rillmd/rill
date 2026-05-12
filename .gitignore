@@ -1,0 +1,2 @@
+# Git worktree checkouts (local working copies, not vault content)
+.claude/worktrees/
