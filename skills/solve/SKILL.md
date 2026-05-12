@@ -102,7 +102,7 @@ To deepen understanding of the task, read:
 1. **source**: the file in `source` (prefer the same-named file under `_organized/` if present)
 2. **related**: every file listed in `related` (if it is a workspace path, read `_workspace.md`)
 3. **mentions**: each `people/{id}` / `orgs/{id}` / `projects/{id}` file
-4. **User profile**: `knowledge/self/profile.md` (+ `knowledge/self/constraints.md` if non-empty). If `knowledge/self/profile.md` does not exist, fall back to `knowledge/me.md` (legacy)
+4. **User profile**: `knowledge/self/profile.md` (+ `knowledge/self/constraints.md` if non-empty)
 5. **Cross-cutting Grep** (single call): pick 2–3 keywords from the task's `tags` and `mentions`
    ```
    Grep(pattern="{keyword}", glob="{knowledge,inbox,workspace,reports,tasks}/**/*.md",
@@ -121,9 +121,8 @@ Output a Markdown list of every file Read in Phase 1, so the user can see the kn
 - [tasks/{slug}/_task.md](tasks/{slug}/_task.md) — this task
 - [{source}]({source}) — source
 - [{related-1}]({related-1}) — related
-- knowledge/self/profile.md — Core Identity (preferred when present)
+- knowledge/self/profile.md — Core Identity
 - knowledge/self/constraints.md — Constraints (家族・財務・健康など。空なら skip)
-- knowledge/me.md — Interest Profile (legacy fallback; used only if `knowledge/self/profile.md` does not exist)
 - {a few files actually Read from the Grep result}
 - {related entries from recent journal}
 ```
