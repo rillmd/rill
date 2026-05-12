@@ -17,14 +17,7 @@ gui:
 
 > **Tool references in this skill** (`Bash`, `Grep`, `Read`, `Edit`, `Glob`, `sub-agent`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in tools as named; Codex CLI uses `apply_patch` / shell / its own sub-agent mechanism etc. as appropriate.
 
-Generates a Daily Note that aggregates the day's situation. Uses internal data only, fully automated (no interaction). Aims for prose-quality readable reports.
-
-The skill operates in two modes:
-
-- **new mode** — `knowledge/self/current-state.md` is present (the Dream-system Phase 1 migration is live). Read the self/ snapshot as the primary input and emit a thin 4-section Daily Note (~1500 chars target). See 007 design doc in `workspace/2026-05-07-dream-system-rill-application/007-briefing-derivation-redesign.md`
-- **legacy mode** — `knowledge/self/current-state.md` is **not** present. Fall back to the original 6-section behavior (Yesterday's Activity / Today's Focus / Pages with pending updates / Situation Analysis / Notes / Related). This branch keeps PUBLIC vaults compatible during the migration window
-
-The mode is decided at the start of Phase 1 by attempting to Read `knowledge/self/current-state.md`. If the Read succeeds, run new mode; otherwise run legacy mode. After the Phase 1 fallback removal commit (see migration plan), legacy mode and this decision will be removed.
+Generates a Daily Note that aggregates the day's situation by reading the `knowledge/self/` snapshot (current-state.md, direction.md, interests.md, decisions.md) as the primary input and emitting a thin 4-section Daily Note (~1500 chars target). Uses internal data only, fully automated (no interaction). Aims for prose-quality readable reports. See 007 design doc in `workspace/2026-05-07-dream-system-rill-application/007-briefing-derivation-redesign.md`.
 
 ## Arguments
 
@@ -62,9 +55,7 @@ Structured data returned by the script:
 
 #### Step B: Content Collection (AI)
 
-The content collection is split by mode.
-
-**Both modes** collect (execute in parallel):
+Collect the following data in parallel:
 
 1. **Task collection** (from ticket files)
    - Use Grep for fast filtering of target tickets:
@@ -76,20 +67,9 @@ The content collection is split by mode.
 3. **reports/newsletter/** — Check if today's newsletter exists (for linking)
 4. **Previous briefing** — Read the most recent `reports/daily/` file (excluding today's). Skip if none exists
 
-**Legacy mode only** also collects (these are subsumed by `self/current-state.md` in new mode):
+Detailed scans (journals, knowledge/notes/, past reports, past 2 weeks journal, pages/.pending, full workspace details) that were collected by the pre-migration briefing are now subsumed by `self/current-state.md` — do not duplicate them here.
 
-5. **Step A's journals_in_window** — Read each file (prefer `_organized/` version if same-named file exists)
-6. **Step A's knowledge_created_in_window** — Read up to 10 files (grasp overview via title and type)
-7. **reports/** — Reference reports within the activity window (newsletters, etc.) and incorporate their content into briefing analysis (ADR-061)
-8. **Past 2 weeks journal overview** — Get filename list from inbox/journal/ for the past 2 weeks. For understanding theme repetition and frequency trends. Read only what the AI judges necessary
-9. **Pages with pending updates** — Read `pages/.pending`. Skip comment lines (`^#`) and empty lines. Parse TAB-separated columns: `page_id`, `source_path`, `detected_at`, `origin_skill`. Group by `page_id` and count entries. For each `page_id`, read `pages/{id}.md` frontmatter to resolve `name` and most recent `detected_at`. Skip groups whose `source_path` appears in that page's `frontmatter.sources`
-10. **Workspace details** — Use Step A's active_details. To detect additional active workspaces:
-    `Grep(pattern="^status: active", path="workspace/", glob="**/_workspace.md", output_mode="files_with_matches")`
-    Read only matched workspaces' `_workspace.md`
-    - Completion candidates: All checklist items checked + related ADR exists in docs/decisions/
-    - Long-term active warning: No updates for 7+ days (determinable from Step A's days_old / last_modified)
-
-#### Step C.0 (NEW, new mode only): /pulse on-demand pre-check
+#### Step C.0: /pulse on-demand pre-check
 
 Before reading `knowledge/self/current-state.md` in Step C, check freshness so the briefing always reads a snapshot that is at most 5 minutes old (009 §1.4 — briefing-on-demand bypasses /pulse's 12h cooldown):
 
@@ -102,23 +82,23 @@ if (now - last_pulse_at) > 5 min OR file missing:
 
 The invocation is synchronous (the harness's Skill tool blocks until /pulse returns). After /pulse completes, proceed to Step C. /pulse handles its own non-recursion contract (it never invokes /briefing back).
 
-#### Step C (NEW, new mode only): Read self/ Snapshot
+#### Step C: Read self/ Snapshot
 
-When new mode is active, read the following self/ files. **Skip a file silently if it is not present** — the migration plan keeps `decisions.md` etc. as Phase 2 deliverables, so they may be empty skeletons or absent during Phase 1.
+Read the following self/ files. **Skip a file silently if it is not present** — `decisions.md` is a Phase 2 deliverable populated by `/retrospective`, so it may be empty or absent.
 
-1. `knowledge/self/current-state.md` — pulse snapshot (high-velocity, updated by `/pulse`). This file's existence is what triggered new mode
+1. `knowledge/self/current-state.md` — pulse snapshot (high-velocity, updated by `/pulse`)
 2. `knowledge/self/direction.md` — cross-project meta-direction (medium-velocity, monthly)
 3. `knowledge/self/interests.md` — Deep Interests / Curiosity / Obligations / Career (medium-velocity, monthly)
 4. `knowledge/self/decisions.md` — curated decision digest (3-month window, updated by `/retrospective`). **If absent or empty**, treat the "直近意思決定" section in Phase 2 as empty/skipped
 
-These files are the **primary input** for Phase 2 generation in new mode:
+These files are the **primary input** for Phase 2 generation:
 - "Snapshot" section is rendered from `self/current-state.md` (compressed to 5 lines)
 - "Today's Focus" filters from `self/current-state.md` "判断ゲート" + "進行中タスク (急ぎ)" plus the Step B task collection
 - Analytical work (contradictions, longitudinal observations) is **not** regenerated here — it lives in `self/observations.md` and the `/retrospective` skill instead
 
-#### Step C.5 (NEW, both modes): Stale Workspaces detection
+#### Step C.5: Stale Workspaces detection
 
-After Step C completes (or in legacy mode, after Step B), run a separate scan for stale active workspaces and surface the count in the Notes section (015 §3.2):
+After Step C completes, run a separate scan for stale active workspaces and surface the count in the Notes section (015 §3.2):
 
 ```
 Grep(pattern="^status: active", path="workspace/", glob="**/_workspace.md", output_mode="files_with_matches")
@@ -134,7 +114,7 @@ The check is cheap (1 Grep + frontmatter Reads of ~30 files). In Phase 2 the res
 
 ### Phase 1.5: Plugin Hook Data Collection
 
-Collect data from plugin briefing hooks. (Runs in both modes.)
+Collect data from plugin briefing hooks.
 
 1. Read `plugins/.enabled` to get the list of enabled plugins. If the file does not exist or is empty, skip this phase
 2. For each enabled plugin name, Read `plugins/{name}/plugin.md` frontmatter. Identify plugins with `hooks.briefing` field
@@ -161,7 +141,7 @@ rill mkfile reports/daily --type daily-note --field "journal-count=N"
 
 Then use Edit to append the body to the output path (frontmatter is already generated by `rill mkfile`).
 
-#### Template — new mode (4 sections, target ~1500 chars)
+#### Template (4 sections, target ~1500 chars)
 
 ```markdown
 # YYYY-MM-DD Daily Briefing
@@ -200,95 +180,13 @@ P0/P1 selection rules (007 §3):
 (※ Insert Plugin Hook sections collected in Phase 1.5 here, each as-is `## Section Name`.)
 ```
 
-#### Template — legacy mode (6 sections, original behavior)
-
-Writing rules for each section in legacy mode:
-- **Use prose as the default**. Write with context and recommended actions, not just bullet point lists
-- "Today's Focus" collects tasks from ticket files (`tasks/{slug}/_task.md`)
-- Sections with no information may be omitted
-- Workspace review results are integrated into "Situation Analysis"
-
-```markdown
-# YYYY-MM-DD Daily Briefing
-
-## Yesterday's Activity
-
-(Prose summary of what was done yesterday. Organized by project/topic based on
-activity-log.md, journals, and knowledge/notes/ creation records.
-Write in readable form: "what progressed and what was decided." Include journal count.
-**Time boundary**: Only cover the range defined by activity_window. Do not include
-items generated by today's /distill etc. Do not include data outside the window.)
-
-## Today's Focus
-
-(Analysis of tasks to work on today. Collect tasks from ticket files,
-organize by project/theme, and describe in prose.
-Target tasks: due within 7 days / status: waiting / projects/{id} in mentions matches active workspace)
-
-[Prose explaining task group context]
-
-- **[Task title](../../tasks/{slug}/_task.md)** — 1-sentence summary from background. due: YYYY-MM-DD
-- **[Task title](../../tasks/{slug}/_task.md)** `waiting` — Explanation of waiting status
-
-(Title: Use the h1 from the ticket. Background: Summarize to 1 sentence from ticket body.
-Link: Use relative path `../../tasks/{slug}/_task.md`.
-due: Display if frontmatter `due` exists.
-status: Display `waiting` in backticks for waiting tickets)
-
-## Pages with pending updates
-
-(Only include this section if Phase 1 Step B #9 yielded at least one page with non-stale pending entries. Omit the entire section otherwise.
-
-List each page ordered by most recent `detected_at` desc. Cap at 8 rows; if more exist, append `_and {N} more_` at the end.
-
-- **[Page name](../../pages/{id}.md)**: {count} new related candidate(s) (most recent: YYYY-MM-DD, origin: distill/close)
-  → Run `/page {id}` to review
-
-When count is 1, say "1 new related candidate"; when >1, pluralize.)
-
-## Situation Analysis
-
-(Based on all collected data, candidly analyze what you judge most important.
-Not a superficial activity report, but read the relationship between
-thoughts/emotions/intentions appearing in journals and actual behavior patterns,
-and point out patterns or structural issues the user may not be aware of.
-
-Include tracking of items mentioned in the previous briefing and how they changed.
-Include workspace review results (completion candidates, long-term inactive) in this section.
-
-Start from facts, add original analysis beyond mere data summarization.
-Neither overly positive nor negative — be candid.
-Include specific options/choices as a conclusion to the analysis.
-
-Write a narrative where the reader can grasp the "big picture" and "what to think about next")
-
-## Notes
-
-(Write specific notes in prose:
-- **Today's recommended action** — Two nudge cases, both must read as a request the user makes to Claude, never as a terminal command. **Never output `rill log`, `rill clip`, or any `rill *` CLI command in the Notes section.**
-  1. **Journal capture nudge** (trigger: `journal-count` from frontmatter is 0, OR the past 3+ days have had journal-count=0): Write a warm, brief nudge in `DETECTED_LANG` inviting the user to start capturing — e.g. *"When you're ready to capture a thought, click 'New Entry' in the Rill app, or open a Claude Code session in your vault and just tell me what's on your mind — I'll handle the rest. No commands needed."* Do not suggest a specific number of entries (e.g., "create 3 journals").
-  2. **Inbox processing nudge** (trigger: any `inbox.*.unprocessed` count is non-zero): Write a prose nudge stating the counts per subdirectory and inviting the user to **ask Claude to pull in the new entries and extract knowledge from them** (Claude will route this to `/sync` and `/distill` internally — do not quote the slash commands as a user instruction). If this nudge has been appearing for several days in a row, suggest "you can also ask Claude to set this up as a daily automation."
-  Both nudges may appear together if both conditions apply. If neither applies, omit this item.
-- Tasks approaching deadlines
-- Items left unattended for long periods
-- Other observations)
-
-(※ Insert Plugin Hook sections collected in Phase 1.5 here.
-Place each hook's `## Section Name` as-is.
-If no hook sections, insert nothing)
-
-## Related
-
-- [Newsletter](../newsletter/YYYY-MM-DD.md) (include only if exists)
-```
-
 ### Post-output
 
 Display a summary (3-5 lines) and finish. Do not transition to assistant mode.
 
 ## Task Display Rules
 
-Tasks from ticket files are written in rich display format (applies to both modes).
+Tasks from ticket files are written in rich display format.
 
 - Title: Use the h1 (`# Title`) from the ticket as-is
 - Background: Summarize to 1 sentence from ticket body
@@ -309,4 +207,4 @@ Tasks from ticket files are written in rich display format (applies to both mode
 - If `_organized/` has a same-named file, prefer reading that one
 - Create reports/daily/ directory if it doesn't exist
 - **When referencing tasks or knowledge files in the body, always use `[display name](../../relative-path)` Markdown links. Backtick-only ID references (e.g., `` `task-xxx` ``) are prohibited**. Same applies in prose sections
-- The mode decision is made by attempting to Read `knowledge/self/current-state.md`. Do not heuristically guess. If new mode files are partially present (e.g. current-state.md exists but decisions.md is absent), still run new mode and treat the missing files as empty sections
+- If some self/ files are partially present (e.g. current-state.md exists but decisions.md is absent), proceed and treat the missing files as empty sections
