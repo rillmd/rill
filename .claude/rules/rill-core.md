@@ -47,6 +47,7 @@ Each area's detailed rules are in the following split files. All auto-loaded fro
 - **projects/ execution hubs**: [rill-projects.md](rill-projects.md) — top-level execution hub layer, frontmatter, body structure, section ownership (ADR-080)
 - **reports/ + pages/**: [rill-outputs.md](rill-outputs.md) — Daily Note, Newsletter, pages recipe pairs
 - **Claude Code integration**: [rill-claude-code-integration.md](rill-claude-code-integration.md) — `rill mkfile`, GUI path-display convention, zsh compatibility
+- **Autonomous execution**: [rill-autonomous-execution.md](rill-autonomous-execution.md) — two-lane detection (PKM main-direct vs dev worktree), single Plan gate, worktree slug-identity, Codex dual usage, two-channel write invariant, three-tier destructive operations
 
 Additionally, container directory `CLAUDE.md` files (e.g., `inbox/meetings/`, `knowledge/people/`) are loaded on-demand, providing type-specific rules.
 
