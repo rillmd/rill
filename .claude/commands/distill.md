@@ -63,6 +63,104 @@ When a file or non-workspace directory is specified.
 - ※ Task duplicate checking is done by parent context in batch (scan existing tickets in `tasks/`)
 - **Important: Do not read target file contents in parent context. Pass only file paths to agents, let agents Read internally**
 
+#### Tier dict computation (artifact 013 §5.3, dream-phase-2)
+
+After the entity-mapping reads above, compute the entity Tier dict by counting mentions across the vault. This dict is injected as shared context into `_distill/knowledge-agent.md` (artifact 013 §6.1), enabling Tier-aware processing without per-agent grep.
+
+Run the following Bash inline. Scope: `inbox/_organized/` + `workspace/` + `tasks/` + `knowledge/notes/` + `reports/daily/` + `reports/newsletter/` (6 dirs). `knowledge/{people,orgs,projects}/` and `knowledge/self/` are excluded (entity self-references / singleton, 013 §2.2).
+
+```bash
+# Tier dict (artifact 013 §5.3)
+# inbox uses per-type subdirectories with their own _organized/ children
+# (inbox/journal/_organized/, inbox/tweets/_organized/, etc.); include all of them
+SCOPE_DIRS=(
+  inbox/journal/_organized
+  inbox/tweets/_organized
+  inbox/meetings/_organized
+  inbox/web-clips/_organized
+  inbox/sources/_organized
+  inbox/think-outputs                # think-outputs has no _organized/ (microfiles are structured at write time)
+  workspace
+  tasks
+  knowledge/notes
+  reports/daily
+  reports/newsletter
+)
+
+_emit_ids() {
+  awk '
+    /^---$/ { n++; if (n==2) exit; next }
+    n==1 && /^mentions:/ { in_m=1; line=$0; sub(/^mentions:/, "", line); print line; next }
+    n==1 && in_m && /^  *-/ { print $0; next }
+    n==1 && in_m && /^[a-zA-Z]/ { in_m=0 }
+  ' "$1" | grep -oE '(people|orgs|projects)/[a-z0-9][a-z0-9-]*' | sort -u || true
+}
+
+{
+  for dir in "${SCOPE_DIRS[@]}"; do
+    [[ -d "$dir" ]] || continue
+    while IFS= read -r -d '' f; do _emit_ids "$f"; done \
+      < <(find "$dir" -name '*.md' -type f -print0 2>/dev/null)
+  done
+} | sort | uniq -c | awk '{
+  count=$1; id=$2
+  if (count >= 8) tier="tier1"
+  else if (count >= 3) tier="tier2"
+  else tier="tier3"
+  print id, count, tier
+}' | sort -k2 -n -r > /tmp/distill-tier-dict.txt
+```
+
+Format the result into a YAML block for the shared context:
+
+```yaml
+### Tier dict
+computed_at: {ISO 8601 now}
+counts:
+  {id}: {count}
+  ...
+tier_assignment:
+  {id}: {tier1|tier2|tier3}
+  ...
+```
+
+Inject this block into the shared context that is passed to Group 2 (knowledge-agent). Cost: ~0.4s shell execution, 0 LLM tokens. Both inline (`mentions: [a, b]`) and block-list (`mentions:\n  - a\n  - b`) YAML forms are supported.
+
+**Ordering tradeoff**: this dict is computed once at the top of Step 1 (before inbox files are organized in Step 4). An entity that crosses a tier boundary in *this* run (e.g. 7 → 8 mentions via newly-organized files) will not be reflected here; the next `/distill` invocation captures it. This is an accepted Phase 1 limitation — recomputing post-Group-2 would double the cost and the cadence check in Step 1.5 only fires monthly anyway, so the impact is at most one curation cycle of latency. If Tier-boundary precision becomes important, move the computation between Step 5 and Step 6.
+
+### Step 1.5: Tier 1 monthly curation cadence judgment (NEW)
+
+After the Tier dict, check whether monthly Tier 1 curation review should fire this run (artifact 013 §4 + 015 §4):
+
+```bash
+STATE_FILE=".claude/state/distill-tier1-curation.json"
+if [[ -f "$STATE_FILE" ]]; then
+  # Allow optional whitespace after the JSON key colon (Step 7.5 writes pretty-printed JSON with one space)
+  last_ts=$(grep -oE '"last_curation_at":[[:space:]]*"[^"]+"' "$STATE_FILE" | grep -oE '"20[0-9T:+\-]+"' | tr -d '"' || echo "")
+else
+  last_ts=""
+fi
+
+if [[ -z "$last_ts" ]]; then
+  TIER1_CURATION_DUE=1     # never run before → due
+else
+  # Step 7.5 writes last_curation_at via `date -Iseconds` which on macOS emits +09:00 (colon-separated TZ).
+  # Normalize +09:00 → +0900 before parsing so the %z format actually matches; fall back to 999 days on parse failure.
+  norm_ts=$(echo "${last_ts}" | sed -E 's/([+-][0-9]{2}):([0-9]{2})$/\1\2/')
+  parsed=$(date -j -f "%Y-%m-%dT%H:%M:%S%z" "${norm_ts}" +%s 2>/dev/null || echo 0)
+  if [[ "${parsed}" == "0" ]]; then
+    days_since=999      # parse failure → treat as overdue (safe default)
+  else
+    days_since=$(( ($(date +%s) - parsed) / 86400 ))
+  fi
+  if (( days_since >= 30 )); then TIER1_CURATION_DUE=1; else TIER1_CURATION_DUE=0; fi
+fi
+```
+
+If `TIER1_CURATION_DUE=1`, Step 7.5 (below) will fire after Group 2 completes. Otherwise Step 7.5 is silently skipped.
+
+**Day-of-week guard**: To avoid same-session collision with `/retrospective` (which fires on Thursdays per 012 §0.2), if today is Thursday and the Plan or prior session-state indicates `/retrospective` is queued, defer `TIER1_CURATION_DUE` by 1 day (set to 0 for this run, will fire on the next /distill invocation). Standalone Thursday /distill runs without retrospective context proceed normally.
+
 ### Step 2: Collect Processing Targets
 
 Collect unprocessed files in 2 categories:
@@ -156,13 +254,77 @@ Phase 2.5 and Phase 3 are mutually independent, so execute in parallel.
   1. Identify files with status `organized` from each subdirectory's `.processed` (exclude `extracted`, `skipped`)
   2. If no candidates, display "No knowledge extraction candidates" and skip
   3. **Launch Agent per file with `model: "sonnet"`** (max 5 parallel, `run_in_background: true`) — knowledge extraction's defining behavior is the Evergreen check (merge/skip/create-new judgment), and Sonnet has been validated as production-equivalent on this dimension (Tier 2 LLM-as-judge eval, 2026-04-19: 3/3 Evergreen judgments agreed with Opus baseline; 0/3 DEGRADED-MAJOR; 1/3 EQUIVALENT, 1/3 DIFFERENT-OK, 1/3 DEGRADED-MINOR — the minor case had thinner body prose but correct Evergreen call; cost reduced ~49% vs Opus). Monitor /distill output 1–2 weeks for note-body richness and speculative content; revert to Opus if regressions appear.
-  4. Inject shared context (taxonomy_yaml, people/orgs/projects mappings)
+  4. Inject shared context (taxonomy_yaml, people/orgs/projects mappings, **tier_assignment dict from Step 1**). The tier_assignment dict is required for `_distill/knowledge-agent.md` Tier-Aware Processing (artifact 013 §6.1)
 
 ### Step 7: Group 2 Result Collection
 
 1. Run `rill strip-entity-tags` on knowledge/notes/ created in Phase 3
 2. Update `.processed` status to `extracted` (leave errored/skipped files as-is)
 3. Append new tags to `taxonomy.md`
+
+### Step 7.5: Tier 1 curation review (NEW, conditional)
+
+This step runs only when `TIER1_CURATION_DUE=1` from Step 1.5 (artifact 013 §4 + 015 §4). Otherwise, skip silently and proceed to Step 8.
+
+For each entity in the Tier dict with `tier_assignment == tier1`:
+
+1. Resolve the entity file path from the dict key. Keys are already typed (`{type}/{slug}` e.g. `people/jane-smith`, `projects/phoenix`), so the file path is `knowledge/{type}/{slug}.md` for people/orgs and `projects/{slug}/_project.md` for projects (ADR-080). Read that file and count `## Key Facts` entries
+2. Skip the entity unless **both** trigger conditions hold:
+   - Key Facts count ≥ 30 (artifact 013 §4.1 condition b — deliberately set higher than the ~20 guideline in `knowledge/{people,projects}/CLAUDE.md` because that guideline is not actively enforced; 30 catches the empirically-observed overfilled cases like `projects/rill.md` with 50+ facts. Revising the 20 guideline itself is out of scope for this phase per 013 §4.1)
+   - At least 5 new fact entries added in the past 4 weeks (detect via `(YYYY-MM)` date prefixes in fact lines, or `git log --since=4.weeks --follow {path}` line additions if blame is preferred)
+3. For each entity that passes both conditions, emit a curation review block.
+
+Generate `reports/distill/tier1-curation-{YYYY-MM-DD}.md` with one section per flagged entity. Format:
+
+```markdown
+---
+created: {now ISO 8601}
+type: distill-curation
+period: {YYYY-MM-DD}
+---
+
+# Tier 1 Key Fact Curation Review
+
+## {type}/{id} — current {N} facts, guideline 20
+
+### Deletion candidates (old / duplicate / low-importance)
+
+- [ ] **{date prefix} {fact text}** — reason: {old | duplicate of #M | low-importance single incident}
+
+### Merge candidates
+
+- [ ] {fact #X} + {fact #Y} = "{merged interpretation}" — combinable into one entry
+
+(repeat per entity)
+
+## How to apply
+
+- Mark checkboxes `[x]` for the deletions/merges you approve
+- Run `/distill --apply-curation reports/distill/tier1-curation-{date}.md` (Phase 2 future flag; for now, manually edit the entity file)
+- Unchecked items will be re-proposed at the next monthly cadence
+```
+
+The LLM picks deletion / merge candidates per artifact 013 §4.3 heuristics:
+
+1. **Old**: has `(YYYY-MM)` prefix, ≥ 6 months ago, and a later fact on the same theme supersedes it
+2. **Duplicate**: two existing facts express semantically near-identical content (LLM judgment, not embedding)
+3. **Low-importance**: external references / single incidents with no downstream impact on workspaces or decisions
+
+After the review file is written (or the iteration completes with zero flagged entities), update the state file:
+
+```bash
+mkdir -p .claude/state
+cat > .claude/state/distill-tier1-curation.json <<EOF
+{
+  "skill": "distill-tier1-curation",
+  "last_curation_at": "$(date -Iseconds)",
+  "last_curation_file": "reports/distill/tier1-curation-$(date -I).md",
+  "entities_flagged_last_run": [...]
+}
+EOF
+```
+
+**Important: this step writes a review file only — no auto-delete, no auto-merge** (artifact 013 §4.2 / §1.1 design principle 4). The `--apply-curation` flag is a Phase 2 deliverable.
 
 ### Step 8: Group 3
 
