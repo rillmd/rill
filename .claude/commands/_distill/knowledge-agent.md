@@ -69,6 +69,16 @@ The following data is injected from the orchestrator's prompt (not included in t
 - **People mapping**: id → name | aliases | company in extended one-line format
 - **Orgs mapping**: id → name (aliases) in one-line format
 - **Projects mapping**: id → name (stage, tags) in one-line format
+- **Tier dict**: `tier_assignment` mapping each entity ID to `tier3 | tier2 | tier1` (artifact 013, dream-phase-2). Computed once by the orchestrator in /distill Step 1; do NOT recompute via grep inside this agent
+
+## Tier-Aware Processing
+
+When accumulating Key Facts for an entity, branch by the entity's Tier (from the injected `tier_assignment` dict):
+
+- **Tier 3 / Tier 2** (1-7 mentions): existing accumulation logic only — no behavior change in this Phase. The Tier dict is read but not used for branching yet.
+- **Tier 1** (8+ mentions): existing accumulation only. **Tier 1 curation review is the orchestrator's responsibility** (`/distill` Step 7.5), not this agent's. Do NOT add a "skip if Key Facts > 30" gate here — the orchestrator decides whether curation review fires based on the monthly cadence judgment in Step 1.5.
+
+Do not run Grep yourself to count mentions — always read the count from the injected `tier_assignment` dict. The agent's per-source token budget does not include vault-wide grep (artifact 013 §1.1 design principle 5).
 
 ## Read Budget
 - Target file: Full Read — 1 time
