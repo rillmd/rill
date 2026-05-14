@@ -1,22 +1,18 @@
 # Rill Core Rules
 
-**Entry point** rules for working in a Rill-managed vault. Detailed rules are split into `.claude/rules/rill-*.md` files, auto-loaded each turn by Claude Code.
+Entry point for working in a Rill-managed vault. Detailed rules are split into `.claude/rules/rill-*.md` files, auto-loaded each turn.
 
 ## What is Rill
 
-Rill is a personal voice journal + knowledge management system.
+Personal voice journal + knowledge management system. Core flow: **voice / text → Markdown → GitHub → Claude Code → knowledge / tasks**. All data is plain Markdown; GitHub is the single source of truth.
 
-Core flow: **voice / text → Markdown → GitHub → Claude Code → knowledge / tasks**
-
-All data is plain Markdown files. GitHub is the single source of truth.
-
-## Directory Map (standard vault structure)
+## Directory Map
 
 ```
 <vault>/
 ├── inbox/          # Input layer (immutable): journal, meetings, tweets, web-clips, sources
 ├── knowledge/      # Accumulation layer: self/, notes/, people/, orgs/
-├── projects/       # Execution hub layer (ADR-080): per-project directory
+├── projects/       # Execution hub layer (ADR-080)
 ├── workspace/{id}/ # Working layer (stateful)
 ├── tasks/{slug}/   # Per-task directory (_task.md + optional artifacts, ADR-076)
 ├── reports/        # Claude Code outputs: daily/, newsletter/
@@ -24,46 +20,41 @@ All data is plain Markdown files. GitHub is the single source of truth.
 ├── taxonomy.md     # Tag vocabulary management
 └── .claude/
     ├── commands/   # Claude Code skills
-    └── rules/      # Split rules (including this file, auto-loaded)
+    └── rules/      # Split rules (including this file)
 ```
 
-## Critical Invariants (must be guaranteed every turn)
+## Critical Invariants
 
-1. **Original files in inbox/ are read-only**. Never modify them (no appending either). Creating organized versions in `_organized/` is allowed
-2. **Use `rill mkfile` for new file creation**. LLMs must never write `created` values directly (for timestamp accuracy)
-3. **Frontmatter is required**. See `rill-data-model.md` for schema
-4. **Claude Code integration boundary**: Agent SDK / OAuth token management / `--bare` mode / API Key default auth are **prohibited**. Use `claude -p --output-format stream-json` for automation
-5. **Contact information (email, phone) must only be written to `knowledge/people/` or `knowledge/orgs/`**
+1. Original files in `inbox/` are read-only (no appending). Organized versions in `_organized/` are allowed.
+2. Use `rill mkfile` for new files — LLMs must never write `created` directly.
+3. Frontmatter required. See `rill-data-model.md`.
+4. Claude Code integration boundary: Agent SDK / OAuth tokens / `--bare` mode / API Key default auth are prohibited. Use `claude -p --output-format stream-json` for automation.
+5. Contacts (email, phone) only in `knowledge/people/` or `knowledge/orgs/`.
 
-## Detailed Rules (index to split files)
+## Detailed Rules (index)
 
-Each area's detailed rules are in the following split files. All auto-loaded from `.claude/rules/*.md`:
+- **Data model**: [rill-data-model.md](rill-data-model.md) — frontmatter, tags, links, mentions
+- **inbox/**: [rill-inbox.md](rill-inbox.md) — immutability, `_organized/`, `.processed`
+- **knowledge/**: [rill-knowledge.md](rill-knowledge.md) — notes pool, entities, contact rules
+- **workspace/**: [rill-workspace.md](rill-workspace.md) — completion conditions, file-first
+- **tasks/**: [rill-tasks.md](rill-tasks.md) — status, due/scheduled, subtasks
+- **projects/**: [rill-projects.md](rill-projects.md) — execution hub layer (ADR-080)
+- **reports/ + pages/**: [rill-outputs.md](rill-outputs.md) — Daily Note, Newsletter, recipe pairs
+- **Claude Code integration**: [rill-claude-code-integration.md](rill-claude-code-integration.md)
+- **Autonomous execution**: [rill-autonomous-execution.md](rill-autonomous-execution.md) — lanes, Plan gate, worktrees, Codex usage, two-channel write, three-tier destructive ops
 
-- **Data model**: [rill-data-model.md](rill-data-model.md) — frontmatter schema, tag management, link conventions, mentions
-- **inbox/ input layer**: [rill-inbox.md](rill-inbox.md) — immutability principle, `_organized/`, `.processed`
-- **knowledge/ accumulation layer**: [rill-knowledge.md](rill-knowledge.md) — notes pool, entity principles, contact rules
-- **workspace/ working layer**: [rill-workspace.md](rill-workspace.md) — completion conditions, artifact numbering, file-first principle
-- **tasks/ tickets**: [rill-tasks.md](rill-tasks.md) — status values, due/scheduled, subtasks
-- **projects/ execution hubs**: [rill-projects.md](rill-projects.md) — top-level execution hub layer, frontmatter, body structure, section ownership (ADR-080)
-- **reports/ + pages/**: [rill-outputs.md](rill-outputs.md) — Daily Note, Newsletter, pages recipe pairs
-- **Claude Code integration**: [rill-claude-code-integration.md](rill-claude-code-integration.md) — `rill mkfile`, GUI path-display convention, zsh compatibility
-- **Autonomous execution**: [rill-autonomous-execution.md](rill-autonomous-execution.md) — two-lane detection (PKM main-direct vs dev worktree), single Plan gate, worktree slug-identity, Codex dual usage, two-channel write invariant, three-tier destructive operations
-
-Additionally, container directory `CLAUDE.md` files (e.g., `inbox/meetings/`, `knowledge/people/`) are loaded on-demand, providing type-specific rules.
+Container `CLAUDE.md` files (e.g., `inbox/meetings/`, `knowledge/people/`) load on-demand for type-specific rules.
 
 ## Language Rules
 
-- **Body text**: User's preferred language
-- **Technical terms**: Keep in English (Markdown, API, frontmatter, etc.)
-- **File/directory names**: English kebab-case
-- **Frontmatter keys**: English
-- **Commit messages**: English
+- Body text: user's preferred language
+- Technical terms: English (Markdown, API, frontmatter)
+- File/directory names: English kebab-case
+- Frontmatter keys, commit messages: English
 
 ## Customization
 
-Users can add their own rules via:
+- `.claude/rules/personal-*.md` — personal rules (auto-loaded)
+- Root `CLAUDE.md` — project-specific (untouched by `rill update`)
 
-- `.claude/rules/personal-*.md` — Personal rules in separate files (auto-loaded)
-- Root `CLAUDE.md` — Project-specific instructions (`rill update` does not touch it)
-
-Rill-managed `rill-*.md` files may be overwritten by `rill update`. Do not edit them directly.
+Rill-managed `rill-*.md` files may be overwritten by `rill update` — do not edit directly.

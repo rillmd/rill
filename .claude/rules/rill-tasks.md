@@ -107,43 +107,19 @@ Per-field:
 - **History**: Provenance at creation; grows as the task evolves.
 - **Frontmatter**: `source` points to the real upstream or is omitted. `tags` and `mentions` reflect what the task is about.
 
-## Good Example
+## Good Example (abridged)
 
-```markdown
----
-created: 2026-04-17T10:00+09:00
-type: task
-status: open
-source: inbox/meetings/_organized/2026-04-15-acme-saas-kickoff.md
-tags: [onboarding, integrations]
-mentions: [projects/acme-saas, people/alex-chen]
-due: 2026-05-15
-related:
-  - knowledge/notes/acme-saas-imap-connector-design.md
-  - knowledge/notes/sunrise-hotel-imap-retrospective.md
----
+Frontmatter: `source`, `tags`, `mentions: [projects/..., people/...]`, optional `due`, optional `related: [knowledge/notes/...]`.
 
-# Confirm IMAP connectivity for acme-saas trial inbox
+Body:
 
-## Goal
-IMAP/SMTP access to acme-saas trial mailbox is confirmed working end-to-end (outbound auth, inbound polling, TLS), with a setup procedure their IT team can execute without our help.
+- **Goal** — verifiable end-state ("IMAP/SMTP access confirmed working end-to-end, with a procedure their IT can execute without our help").
+- **Background** — trigger + stakes + non-obvious prior context (e.g., "prior project hit TLS/auth issues for a week; pre-empt that"). The test: someone not in the room can work from this alone.
+- **Context** — one link per line with role descriptor: `[Acme-saas IMAP connector design](knowledge/notes/...) — TLS config + polling cadence`.
+- **Request** — prescriptive hint, not a plan ("draft a yes/no checklist before the first discovery call so we don't burn their IT window on open-ended questions").
+- **History** — provenance: `2026-04-17: Created from 2026-04-15 kickoff.`
 
-## Background
-Alex Chen's team agreed to a 1–2 month trial on their customer-support mailbox at 2026-04-15 kickoff. Their mail is on an internal groupware suite — standard setup docs don't apply. The trial's go/no-go depends on connecting without IT policy exceptions. Sunrise-hotel hit TLS/auth issues for a week on a similar stack; pre-empt that. IT contact is Thursday-only — batch discovery calls.
-
-## Context
-- [Acme-saas IMAP connector design](knowledge/notes/acme-saas-imap-connector-design.md) — TLS config + polling cadence
-- [Sunrise-hotel IMAP retrospective](knowledge/notes/sunrise-hotel-imap-retrospective.md) — failure modes on similar stack
-- [Kickoff notes](inbox/meetings/_organized/2026-04-15-acme-saas-kickoff.md) — original commitment
-
-## Request
-Before the first discovery call, draft a yes/no checklist (IMAP enabled? external forwarding? TLS version?) so we don't burn their IT window on open-ended questions.
-
-## History
-- 2026-04-17: Created from 2026-04-15 acme-saas kickoff. Connector design doc already exists.
-```
-
-Passes: Goal is verifiable, Background covers trigger / stakes / prior incident, Context links have role descriptors, Request is prescriptive but not a plan.
+Passes: Goal verifiable, Background covers trigger/stakes/prior incident, Context links have role descriptors, Request prescriptive but not a plan.
 
 ## Anti-patterns
 
