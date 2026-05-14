@@ -41,13 +41,43 @@ if [[ -z "$VAULT_DIR" ]]; then
   [[ -f "$REPO_DIR/SPEC.md" ]] && cp "$REPO_DIR/SPEC.md" "$VAULT_DIR/SPEC.md"
   cd "$VAULT_DIR"
 
-  # Provide a minimal one-query eval/queries.yaml to keep agent fan-out bounded
+  # Provide a minimal eval/queries.yaml in the real /eval format
+  # (top-level sequence; entries with id/query/type/scope).
+  # 7 queries span the 4 supported types (factual / synthesis / entity / exploratory)
+  # to satisfy Phase 2 stratified sampling; agent fan-out is still bounded.
   mkdir -p eval
   cat > eval/queries.yaml <<'EOF'
-# Minimal smoke fixture: one query so /eval runs end-to-end without spawning 20 agents
-queries:
-  - id: smoke-1
-    text: "Find any knowledge note that mentions onboarding"
+# Minimal smoke fixture for /eval integration test.
+# Real vaults have ~20 queries; this minimal set keeps agent fan-out bounded
+# while still meeting Phase 2 stratified-sampling type coverage.
+- id: SQ1
+  query: "Which OAuth provider was selected for sample-project?"
+  type: factual
+  scope: narrow
+- id: SQ2
+  query: "What concerns does Alex Chen have about onboarding?"
+  type: entity
+  scope: narrow
+- id: SQ3
+  query: "What is the silent refresh strategy decision?"
+  type: factual
+  scope: narrow
+- id: SQ4
+  query: "How do Auth0, Clerk, and Supabase compare for B2B usage?"
+  type: synthesis
+  scope: medium
+- id: SQ5
+  query: "What follow-up tasks remain on the OAuth migration?"
+  type: synthesis
+  scope: medium
+- id: SQ6
+  query: "What are emerging risks for the auth migration?"
+  type: exploratory
+  scope: medium
+- id: SQ7
+  query: "What patterns exist across recent provider-decision notes?"
+  type: exploratory
+  scope: medium
 EOF
   if [[ -f "$REPO_DIR/eval/concept.md" ]]; then
     cp "$REPO_DIR/eval/concept.md" eval/concept.md

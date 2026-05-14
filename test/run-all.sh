@@ -22,7 +22,10 @@ run_test() {
     echo "  → $name: PASSED"
   else
     echo "  → $name: FAILED"
-    ((TOTAL_FAIL++))
+    # Use assignment form (not `((TOTAL_FAIL++))`) — post-increment when
+    # TOTAL_FAIL=0 evaluates the expression to 0, which under `set -e` would
+    # exit the script on the first failing suite instead of running the rest.
+    TOTAL_FAIL=$((TOTAL_FAIL + 1))
   fi
   echo ""
 }
