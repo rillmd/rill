@@ -43,8 +43,8 @@ if [[ -z "$VAULT_DIR" ]]; then
   cp -r "$REPO_DIR/.claude" "$VAULT_DIR/.claude"
   cp -r "$REPO_DIR/bin" "$VAULT_DIR/bin"
   [[ -d "$REPO_DIR/plugins" ]] && cp -r "$REPO_DIR/plugins" "$VAULT_DIR/plugins"
-  cp "$REPO_DIR/taxonomy.md" "$VAULT_DIR/taxonomy.md"
-  cp "$REPO_DIR/CLAUDE.md" "$VAULT_DIR/CLAUDE.md"
+  [[ -f "$REPO_DIR/taxonomy.md" ]] && cp "$REPO_DIR/taxonomy.md" "$VAULT_DIR/taxonomy.md"
+  [[ -f "$REPO_DIR/CLAUDE.md" ]] && cp "$REPO_DIR/CLAUDE.md" "$VAULT_DIR/CLAUDE.md"
   [[ -f "$REPO_DIR/SPEC.md" ]] && cp "$REPO_DIR/SPEC.md" "$VAULT_DIR/SPEC.md"
   cd "$VAULT_DIR"
   git init -q

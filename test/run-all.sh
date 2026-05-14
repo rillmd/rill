@@ -27,13 +27,17 @@ run_test() {
   echo ""
 }
 
-# Currently only /distill test is implemented
-run_test "/distill" "$SCRIPT_DIR/skills/test-distill.sh"
-
-# Future tests:
-# run_test "/briefing" "$SCRIPT_DIR/skills/test-briefing.sh"
-# run_test "/focus" "$SCRIPT_DIR/skills/test-focus.sh"
-# run_test "/close" "$SCRIPT_DIR/skills/test-close.sh"
+run_test "/distill"     "$SCRIPT_DIR/skills/test-distill.sh"
+run_test "/briefing"    "$SCRIPT_DIR/skills/test-briefing.sh"
+run_test "/clip-tweet"  "$SCRIPT_DIR/skills/test-clip-tweet.sh"
+run_test "/close"       "$SCRIPT_DIR/skills/test-close.sh"
+run_test "/focus"       "$SCRIPT_DIR/skills/test-focus.sh"
+run_test "/newsletter"  "$SCRIPT_DIR/skills/test-newsletter.sh"
+run_test "/page"        "$SCRIPT_DIR/skills/test-page.sh"
+run_test "/solve"       "$SCRIPT_DIR/skills/test-solve.sh"
+run_test "/inspect"     "$SCRIPT_DIR/skills/test-inspect.sh"
+run_test "/repair"      "$SCRIPT_DIR/skills/test-repair.sh"
+run_test "/eval"        "$SCRIPT_DIR/skills/test-eval.sh"
 
 echo "============================================"
 if (( TOTAL_FAIL == 0 )); then
