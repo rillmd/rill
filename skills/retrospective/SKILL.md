@@ -1,0 +1,344 @@
+---
+name: retrospective
+description: Generate a weekly retrospective at reports/retrospective/weekly-{YYYY-MM-DD}.md with 5 sections (Cross-WS Themes / Contradictions / Stale Workspaces / Decision Digest / Self Observations) over the prior ISO week. Auto-appends to knowledge/self/decisions.md (3-month window) and surfaces Self Observation candidates for --finalize approval. Primary habit trigger is the Thursday /briefing nudge. Use when the user runs `/retrospective`, asks for a weekly review, or the briefing nudge requests it.
+gui:
+  label: "/retrospective"
+  hint: "Weekly retrospective generation"
+  match:
+    - "reports/retrospective/*.md"
+  arg: "weekly | monthly | --view | --rerun | --finalize {period}"
+  order: 70
+  mode: auto
+---
+
+# /retrospective — Weekly Retrospective
+
+> **Registration convention**: skill metadata lives at `skills/retrospective/SKILL.md` and follows the `/pulse` precedent (`skills/pulse/SKILL.md`); there is **no** `.claude/commands/retrospective.md` and one is not required. The `rill update` propagation of `skills/*/SKILL.md` to consumer vaults is tracked as a separate follow-up.
+
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms.
+
+> **Tool references in this skill** (`Bash`, `Grep`, `Read`, `Edit`, `Glob`, `Agent`, `Skill`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent.
+
+Aggregates the prior ISO week across `workspace/`, `tasks/`, `inbox/journal/`, and decision artifacts into a 5-section retrospective. Auto-flushes the Decision Digest into `knowledge/self/decisions.md` (3-month window). Self Observation candidates are surfaced for explicit user approval via `--finalize`. Stale Workspace detection runs deterministically (no agent fanout).
+
+Design references:
+
+- `workspace/2026-05-07-dream-system-rill-application/012-retrospective-skill-detail-design.md` — full spec including user-flow §0, trigger §1, period §2, input pipeline §3, section algorithms §4, self/ flush §6, sidecar §7.3
+- `workspace/2026-05-07-dream-system-rill-application/008-tightening-pass-retrospective-volume-rollout.md` §1 — 5-section output schema (dependency contract)
+- `workspace/2026-05-07-dream-system-rill-application/015-execution-wiring.md` §3 — Thursday nudge wiring inside `/briefing`
+
+## Arguments
+
+$ARGUMENTS — one of the following:
+
+- Omitted → `weekly` for the prior ISO week (Monday-to-Sunday, ending before today's week)
+- `weekly` → same as omitted
+- `weekly YYYY-MM-DD` → weekly for the ISO week whose Monday is the given date
+- `monthly` → monthly for the prior calendar month (Phase 2 deferred; emit "monthly is not implemented yet" and exit if invoked)
+- `monthly YYYY-MM` → same
+- `--view` → display the existing file path (if any) without regenerating
+- `--rerun` → regenerate over an existing file (preserves frontmatter `created`, updates `updated`)
+- `--finalize {period}` → flush user-approved `[x]` Self Observations into `knowledge/self/observations.md`. Does not regenerate the retrospective file
+
+## Trigger Model
+
+Four trigger kinds (012 §1.1):
+
+| Trigger | Source | Action |
+|---|---|---|
+| **Manual weekly** | User runs `/retrospective` or `/retrospective weekly` | Generate weekly retrospective |
+| **Manual monthly** | User runs `/retrospective monthly` | Deferred (Phase 2); print stub message |
+| **Briefing nudge** | `/briefing` Phase 1 Step E surfaces a nudge | User must still invoke `/retrospective` manually — no auto-chain |
+| **/pulse Read** | `/pulse` reads the latest retrospective for "known contradictions" extraction | Read-only; never invoked from `/pulse` |
+
+No launchd / cron. Primary path is manual + Thursday nudge.
+
+## State Sidecar
+
+State lives in `.claude/state/retrospective.json` (012 §7.3). Git-tracked so weekly cadence survives clone.
+
+```json
+{
+  "last_run_at": "2026-05-08T18:00+09:00",
+  "last_period": "weekly-2026-04-27",
+  "pending_finalize": ["weekly-2026-04-27"],
+  "skipped_periods": ["weekly-2026-04-13"],
+  "nudge_state": {
+    "weekly-2026-05-04": { "nudge_count": 1, "last_nudge_at": "2026-05-14T07:00+09:00" }
+  },
+  "run_count": 8
+}
+```
+
+- `last_run_at` / `last_period` updated on every successful generation
+- `pending_finalize` tracks periods with un-finalized Self Observations
+- `skipped_periods` tracks 3-strike nudge skips (also written by `/briefing` Step E)
+- `nudge_state` is written by `/briefing` only; this skill reads it but does not mutate it
+- `run_count` for instrumentation
+
+If the file does not exist, initialize lazily on first successful run. Treat missing fields as empty.
+
+## Idempotency
+
+- Same period + no `--rerun` → display "weekly-{period}.md already exists. Use `--rerun` to overwrite or `--view` to display." and exit
+- `--rerun` → full body replacement; `created` immutable, `updated` refreshed
+- `--view` → print the file path; do not regenerate
+- `self/decisions.md` append: dedup by `(source path)` key; reruns do not double-append
+- `self/observations.md` (via `--finalize`): dedup by `(text + source)` key
+
+## Period Strategy
+
+- `weekly` is primary: period = ISO week (Monday..Sunday). Format: `weekly-{YYYY-MM-DD}` where the date is the Monday
+- `monthly` is deferred (012 §10 OQ1)
+- `daily` is not supported — `reports/daily/` already covers that role
+
+## Procedure
+
+### Phase 0: Resolve period and check idempotency
+
+1. Parse arguments. Compute `period_monday := YYYY-MM-DD` of the target ISO week's Monday (default: the prior ISO week, i.e., week before today's week)
+2. **Define the canonical period id once**: `period_id := "weekly-" + period_monday` (e.g. `weekly-2026-05-04`). All later phases, state writes, and provenance strings reference `{period_id}` verbatim — do not re-prepend `weekly-` anywhere downstream
+3. **`--finalize {period}` short-circuits the rest of Phase 0** → jump straight to Phase 6 (finalize necessarily operates on an existing file; do not run any existing-file or `--view` gating before it)
+4. Build the output path: `reports/retrospective/{period_id}.md`
+5. If `--view` → print the path and exit
+6. If the file exists and neither `--rerun` nor `--view` is set → display the existing-file message and exit
+
+### Phase 1: Input collection (Grep-first, artifact 012 §3)
+
+Collect period-bounded inputs:
+
+| Source | Filter | Use |
+|---|---|---|
+| `workspace/*/_workspace.md` | `status: active` OR (`status: completed` AND `updated` in period) | Cross-WS Themes / Contradictions / Stale |
+| `workspace/*/[0-9]*-*.md` | `type: decision` AND `created` in period | Decision Digest |
+| `tasks/*/_task.md` | `status: done` AND `updated` in period | Decision Digest supplement |
+| `inbox/journal/*.md` | filename date in period (or `_organized/` mirror) | Self Observations candidates |
+| `reports/daily/*.md` | filename date in period | Cross-WS Themes supplement |
+| `reports/retrospective/{prev-week}.md` | most recent prior retrospective | Continuity (carry-over observations) |
+
+Use `Grep` (frontmatter-only) and `Glob` for enumeration. Do **not** Read full content of every workspace at this stage — only frontmatter and the headings list. Full-text reads happen inside agent fanout (Phase 2).
+
+### Phase 2: Agent fanout for theme-extraction and observation candidates
+
+Launch **2 batches of 5 parallel agents** (artifact 012 §3.3, hard ceiling ~175K tokens / run):
+
+**Batch A — theme-extraction-agent** (5 agents, partitioned over active + period-completed workspaces, with `model: "sonnet"`):
+
+- Each agent receives a subset of workspace paths
+- Returns the YAML schema declared in `.claude/commands/_retrospective/theme-extraction-agent.md` — top-level `themes:` list where each entry has `{ name, workspace, summary, conclusion, anchor }`, plus an optional top-level `contradictions_signal:` list
+- Coordinator clusters `themes` entries by `name` (with semantic fuzziness) across all 5 agent outputs. **Exclude any entry whose `name` starts with `"(skipped — "` from clustering** (per `theme-extraction-agent.md` failure-handling rules — these are read-failure markers, not real themes). Clusters spanning 2+ workspaces become "Cross-WS Themes". Within a cluster, if 2+ entries have different `conclusion` values (and neither is `"(in progress)"`), the cluster also becomes a "Contradictions" entry. `contradictions_signal` entries are intra-workspace hints used as a tie-breaker
+- Prompt path: `.claude/commands/_retrospective/theme-extraction-agent.md`
+
+**Batch B — observation-agent** (5 agents, partitioned over journal + decision-artifact + prior retrospectives in the period, with `model: "sonnet"`):
+
+- Returns: `{ candidates: [{observation, sources: [...]}] }`
+- Coordinator clusters by semantic similarity; surfaces top 5–10 as checkbox candidates
+- Prompt path: `.claude/commands/_retrospective/observation-agent.md`
+
+If the input set is empty (no active workspaces / no decisions / no journal in period), skip the corresponding batch and leave the section as "(no data this period)".
+
+### Phase 3: In-skill deterministic sections
+
+**Stale Workspaces** (012 §4.3):
+
+```bash
+# All active workspaces, then filter by updated-age
+Grep(pattern="^status: active", path="workspace/", glob="**/_workspace.md", output_mode="files_with_matches")
+for each match:
+  read frontmatter.updated (fall back to .created)
+  age_days = (period_end - updated) / 86400
+  if age_days > 7:
+    classify:
+      no artifact created in past 30 days → "close candidate"
+      otherwise → "on-hold candidate"
+```
+
+**Decision Digest** (012 §4.4):
+
+1. Collect from two input sources (Phase 1 already gathered both, so the digest matches the declared inputs and weeks captured primarily as task completions are not dropped):
+   - **Workspace decisions**: Glob `workspace/*/[0-9]*-*.md`; filter to `type: decision` AND `created` in period
+   - **Completed tasks**: From the `tasks/*/_task.md` set already filtered in Phase 1 (`status: done` AND `updated` in period)
+2. Extract the digest line per source:
+   - For workspace decisions: Read the leading bullet section under the first `## ` heading that appears after the frontmatter (the artifact's primary "Decision" section in the user's vault language). The frontmatter `type: decision` is the canonical filter; the heading text is locale-specific and not pattern-matched
+   - For completed tasks: use the task title (H1 or frontmatter-derived) plus its `## Goal` first line as the digest summary
+3. Score:
+   - Workspace decisions: `(WS status weight 1.0 active / 0.8 completed-in-period) × (count of mentions in decision body)`
+   - Completed tasks: `(0.9) × (count of mentions in _task.md body)` — slightly below active-WS decisions but above completed-WS decisions, reflecting that finished tasks usually represent settled, lower-volatility outcomes
+4. Merge both source lists, sort by score, take top 7 (012 §4.4 limit). Tag each entry with its source kind (`decision` / `task`) so the rendered digest can hint at provenance for the reader
+
+### Phase 4: Render the retrospective file
+
+Generate `reports/retrospective/{period_id}.md`. Handle the fresh-run vs `--rerun` cases differently so the original `created` frontmatter is preserved across reruns (idempotency contract from the "Idempotency" section above):
+
+```bash
+target="reports/retrospective/{period_id}.md"
+
+if [[ -e "$target" && "${RERUN:-}" ]]; then
+    # --rerun: keep frontmatter `created` immutable, only refresh `updated`. Do NOT
+    # call rill mkfile here — it would generate a new file with today's timestamp
+    # and overwrite the historical `created`. Instead, Edit the frontmatter
+    # `updated:` field in place (or insert it if missing) and clear the body below
+    # the frontmatter so Phase 4 can re-render the 5 sections.
+    edit_frontmatter_field "$target" updated "$(date_iso_now)"
+    truncate_body_below_frontmatter "$target"
+else
+    # Fresh run: rill mkfile reports/* ignores --slug and writes {today}.md
+    # (bin/rill cmd_mkfile branch for reports/*). Use mkfile to get the correct
+    # `created` frontmatter (ADR-060), then rename to {period_id}.md so the rest
+    # of this skill, /pulse latest-retrospective read, and --finalize / --view
+    # paths all resolve against the canonical weekly-* filename.
+    mkfile_out="$(rill mkfile reports/retrospective --type retrospective \
+      --field "period={period_id}")"
+    mv "$mkfile_out" "$target"
+fi
+```
+
+Then Edit the body to fill the 5 sections in this exact order (008 §1 dependency contract — do not reorder):
+
+```markdown
+# Retrospective — {period}
+
+## Cross-WS Themes
+
+### Theme: {short name}
+
+{1-2 line summary}
+
+Multi-WS:
+- [{WS A name}](../../workspace/{id}/_workspace.md): {1-line excerpt}
+- [{WS B name}](../../workspace/{id}/_workspace.md): {1-line excerpt}
+
+(Up to 5 themes. If empty, write "(no cross-WS themes detected this period)")
+
+## Contradictions
+
+### Contradiction 1: {theme}
+
+- **WS A**: {conclusion X} — [source]({path})
+- **WS B**: {conclusion Y} — [source]({path})
+- **Proposed action**: {integrate / prefer one / defer to next /focus}
+
+(Up to 5 entries. **If empty, keep the heading and write "(no contradictions this period)"** — `/pulse` reads this section to populate self/current-state.md "known contradictions", so the heading must always be present for downstream parsing.)
+
+## Stale Workspaces
+
+| WS | Last updated | Days stale | Suggestion |
+|---|---|---|---|
+| [{name}](../../workspace/{id}/_workspace.md) | YYYY-MM-DD | Nd | close / on-hold |
+
+(If no stale workspaces, write "(no stale workspaces)")
+
+## Decision Digest
+
+- YYYY-MM-DD: {1-line decision summary} (source [{name}](../../path))
+
+(Up to 7 entries. If empty, write "(no decisions recorded this period)")
+
+## Self Observations
+
+Candidates below — mark `[x]` to approve, then run `/retrospective --finalize {period}`. Unmarked items are dropped at finalize.
+
+- [ ] {observation text} (sources: [{name1}]({path1}); [{name2}]({path2}); …)
+
+Each candidate carries the **full** sources list returned by the observation-agent (typically 2–3 entries; see `_retrospective/observation-agent.md` "Output schema requirements" — recurrence requires ≥2 sources). Always emit the parenthetical in the plural form (`sources:` with `;`-separated entries), even when there happens to be only one source — keeps `--finalize`'s parser regex single-shape.
+
+(Up to 10 candidates. If empty, omit the section body but keep the heading.)
+```
+
+### Phase 5: Auto-flush to self/decisions.md
+
+After the file is written, append the Decision Digest entries to `knowledge/self/decisions.md` (artifact 012 §6.1):
+
+- Format: `- {YYYY-MM-DD}: {decision} (source [{name}]({path})) [retrospective: {period_id}]`
+- 3-month (90-day) window: before appending, drop any existing entries whose date is older than 90 days
+- Dedup: skip entries whose `(source path)` is already present
+
+Update the state sidecar using **merge-write semantics** (do not replace the whole file): read the existing JSON object, mutate only the four fields owned by `/retrospective`, then write the merged object back. Fields owned by `/briefing` (`nudge_state`, `skipped_periods`) and any future writer must be preserved untouched.
+
+```bash
+mkdir -p .claude/state
+
+# 1. Read current state (treat missing file or parse error as an empty object {})
+existing="$(read_json_or_empty .claude/state/retrospective.json)"
+
+# 2. Merge: only the four fields below belong to this skill. All other top-level
+#    fields (notably nudge_state and skipped_periods, written by /briefing Step E)
+#    must round-trip unchanged.
+merged="$(jq_merge "$existing" '{
+  last_run_at: <now ISO 8601>,
+  last_period: ( . // "" | max_iso( "{period_id}" ) ),   # string-compare two weekly-YYYY-MM-DD values; ASCII order == ISO date order because the "weekly-" prefix is identical. --rerun of an older period must NOT rewind last_period (the briefing nudge gate keys on the latest completed period)
+  pending_finalize: ( . // [] | unique_append( "{period_id}" ) ),  # dedup against existing entries
+  run_count: ( . // 0 | + 1 )
+}')"
+
+# 3. Write back atomically
+write_atomic .claude/state/retrospective.json "$merged"
+```
+
+`{period_id}` here is the canonical `weekly-YYYY-MM-DD` string defined in Phase 0 step 2 — do not re-prepend `weekly-`. The pseudocode helpers (`read_json_or_empty`, `jq_merge`, `write_atomic`) are stand-ins for whatever JSON read-modify-write the harness has on hand; what matters is the **field-level merge semantic**, not the specific implementation.
+
+### Phase 6: --finalize path (separate invocation)
+
+When invoked with `--finalize {period_arg}`:
+
+1. Normalize the period argument into the canonical `period_id`:
+   - If `{period_arg}` already starts with `weekly-` or `monthly-` (the form stored in `last_period` / `pending_finalize`), set `period_id := period_arg` verbatim
+   - Otherwise prepend `weekly-` (e.g. `2026-04-27` → `weekly-2026-04-27`)
+   - Final path: `reports/retrospective/{period_id}.md`. Error if missing
+2. Read the file; find the `## Self Observations` section; for each line of the form `- [x] {text} (sources: {source1}; {source2}; …)` extract `{text}` and the **full** semicolon-separated `sources` list (each entry is itself a Markdown link). Phase 4 always emits the plural `sources:` form (even single-source candidates), so a single regex shape is sufficient
+3. For each `[x]` line, append to `knowledge/self/observations.md`:
+   - Format: `- {YYYY-MM-DD finalize date}: {observation text} (sources: {source1}; {source2}; …, retrospective: {period_id})`
+   - The provenance carries `{period_id}` verbatim (e.g. `retrospective: weekly-2026-04-27`), regardless of whether the user passed the prefixed or bare form
+   - All sources extracted in step 2 are preserved in the appended line (no truncation to a single source)
+   - Dedup by `(observation text + sorted sources tuple)` key; skip duplicates silently
+4. Update the retrospective file: change `[x]` → `[X]` (uppercase) so re-finalize is idempotent
+5. Update state sidecar: remove `{period_id}` (from step 1) from `pending_finalize`
+
+Do not regenerate any other section.
+
+### Phase 7: Reporting
+
+Print to stdout:
+
+- Path to the generated file (as a Markdown link) so the user can paste it into the Rill GUI header search
+- Decision Digest line count, Self Observations candidate count, Stale Workspaces count
+- If `--finalize`: count of observations appended to `self/observations.md`
+
+Do **not** invoke `rill open`. The user opens files via the GUI header search box (`Cmd+P`).
+
+## Token budget (artifact 012 §3.3)
+
+| Step | Tokens |
+|---|---|
+| Phase 1 frontmatter / headings collection | ~15K |
+| Phase 2 agent fanout (5 + 5 = 10 agents × ~30K cap) | ≤ 150K |
+| Phase 3 in-skill deterministic | ~10K |
+| User session inflow (summary only) | ~30-40K |
+| Hard ceiling per /retrospective invocation | ~175K |
+
+Weekly cadence makes this affordable. If active workspaces exceed 60, raise agent count from 5 to 8 in each batch or partition more aggressively.
+
+## Failure modes
+
+- `inbox/journal/` empty for the period → Self Observations section becomes "(no journal data this period)"
+- All active workspaces are stale → Stale Workspaces section will dominate; that is itself a signal
+- One or more agent invocations time out / fail → log the failure, continue with reduced data, mark the affected section "(partial — N agents failed)"
+- `.claude/state/retrospective.json` parse error → log a warning, proceed as if state is empty
+- `/retrospective --finalize` invoked before any retrospective exists → error out cleanly
+
+## Rules
+
+- Source files under `inbox/` are read-only — never modify them
+- `self/observations.md` only ever grows from `--finalize` user-approved entries — never auto-append observations
+- `self/decisions.md` is the only auto-append target for this skill, and only within the 3-month window
+- Use Markdown links `[display name](relative-path)` for in-body references; backtick-only ID references are forbidden
+- Always end any reports section with a brief sources list when the section cites external work
+- Never call `/distill` or any chain target from this skill; /retrospective is a leaf (the /pulse read direction is one-way)
+
+## See also
+
+- `workspace/2026-05-07-dream-system-rill-application/012-retrospective-skill-detail-design.md` — full design
+- `workspace/2026-05-07-dream-system-rill-application/008-tightening-pass-retrospective-volume-rollout.md` — section dependency contract
+- `workspace/2026-05-07-dream-system-rill-application/015-execution-wiring.md` — briefing nudge wiring
+- `skills/pulse/SKILL.md` — sister skill (Self Snapshot Refresh)
+- `skills/briefing/SKILL.md` — Step E nudge consumer
