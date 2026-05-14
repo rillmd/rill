@@ -112,6 +112,61 @@ if stale_count >= 3:
 
 The check is cheap (1 Grep + frontmatter Reads of ~30 files). In Phase 2 the resulting line is appended to the Notes section (after the recommended-action nudges). If `stale_count < 3`, omit the line silently.
 
+#### Step E: /retrospective Thursday nudge (artifact 012 §0.4 + 015 §3.1)
+
+After Step C.5, evaluate whether to surface a `/retrospective weekly` nudge at the top of Phase 2. The logic mirrors 012 §1.2 / 015 §3.1. **All date inputs are derived from the briefing's `target_date` (Phase 0), not the wall clock**, so backfilled or re-run briefings produce the nudge correct for that date and do not mutate `retrospective.json` for an unrelated current week.
+
+```
+read .claude/state/retrospective.json (if missing, treat as { last_period: null, skipped_periods: [], nudge_state: {} })
+direct_completed_week = the ISO week before the one containing target_date (Mon..Sun)
+period_id = "weekly-{Monday-of-direct_completed_week as YYYY-MM-DD}"
+
+# Lazy-init nudge state for this period_id if the key is absent (first run for this week)
+if period_id not in retrospective.json.nudge_state:
+    retrospective.json.nudge_state[period_id] = { "nudge_count": 0, "last_nudge_at": null }
+
+state = retrospective.json.nudge_state[period_id]
+last_nudge_date = (state.last_nudge_at && date_only_of(state.last_nudge_at)) or null
+same_day_rerun = (last_nudge_date == target_date)   # do not consume strikes on same-day briefing reruns
+
+if retrospective.json.last_period == period_id:
+    nudge = OFF                      # already ran for this period
+elif period_id in retrospective.json.skipped_periods:
+    nudge = OFF                      # 3-strike skip already recorded
+elif target_date is Thursday:
+    nudge = ON
+    if not same_day_rerun:
+        state.nudge_count += 1
+        state.last_nudge_at = target_date_with_time
+elif target_date is Friday/Saturday/Sunday:
+    nudge = DELAYED                  # still surface, marked "delayed"
+    if not same_day_rerun:
+        state.nudge_count += 1
+        state.last_nudge_at = target_date_with_time
+else:                                # Mon/Tue/Wed
+    nudge = OFF
+
+# 3-strike auto-skip on Sunday — dedup the append since a same-day rerun would
+# otherwise re-add an already-skipped period_id every time briefing runs that Sunday
+if retrospective.json.nudge_state[period_id].nudge_count >= 3 and target_date is Sunday:
+    if period_id not in retrospective.json.skipped_periods:
+        retrospective.json.skipped_periods.append(period_id)
+    nudge = OFF
+
+# Persist updated retrospective.json (skip persistence in --dry-run mode or when target_date != today, since dated-backfill briefings should be read-only against state). Use merge-write semantics: read existing JSON, update only nudge_state[period_id] + (when applicable) skipped_periods; never touch last_run_at / last_period / pending_finalize / run_count — those are owned by the /retrospective skill.
+```
+
+If `nudge == ON or DELAYED`, prepend a single-line nudge to the Phase 2 output (above the Snapshot section). The nudge text follows `DETECTED_LANG`; one-line, prose tone, ending with the literal command name (do not include `rill` CLI commands per the Notes-section convention; `/retrospective weekly` is a slash command, not a shell command, so it is allowed).
+
+State file path: `.claude/state/retrospective.json`. The file is initialized lazily; the first weekly run of `/retrospective` writes it. If the file does not exist, treat all fields as empty/null and do not error.
+
+**Failure modes**:
+
+- `.claude/state/retrospective.json` parse error → log a one-line warning, treat as missing, do not surface a nudge
+- Today is not in a valid weekday → skip silently (defensive; date library bugs)
+
+The check is cheap (one stat + one short JSON parse + date arithmetic). Does not require external skill invocation; if you do detect `nudge_count` mutation, write the updated state back to disk before exiting Phase 1.
+
 ### Phase 1.5: Plugin Hook Data Collection
 
 Collect data from plugin briefing hooks.
@@ -145,6 +200,8 @@ Then use Edit to append the body to the output path (frontmatter is already gene
 
 ```markdown
 # YYYY-MM-DD Daily Briefing
+
+(If Step E set `nudge == ON or DELAYED`, prepend ONE prose line above `## Snapshot` — no heading, no list bullet. Tone: warm, conversational, ending with the literal command `/retrospective weekly`. Marker word "delayed" or equivalent in `DETECTED_LANG` if nudge state is DELAYED. Example English shape: *"Last week's retrospective is still pending — want to record it before this week's session limit resets? /retrospective weekly"*. Omit this line entirely if `nudge == OFF`.)
 
 ## Snapshot
 
