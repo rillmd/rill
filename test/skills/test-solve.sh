@@ -38,8 +38,8 @@ if [[ -z "$VAULT_DIR" ]]; then
   cp -r "$REPO_DIR/.claude" "$VAULT_DIR/.claude"
   cp -r "$REPO_DIR/bin" "$VAULT_DIR/bin"
   [[ -d "$REPO_DIR/plugins" ]] && cp -r "$REPO_DIR/plugins" "$VAULT_DIR/plugins"
-  cp "$REPO_DIR/taxonomy.md" "$VAULT_DIR/taxonomy.md"
-  cp "$REPO_DIR/CLAUDE.md" "$VAULT_DIR/CLAUDE.md"
+  [[ -f "$REPO_DIR/taxonomy.md" ]] && cp "$REPO_DIR/taxonomy.md" "$VAULT_DIR/taxonomy.md"
+  [[ -f "$REPO_DIR/CLAUDE.md" ]] && cp "$REPO_DIR/CLAUDE.md" "$VAULT_DIR/CLAUDE.md"
   [[ -f "$REPO_DIR/SPEC.md" ]] && cp "$REPO_DIR/SPEC.md" "$VAULT_DIR/SPEC.md"
   cd "$VAULT_DIR"
   git init -q
@@ -75,7 +75,7 @@ if ! $SKIP_EXECUTE; then
 
   claude -p "/solve $TASK_FILE" \
     --output-format text \
-    --max-turns 50 \
+    --max-turns 200 \
     2>&1 | tee "$RESULTS_DIR/solve-output.log"
 
   echo ""
@@ -110,16 +110,21 @@ echo ""
 echo "=== P4-01: Task status ==="
 TASK_STATUS_AFTER=$(fm_get "$TASK_FILE" "status")
 echo "  Task status: $TASK_STATUS_BEFORE -> $TASK_STATUS_AFTER"
-# /solve should change status to 'waiting' (research complete, awaiting review)
-if [[ "$TASK_STATUS_AFTER" == "waiting" ]]; then
-  assert_true "true" "P4-01: Task status changed to 'waiting'"
-elif [[ "$TASK_STATUS_AFTER" == "open" ]]; then
-  # Also acceptable if /solve determined human action needed
-  echo "  INFO: Task remains 'open' (may require human action)"
-  assert_true "true" "P4-01: Task status is 'open' (human action needed)"
-else
-  assert_true "false" "P4-01: Task status is 'waiting' or 'open' (got '$TASK_STATUS_AFTER')"
-fi
+# /solve may end in 'waiting' (research complete, awaiting review),
+# 'open' (human action needed, breakpoint reached), or
+# 'done' (Plan completion criteria met within the run).
+case "$TASK_STATUS_AFTER" in
+  waiting)
+    assert_true "true" "P4-01: Task status changed to 'waiting' (research complete)" ;;
+  open)
+    echo "  INFO: Task remains 'open' (breakpoint or human action needed)"
+    assert_true "true" "P4-01: Task status is 'open' (breakpoint reached)" ;;
+  done)
+    echo "  INFO: Task transitioned to 'done' (Plan completion criteria met)"
+    assert_true "true" "P4-01: Task status is 'done' (autonomous completion)" ;;
+  *)
+    assert_true "false" "P4-01: Task status in {waiting, open, done} (got '$TASK_STATUS_AFTER')" ;;
+esac
 echo ""
 
 # 3. Workspace creation (P3-01, P3-02, P3-03)

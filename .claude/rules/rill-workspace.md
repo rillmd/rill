@@ -1,25 +1,25 @@
 # Workspace Rules — Rill
 
-`workspace/` is the **working layer (stateful)**. Manages projects, areas, and Deep Think sessions in a unified structure.
+`workspace/` is the **working layer (stateful)** — projects, areas, and Deep Think sessions in a unified structure.
 
 ## Structure
 
 ```
 workspace/
 └── {id}/
-    ├── _workspace.md   # MOC + state management (unified file)
-    ├── _summary.md     # Summary generated on completion
-    ├── _log.md         # Session/decision history (optional)
-    └── NNN-description.md  # Numbered artifacts
+    ├── _workspace.md   # MOC + state management
+    ├── _summary.md     # generated on completion
+    ├── _log.md         # session / decision history (optional)
+    └── NNN-description.md  # numbered artifacts
 ```
 
-Directory name: `{id}/` (kebab-case). Date-prefixed `{YYYY-MM-DD}-{topic}/` or ID only `acme-saas/`.
+Directory name: `{id}/` (kebab-case). Date-prefixed `{YYYY-MM-DD}-{topic}/` or ID only.
 
-## Creation Rules
+## Creation
 
-1. **Create the date-prefixed topic directory first**: `workspace/{YYYY-MM-DD}-{topic}/`
-2. Generate `_workspace.md` with `rill mkfile workspace --slug {id} --type workspace`
-3. Artifacts emerge naturally during conversation (separate files from `_workspace.md`)
+1. Create the date-prefixed topic directory first
+2. Generate `_workspace.md` via `rill mkfile workspace --slug {id} --type workspace`
+3. Artifacts emerge naturally as separate files
 
 ## `_workspace.md` Frontmatter
 
@@ -37,11 +37,11 @@ client: Client Name          # optional
 ---
 ```
 
-### Status Transition Boundary (important)
+### Status Transition Boundary
 
-- **Only `/close` may set `status: completed`.** This transition is the trigger for knowledge distillation via the two-layer sub-agent architecture (ADR-073). Any other skill or ad-hoc edit that writes `completed` bypasses distillation and silently loses the session's knowledge
-- `/focus` and other interactive skills must **never** set `status: completed` directly. When a session feels done, propose `/close` to the user via AskUserQuestion instead
-- Allowed non-`/close` transitions: `completed` → `active` (reopen), `on-hold` → `active` (resume), `active` → `on-hold` (when the user explicitly pauses). These do not trigger distillation and are safe
+- **Only `/close` may set `status: completed`.** This triggers knowledge distillation via the two-layer sub-agent architecture (ADR-073). Any other skill or ad-hoc edit that writes `completed` bypasses distillation and silently loses session knowledge.
+- `/focus` and other interactive skills must never set `completed` directly — propose `/close` via AskUserQuestion instead.
+- Allowed non-`/close` transitions: `completed` → `active` (reopen), `on-hold` ↔ `active`. Safe — no distillation.
 
 ## Artifact File Frontmatter
 
@@ -55,59 +55,32 @@ mentions: [projects/rill]   # optional
 ---
 ```
 
-### Artifact Types
+Types: `progress`, `research`, `analysis`, `decision`, `review`.
 
-- `progress`: Progress records
-- `research`: Research/investigation
-- `analysis`: Analysis
-- `decision`: Decision records
-- `review`: Review/critique
+## Completion Conditions Required
 
-## Completion Conditions Are Required
-
-- **Every workspace must have completion conditions**
-- Do not use workspaces for areas (responsibility zones with no end condition)
-- If an area is needed, decompose it into concrete projects (ADR-029 D29)
+Every workspace must have completion conditions. Don't use workspaces for areas (no end condition); decompose into concrete projects (ADR-029).
 
 ## Relationship with Tasks
 
-- **1:1 correspondence with workspaces is not required**
-- Only create workspaces when artifact accumulation or deep exploration is needed
-- Tasks are independently managed as tickets in `tasks/`
-- Multiple workspaces may link to one project (`mentions: [projects/xxx]`)
+1:1 correspondence with tasks is not required. Create workspaces only when artifact accumulation or deep exploration is needed. Tasks are independent tickets in `tasks/`. Multiple workspaces may link to one project via `mentions: [projects/xxx]`.
 
 ## Session Flow
 
 ### File-First Principle
 
-Save artifacts to files whenever possible:
-- Analysis, research, investigation results
-- Reports, surveys, comparison tables
-- Decisions and rationale
-- Frameworks, design proposals
-- Structured output of 3+ paragraphs
+Save artifacts to files: analyses, research, comparison tables, decisions, frameworks, design proposals, structured output of 3+ paragraphs.
 
-**Text output alone is fine for**:
-- Confirmations, questions, brief suggestions (1-2 paragraphs of conversational exchange)
-- Directional discussion, brainstorming
-- Summary preview before saving to file
-
-When in doubt, write it to a file. A workspace's value lives in its accumulated artifacts.
+Text-only is fine for: brief confirmations / suggestions (1-2 paragraphs), directional discussion, brainstorming, summary preview before saving. When in doubt, write a file — a workspace's value lives in its accumulated artifacts.
 
 ### Updating `_workspace.md`
 
-Update `_workspace.md` at each conversation milestone:
-- Add new artifacts to "Related Files (MOC)"
-- Update checkboxes for completed issues
-- Append progress to "Session History"
-- Update "Next Steps"
+At each milestone: add new artifacts to "Related Files (MOC)", update checkboxes, append "Session History", update "Next Steps".
 
 ## Handling Existing Artifacts
 
-- Once created, artifact files are **generally not modified**
-- Additions and corrections go in new files
-- `NNN-` numbers increase chronologically
+Once created, artifacts are generally not modified — additions / corrections go in new files. `NNN-` numbers increase chronologically.
 
 ## Backward Compatibility
 
-In addition to `_workspace.md`, older workspaces may contain `_session.md` or `_project.md`. Treat these as meta files as well (do not rename during Phase 3).
+Older workspaces may contain `_session.md` or `_project.md` instead of `_workspace.md`. Treat as meta files (do not rename during Phase 3).

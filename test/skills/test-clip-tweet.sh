@@ -41,8 +41,8 @@ if [[ -z "$VAULT_DIR" ]]; then
   # Remove empty plugins fixture dir to avoid nested copy
   [[ -d "$VAULT_DIR/plugins" ]] && rmdir "$VAULT_DIR/plugins" 2>/dev/null || true
   [[ -d "$REPO_DIR/plugins" ]] && cp -r "$REPO_DIR/plugins" "$VAULT_DIR/plugins"
-  cp "$REPO_DIR/taxonomy.md" "$VAULT_DIR/taxonomy.md"
-  cp "$REPO_DIR/CLAUDE.md" "$VAULT_DIR/CLAUDE.md"
+  [[ -f "$REPO_DIR/taxonomy.md" ]] && cp "$REPO_DIR/taxonomy.md" "$VAULT_DIR/taxonomy.md"
+  [[ -f "$REPO_DIR/CLAUDE.md" ]] && cp "$REPO_DIR/CLAUDE.md" "$VAULT_DIR/CLAUDE.md"
   [[ -f "$REPO_DIR/SPEC.md" ]] && cp "$REPO_DIR/SPEC.md" "$VAULT_DIR/SPEC.md"
   mkdir -p "$VAULT_DIR/inbox/tweets/_organized"
   cd "$VAULT_DIR"

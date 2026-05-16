@@ -40,8 +40,8 @@ if [[ -z "$VAULT_DIR" ]]; then
   [[ -d "$REPO_DIR/plugins" ]] && cp -r "$REPO_DIR/plugins" "$VAULT_DIR/plugins"
   # Overlay system files from repo (taxonomy, CLAUDE.md, SPEC.md)
   # These are the files being localized — must use repo versions, not fixture copies
-  cp "$REPO_DIR/taxonomy.md" "$VAULT_DIR/taxonomy.md"
-  cp "$REPO_DIR/CLAUDE.md" "$VAULT_DIR/CLAUDE.md"
+  [[ -f "$REPO_DIR/taxonomy.md" ]] && cp "$REPO_DIR/taxonomy.md" "$VAULT_DIR/taxonomy.md"
+  [[ -f "$REPO_DIR/CLAUDE.md" ]] && cp "$REPO_DIR/CLAUDE.md" "$VAULT_DIR/CLAUDE.md"
   [[ -f "$REPO_DIR/SPEC.md" ]] && cp "$REPO_DIR/SPEC.md" "$VAULT_DIR/SPEC.md"
   # Initialize git (rill mkfile may need it)
   cd "$VAULT_DIR"

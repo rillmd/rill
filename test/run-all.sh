@@ -22,18 +22,25 @@ run_test() {
     echo "  → $name: PASSED"
   else
     echo "  → $name: FAILED"
-    ((TOTAL_FAIL++))
+    # Use assignment form (not `((TOTAL_FAIL++))`) — post-increment when
+    # TOTAL_FAIL=0 evaluates the expression to 0, which under `set -e` would
+    # exit the script on the first failing suite instead of running the rest.
+    TOTAL_FAIL=$((TOTAL_FAIL + 1))
   fi
   echo ""
 }
 
-# Currently only /distill test is implemented
-run_test "/distill" "$SCRIPT_DIR/skills/test-distill.sh"
-
-# Future tests:
-# run_test "/briefing" "$SCRIPT_DIR/skills/test-briefing.sh"
-# run_test "/focus" "$SCRIPT_DIR/skills/test-focus.sh"
-# run_test "/close" "$SCRIPT_DIR/skills/test-close.sh"
+run_test "/distill"     "$SCRIPT_DIR/skills/test-distill.sh"
+run_test "/briefing"    "$SCRIPT_DIR/skills/test-briefing.sh"
+run_test "/clip-tweet"  "$SCRIPT_DIR/skills/test-clip-tweet.sh"
+run_test "/close"       "$SCRIPT_DIR/skills/test-close.sh"
+run_test "/focus"       "$SCRIPT_DIR/skills/test-focus.sh"
+run_test "/newsletter"  "$SCRIPT_DIR/skills/test-newsletter.sh"
+run_test "/page"        "$SCRIPT_DIR/skills/test-page.sh"
+run_test "/solve"       "$SCRIPT_DIR/skills/test-solve.sh"
+run_test "/inspect"     "$SCRIPT_DIR/skills/test-inspect.sh"
+run_test "/repair"      "$SCRIPT_DIR/skills/test-repair.sh"
+run_test "/eval"        "$SCRIPT_DIR/skills/test-eval.sh"
 
 echo "============================================"
 if (( TOTAL_FAIL == 0 )); then
