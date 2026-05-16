@@ -21,16 +21,31 @@ Directory name: `{slug}` (kebab-case). Examples: `projects/rill/_project.md`, `p
 created: 2026-05-12T...         # auto-assigned by rill mkfile
 type: project
 id: rill                        # required, matches directory name
-name: Rill                      # required, display name
+name: "Personal PKM and thinking partner system"   # required, ~30-60 chars
+description: "Voice/text → Markdown → GitHub → Claude Code → knowledge/tasks flow. Electron + CLI for accumulating and distilling personal thinking."   # required, 1-3 sentences
 status: active                  # required: planning | active | paused | done
-goal: Personal PKM OSS release  # one-line version for GUI list (optional)
 paused_until: 2026-07-01        # optional when status: paused
 tags: [rill]
 mentions: [orgs/rillmd]
 ---
 ```
 
-Required: `type: project`, `id`, `name`, `status`.
+Required: `type: project`, `id`, `name`, `description`, `status`.
+
+### `name` vs `description`
+
+Both live in frontmatter and are consumed by the GUI card preview **and**
+by task-classification skills (`/distill`, `/focus`,
+`_task:create-agent`, etc.) so they can pick the right
+`projects/{slug}` for a candidate task without parsing each body.
+
+- **`name`** (~30–60 chars): a one-line phrase that says what the
+  project is. Not a slug-cased short name like `Rill Foo`.
+- **`description`** (1–3 sentences, ~120–300 chars): context / scope /
+  why this project exists. Shown as the preview line on the GUI card.
+
+The body's overview paragraph (between `# Title` and `## Goal`) is for
+human readers. The GUI and classification flows do not parse it.
 
 ### State Values
 
@@ -114,10 +129,16 @@ Every project **must have DoD**. Write a verifiable end-state in Goal — ensure
 ## Creation
 
 ```bash
-rill mkfile projects --slug rill --type project
+rill mkfile projects --slug rill --type project \
+  --field 'name=Personal PKM and thinking partner system' \
+  --field 'description=Voice/text → Markdown → GitHub → Claude Code → knowledge/tasks flow.'
 ```
 
-Or via `/promote` from a workspace.
+`rill mkfile projects` rejects the call when either `name` or `description`
+is missing or empty — both fields are required for the GUI preview and the
+classification skills to work. For interactive creation use the `/project new`
+skill, which prompts the user for them. For workspace crystallisation use
+`/promote`, which seeds the four `/project new` inputs from `_summary.md`.
 
 ## After Completion
 

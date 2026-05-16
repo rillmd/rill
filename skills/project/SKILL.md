@@ -62,7 +62,7 @@ Operates on a Rill project — the execution-hub unit that bundles multiple task
    - Ask via the harness's question primitive: "No project named `{slug}`. Did you mean `{candidate1}` / `{candidate2}` / create a new one?"
    - On "create new", branch to `new` mode
    - On "no", exit
-2. Otherwise read the file's frontmatter (`name`, `status`, `goal`, `paused_until` if present)
+2. Otherwise read the file's frontmatter (`name`, `description`, `status`, `paused_until` if present)
 
 ### Phase 1: Refresh (`status` / `continue` / `review` / `list`)
 
@@ -231,7 +231,12 @@ Cross-project overview — every `status: active` project at once (with optional
 ### Procedure
 
 1. `Glob(projects/*/_project.md)` to enumerate all projects
-2. Read each one's frontmatter (`name`, `status`, `paused_until`, `goal`)
+2. For each project, read both
+   - frontmatter (`name`, `description`, `status`, `paused_until`)
+   - body section `## Goal` (the first bullet under that heading is the
+     canonical goal text used by the list render below). `## Goal` lives
+     in the body because `goal:` was retired from the schema when
+     `description` became required
 3. After Phase 1 refresh (`--all`), each `_project.md` already has fresh `## Active Tasks → ### Unblocked`; read the top entry from each
 4. Apply the filter:
    - Default: `--status=active`
@@ -273,22 +278,47 @@ Create a new `projects/{slug}/_project.md` interactively.
    - Reject if not kebab-case
    - Reject if `projects/{slug}/` already exists
 2. Ask the user (via the harness's question primitive) for the project's:
-   - Goal (one-line completion condition — required, per ADR-080's DoD-required policy)
-   - Initial status: `planning` (default) or `active`
-3. Run:
+   - **Name** — a descriptive one-line title (~30–60 chars). Not the slug
+     in title case. The answer to "what is this project, in one phrase".
+     Surfaces in the GUI project list and is read by task-classification
+     skills (`/distill`, `/focus`, `_task:create-agent`) when picking
+     which `projects/{slug}` a candidate task belongs to.
+   - **Description** — 1–3 sentences (~120–300 chars) covering the
+     project's context, scope, and reason. Surfaces in the GUI card
+     preview row and complements `name` as classification input.
+   - **Goal** — one-line completion condition (DoD), per ADR-080's
+     DoD-required policy. Goes in the body, not in frontmatter.
+   - **Initial status** — `planning` (default) or `active`.
+3. Run `rill mkfile`. The free-text `name` / `description` answers can
+   contain shell metacharacters (apostrophe, `$`, backtick) and YAML-
+   reserved punctuation (colon, hash). Build the invocation so the
+   string survives both layers — single-quote the `--field` args, and
+   if the user's input contains a `'`, replace each one with the POSIX
+   four-character sequence `'\''` before substituting:
+
    ```
    rill mkfile projects --slug {slug} --type project \
-     --field 'name={slug-as-title-case}' \
-     --field 'status={chosen}' \
-     --field 'goal={goal}'
+     --field 'name={name-with-apostrophes-escaped-as-quote-backslash-quote-quote}' \
+     --field 'description={description-with-apostrophes-escaped-as-quote-backslash-quote-quote}' \
+     --field 'status={chosen}'
    ```
-   `rill mkfile` writes the frontmatter and a body scaffold per `.claude/rules/rill-projects.md` (empty `## Active Tasks`, `## Related Workspaces`, `## Watch`, `## Key Facts`).
+
+   `rill mkfile` writes the frontmatter (now requires both `name` and
+   `description` via --field; see `bin/rill`) and a body scaffold per
+   `.claude/rules/rill-projects.md` (empty `## Active Tasks`,
+   `## Related Workspaces`, `## Watch`, `## Key Facts`). YAML quoting of
+   the values is handled inside `rill mkfile`, so no further YAML escape
+   is needed at the caller. Do **not** pass a `goal` field — that schema
+   entry was retired when `description` became required; Goal lives in
+   the body.
 4. Edit the body to:
    - Add the user-provided Goal as the first bullet under `## Goal`
    - Leave Active Tasks / Related Workspaces sections empty (they will be filled by `/refresh-project` once tasks/workspaces mention the new project)
 5. Report:
    ```
    Project [{name}](../../projects/{slug}/_project.md) created.
+   - Name: {name}
+   - Description: {description}
    - Goal: {goal}
    - Status: {status}
    - Path: projects/{slug}/_project.md
