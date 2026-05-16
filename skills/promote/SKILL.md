@@ -118,9 +118,14 @@ After user approval:
 If the workspace did not mention any project, or the mentioned project does not exist:
 
 1. Ask the user via the harness's question primitive: "This workspace does not link to an existing project. Create a new one?"
-2. On yes: ask for a slug (suggest one based on workspace topic) and a Goal, then invoke `/project new {slug}` to create `projects/{slug}/_project.md`
-3. After creation, add `mentions: [..., projects/{slug}, ...]` to the workspace's frontmatter (so future `/refresh-project` finds it)
-4. Branch back to Phase 2 (now with a target)
+2. On yes: draft seeds for `/project new`'s four required inputs from the workspace's `_summary.md` (falling back to `_workspace.md` when the summary is absent) and present them as proposals the user can accept verbatim or rewrite:
+   - **Slug**: derive from the workspace topic (kebab-case, drop the date prefix). Example: workspace `2026-04-30-foo-bar` → slug `foo-bar`
+   - **Name**: a descriptive one-line title (~30–60 chars). Pull from the workspace's frontmatter `name` if it already reads like a project title, otherwise summarise the summary's first paragraph
+   - **Description**: 1–3 sentences (~120–300 chars) derived from the summary's overview / outcome sections. This will go into `_project.md` frontmatter and is read by task-classification skills, so keep it factual and scope-bearing rather than narrative
+   - **Goal**: the project's completion condition (DoD). Often the summary already names a verifiable end-state; lift it if so
+3. Invoke `/project new {slug}` with these four seeds. `/project new` will confirm each with the user (it asks for name, description, Goal, status) before calling `rill mkfile projects --field 'name=...' --field 'description=...' --field 'status=...'`
+4. After creation, add `mentions: [..., projects/{slug}, ...]` to the workspace's frontmatter (so future `/refresh-project` finds it)
+5. Branch back to Phase 2 (now with a target)
 
 If the user declines new-project creation, exit. The workspace remains as-is.
 
