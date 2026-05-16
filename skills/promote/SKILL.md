@@ -55,12 +55,37 @@ $ARGUMENTS — one of:
 
 ### Phase 1: Target project resolution
 
+By default `/promote` proposes creating a **new project** for the workspace, not merging into an existing one. A workspace is a single design session whose actionable items form one execution unit; co-locating that unit under its own project keeps "where is this workspace's execution layer?" trivially answerable. The user may still merge into an existing project — `/promote` just stops defaulting to it.
+
 1. Read the workspace's `_workspace.md` frontmatter `mentions`. Extract every entry matching `projects/{id}`
-2. Branch:
-   - **One project mentioned** → that is the target
-   - **Multiple projects mentioned** → ask the user via the harness's question primitive which is the primary promotion target. Other mentioned projects may receive a lighter touch (the user chooses)
-   - **No project mentioned** → branch to Phase 4 (new-project path)
-3. For the chosen project, verify `projects/{slug}/_project.md` exists. If not, propose creating it (branch to Phase 4)
+2. **Pre-check mentioned projects** — for each `projects/{id}` in `mentions`, Read `projects/{id}/_project.md` and classify by frontmatter `status`:
+   - **eligible**: `status: planning` / `active` / `paused`
+   - **ineligible**: `status: done` (these projects are no longer accumulating work and must not receive new tasks)
+
+   `status` is the sole gate. Body-text markers (e.g. "decomposed into sub-projects", "umbrella dissolved") are not part of the check — the vault language is unconstrained and any body-pattern check is brittle. Projects in active umbrella-dissolution should already carry `status: done`
+3. Suggest a **new-project slug** from the workspace id / name: strip the leading `YYYY-MM-DD-` date prefix, strip trailing `-design` / `-investigation` / `-exploration` suffixes if present, and propose the remainder. Example: `2026-05-14-ai-agent-language-localization-design` → suggest `ai-agent-language-localization`. The user may rename (e.g. prefix with a parent-project tag) at confirmation time
+4. Ask the user via the harness's question primitive (Question 1 — coarse choice):
+
+   ```
+   How should the workspace's results land?
+
+   (a) Create a new project (default, recommended)
+       Suggested slug: {suggested-slug}
+       Reason: 1 workspace = 1 execution unit; keep this workspace's tasks under their own hub
+   (b) Merge into an existing project
+       ({N} eligible candidate{s} found from workspace mentions{; M done project{s} excluded as ineligible})
+   (c) Specify a different project (slug)
+   ```
+
+5. Branch on the answer:
+   - **(a) new project** → branch to Phase 4 (new-project path), which is now the default path, not an exception
+   - **(b) merge into existing**:
+     - If exactly 1 eligible candidate → that is the target; continue to Phase 2
+     - If 2+ eligible candidates → ask a second question (Question 2) listing each eligible `projects/{id}` as a flat option (one per row, with `status: ...`). The user selects one. Cap the list at 4 (AskUserQuestion's max); if more than 4 eligible candidates exist, list the 3 most-recently-touched and add a 4th option "Specify another slug" that falls through to (c) handling
+   - **(c) specify other** → ask for the slug, verify `projects/{slug}/_project.md` exists and its `status ≠ done`; on failure, fall back to (a)
+
+6. **Edge case — zero mentions**: option (b) has no candidates. Present (a) and (c) only, default still (a)
+7. **Edge case — all mentioned projects are ineligible** (every candidate is `status: done`): present (a) and (c) only, and announce why (b) was skipped: "All mentioned projects are done (umbrella state); a new project is the only safe merge target"
 
 ### Phase 2: Candidate extraction
 
@@ -109,20 +134,21 @@ After user approval:
 2. **Related Workspaces** — `/refresh-project {slug}` will pick up the workspace via `mentions` reverse-lookup automatically. `/refresh-project` lists both active and completed workspaces (the latter capped at the 20 most-recently-touched), each with an explicit `status:` marker. The workspace is already linked via `mentions: [projects/{slug}]`. `/promote` does not directly edit this section; it just makes sure the next `/refresh-project` will reflect the change
 3. **Task creation** — for each approved actionable item:
    - Check for duplicates against existing tasks in `tasks/` (Grep the title, judge whether the existing one already covers it)
-   - If unique, create via `rill mkfile tasks --slug {slug} --type task --field 'status=draft' --field 'source={artifact-path}' --field 'mentions=[projects/{target-slug}]'`. Use `_task:create-agent` for substance authoring — pass the actionable item as `candidate`
+   - If unique, create via `rill mkfile tasks --slug {slug} --type task --field 'status=open' --field 'source={artifact-path}' --field 'mentions=[projects/{target-slug}]'`. Use `_task:create-agent` for substance authoring — pass the actionable item as `candidate`. Rationale for `status: open` (not `status: draft`): `/promote` itself gates task creation behind the Phase 2 candidate-approval `AskUserQuestion`, so each created task has already passed a human review. ADR-069's draft-review pattern targets unattended task extraction (e.g. `/distill task-extraction`); `/promote` is an attended path and does not need a second review surface
    - If a near-duplicate exists, ask the user whether to skip, enrich the existing task, or create anyway
 4. After all writes complete, invoke `/refresh-project {target-slug}` so the project's `## Active Tasks` reflects the new tickets and `## Related Workspaces` reflects the workspace
 
-### Phase 4: New project path (Phase 1 yielded no target)
+### Phase 4: New project creation (Phase 1 default path)
 
-If the workspace did not mention any project, or the mentioned project does not exist:
+This phase runs when Phase 1's user choice was (a) — the default. It also runs when the user picked (c) and the named slug did not exist.
 
-1. Ask the user via the harness's question primitive: "This workspace does not link to an existing project. Create a new one?"
-2. On yes: ask for a slug (suggest one based on workspace topic) and a Goal, then invoke `/project new {slug}` to create `projects/{slug}/_project.md`
-3. After creation, add `mentions: [..., projects/{slug}, ...]` to the workspace's frontmatter (so future `/refresh-project` finds it)
-4. Branch back to Phase 2 (now with a target)
+1. Confirm the slug with the user (default = the slug proposed in Phase 1 Step 3). The user may override
+2. Ask for a Goal — a verifiable completion condition. `/promote` does not auto-write a Goal; project DoD is the user's call
+3. Invoke `/project new {slug}` to create `projects/{slug}/_project.md` with the user-supplied Goal
+4. Edit the workspace's `_workspace.md` frontmatter `mentions` to include `projects/{slug}` (so future `/refresh-project` reverse-lookup finds it). Preserve any existing mentions
+5. Set the target = `projects/{slug}` and branch back to Phase 2 (candidate extraction)
 
-If the user declines new-project creation, exit. The workspace remains as-is.
+If the user cancels at any sub-step, exit `/promote` without changes.
 
 ### Phase 5: Workspace Next Steps update
 
@@ -140,7 +166,7 @@ Do not change the workspace's frontmatter `status` — that stays `completed`. `
 /promote complete — workspace: {id} → project: [{name}](../../projects/{slug}/_project.md)
 
 - Key Facts appended: {N}
-- Tasks created: {M} (status: draft — review before activating)
+- Tasks created: {M} (status: open — actionable immediately; review their Goal / Background if needed)
 - Related Workspaces refreshed via /refresh-project
 
 Next:
@@ -167,8 +193,9 @@ The Phase 0 predeclare + Phase 9 chain pattern is needed because `/promote` requ
 |---|---|
 | `_summary.md` missing | Exit with "Run `/close {id}` first" — do not invoke `/close` automatically |
 | Workspace `status: active` but `_summary.md` exists | Warn (suggests user reopened after close); ask whether to proceed |
-| Workspace mentions zero projects | Branch to Phase 4 (new-project path) |
-| Workspace mentions multiple projects | Ask for the primary target |
+| Workspace mentions zero projects | Run the default Phase 1 flow; option (b) has no candidates |
+| Workspace mentions only `status: done` projects | Run the default Phase 1 flow; option (b) is excluded with an explanation |
+| Workspace mentions multiple eligible projects | Two-step question: first (a/b/c), then list eligible projects as flat options if (b) is chosen |
 | Target project's `_project.md` is malformed | Refuse to write into a broken file; ask the user to fix it first |
 | `## Key Facts` already at 20 items | Warn before appending; let the user decide |
 | Task creation would duplicate an existing task | Ask: skip / enrich the existing / create anyway |
@@ -179,7 +206,8 @@ The Phase 0 predeclare + Phase 9 chain pattern is needed because `/promote` requ
 - **Closed workspaces only** — `_summary.md` is the prerequisite. Active workspaces are not promotable by design (see "Prerequisite" above)
 - **Never modify** the workspace's `status` — `/promote` is decant-only, not close-emulating
 - **Never modify** `inbox/` source files
-- All actionable-item tasks are created with `status: draft` (ADR-069) — the user must activate them before they enter the live execution surface
+- **Default to a new project per workspace** — Phase 1 proposes new-project creation by default. Merging into an existing project is opt-in. Projects with `status: done` are never valid merge targets (see Phase 1 pre-check)
+- All actionable-item tasks are created with `status: open`. The Phase 2 candidate `AskUserQuestion` is the human review gate; ADR-069's `status: draft` default applies to unattended task extraction (e.g. `/distill task-extraction`) and not to `/promote`
 - All in-body file references use Markdown links `[display name](../../relative-path)`. Backtick-only ID references are forbidden
 - After writing, always invoke `/refresh-project {target-slug}` so the project's auto-sections reflect the changes
 
