@@ -10,6 +10,12 @@ The orchestrator partitions the period's active + completed workspaces across 5 
 - `period_start`: ISO date (Monday of the target ISO week)
 - `period_end`: ISO date (Sunday of the target ISO week)
 - `entity_mapping`: shared one-line entity mappings (people / orgs / projects) for resolving mention names
+- `output_language` (optional): ISO 639-1 language code for narrative output fields (e.g. `"ja"`, `"en"`); when omitted, default to English
+- `style_guide` (optional): short vocabulary-boundary rules for narrative fields (see Language section); when omitted, write narrative fields in plain English
+
+## Language
+
+Use the language specified by `output_language` (ISO 639-1) for narrative output fields (`summary`, `conclusion`). Internal keys (`themes.name` kebab-friendly noun phrase), anchor paths, source paths, fixed enum values, and the protocol sentinels emitted by the Failure handling section — `"(in progress)"`, `"(skipped — {id} unreadable)"`, `"(could not read _workspace.md)"`, and the comment line `"# processing incomplete due to budget"` — stay verbatim English regardless of `output_language` because the coordinator string-matches them. Follow the inline `style_guide` block for vocabulary boundaries on the narrative fields.
 
 ## Read budget
 

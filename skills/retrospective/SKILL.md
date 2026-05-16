@@ -120,6 +120,69 @@ Use `Grep` (frontmatter-only) and `Glob` for enumeration. Do **not** Read full c
 
 ### Phase 2: Agent fanout for theme-extraction and observation candidates
 
+#### Phase 2 prologue: Build language args
+
+Before launching either batch, call `build_language_args()` to decide whether to inject narrative-language args into each sub-agent invocation. The function is intentionally trivial — distribution default is English (sub-agent prompts are written in English), so absence of a personal override means no args are injected and the sub-agent's English default takes over naturally. No fallback logic needed on either side.
+
+The top-of-file "Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`" instruction governs the orchestrator's (main session's) user-facing utterances; this prologue governs argument injection into sub-agent invocations. They share a trigger file but operate on different surfaces — the user-facing rule has no effect on sub-agent output, which is exactly what this prologue closes.
+
+```bash
+# build_language_args()
+# Returns: inject_args string (or empty if no non-English target is detected).
+# Called once per skill invocation, before agent fanout.
+#
+# Locale detection: presence of personal-language.md is NOT a signal — the
+# onboarding skill creates the file for English vaults too, and `rill init
+# --lang en` likewise. We pattern-match for any byte sequence with the UTF-8
+# prefix E3 81, E3 82, or E3 83 — these three prefixes cover the Hiragana
+# block (U+3040-309F) and the Katakana block (U+30A0-30FF). Both scripts are
+# exclusive to Japanese — Chinese and Korean writing systems use Han / Hangul
+# respectively and contain neither Hiragana nor Katakana — so a hit here is
+# a near-certain ja signal. The stock-ja personal-language.md template
+# contains both Hiragana (particles, verb endings) and Katakana (loanwords)
+# in its body bullets, so any user-edited derivative that retains even one
+# Hiragana or Katakana glyph is detected. Pure-Kanji-only Japanese content
+# is the one remaining miss case (Kanji is shared with Chinese, so we cannot
+# distinguish), but that style is uncommon for personal-language.md.
+# Stock-en and other Latin-script vaults have no such bytes and fall through
+# to the no-injection branch.
+#
+# Multi-locale detection (mapping all 9 onboarding-supported locales correctly)
+# is out of scope for this task and deferred to a separate task. Doing it right
+# requires a structured marker (frontmatter or sentinel comment) that bin/rill
+# would have to write — and migration of existing personal-language.md files.
+# Until that lands, vaults in zh / ko / fr / de / es / pt / it / en receive
+# English narrative output (the same behavior as before this skill landed).
+
+output_language=""
+if [[ -f .claude/rules/personal-language.md ]] && \
+   LC_ALL=C grep -qE $'\xe3\x81|\xe3\x82|\xe3\x83' .claude/rules/personal-language.md; then
+  output_language="ja"
+fi
+
+if [[ -n "$output_language" ]]; then
+  # style_guide is hardcoded English. Protocol sentinels listed below MUST stay
+  # English literal in sub-agent output — the coordinator string-matches them
+  # later (see this skill's Phase 4 render section and theme-extraction-agent
+  # failure handling). Translating them would break clustering and rendering.
+  style_guide='Write narrative output fields (summary, conclusion, observation, and similar prose) in the language specified by output_language. English exceptions (only): (1) tokens inside backticks, (2) proper nouns, (3) ASCII acronyms, (4) any literal sentinel string or fixed enum value documented in this sub-agent prompt'\''s Output schema or Failure handling section — including "(in progress)", "(skipped — ...)", "(could not read _workspace.md)", and confidence levels like "high"/"medium"/"low" — which must remain verbatim English regardless of output_language because the coordinator string-matches them. Translate all other English (common nouns, adjectives, verb metaphors).'
+  inject_args="output_language: ${output_language}
+style_guide: |
+  ${style_guide}"
+else
+  # No detected non-English target. Sub-agent prompt is in English, so absence
+  # of args naturally yields English output — no fallback logic needed here.
+  # The top-of-file "use the user's input language if personal-language.md is
+  # absent" rule governs the orchestrator's user-facing utterances only (the
+  # disambiguation paragraph above states this explicitly). Sub-agent narrative
+  # output uses the prompt-language default (English) until the user expresses
+  # a persistent preference by running onboarding or `rill init --lang`.
+  inject_args=""
+fi
+```
+
+When `inject_args` is non-empty, append it as additional YAML lines to each sub-agent invocation's prompt, alongside the existing `entity_mapping`, `period_start`, etc. arguments. The `style_guide` string is hardcoded in English on purpose: the public `rillmd/rill` repo stays ASCII-only, and the string is itself an English instruction. The `output_language` value is the only locale-dependent runtime input; broader-locale support (`ko`, `zh`, `fr`, `de`, `es`, `pt`, `it`) extends the detection branch above (and requires a corresponding bin/rill change to mark `personal-language.md` with the chosen locale) without touching the sub-agent prompts or the `style_guide` content.
+
 Launch **2 batches of 5 parallel agents** (artifact 012 §3.3, hard ceiling ~175K tokens / run):
 
 **Batch A — theme-extraction-agent** (5 agents, partitioned over active + period-completed workspaces, with `model: "sonnet"`):
@@ -128,12 +191,14 @@ Launch **2 batches of 5 parallel agents** (artifact 012 §3.3, hard ceiling ~175
 - Returns the YAML schema declared in `.claude/commands/_retrospective/theme-extraction-agent.md` — top-level `themes:` list where each entry has `{ name, workspace, summary, conclusion, anchor }`, plus an optional top-level `contradictions_signal:` list
 - Coordinator clusters `themes` entries by `name` (with semantic fuzziness) across all 5 agent outputs. **Exclude any entry whose `name` starts with `"(skipped — "` from clustering** (per `theme-extraction-agent.md` failure-handling rules — these are read-failure markers, not real themes). Clusters spanning 2+ workspaces become "Cross-WS Themes". Within a cluster, if 2+ entries have different `conclusion` values (and neither is `"(in progress)"`), the cluster also becomes a "Contradictions" entry. `contradictions_signal` entries are intra-workspace hints used as a tie-breaker
 - Prompt path: `.claude/commands/_retrospective/theme-extraction-agent.md`
+- Per-invocation prompt arguments: `workspace_paths`, `period_start`, `period_end`, `entity_mapping`, plus `output_language` + `style_guide` from the prologue (omitted when `inject_args` is empty)
 
 **Batch B — observation-agent** (5 agents, partitioned over journal + decision-artifact + prior retrospectives in the period, with `model: "sonnet"`):
 
 - Returns: `{ candidates: [{observation, sources: [...]}] }`
 - Coordinator clusters by semantic similarity; surfaces top 5–10 as checkbox candidates
 - Prompt path: `.claude/commands/_retrospective/observation-agent.md`
+- Per-invocation prompt arguments: `journal_paths`, `decision_paths`, `prior_retrospective_path`, `period_start`, `period_end`, plus `output_language` + `style_guide` from the prologue (omitted when `inject_args` is empty)
 
 If the input set is empty (no active workspaces / no decisions / no journal in period), skip the corresponding batch and leave the section as "(no data this period)".
 
