@@ -2961,6 +2961,15 @@ cmd_mkfile() {
             --desc)  desc="$2"; shift 2 ;;
             --tags)  tags="$2"; shift 2 ;;
             --field)
+                # Reject embedded newlines in --field values. `extra_fields`
+                # is newline-delimited internally, so a multiline payload
+                # would split into multiple frontmatter rows (or break the
+                # required-fields check downstream). Callers that need a
+                # multi-paragraph value should collapse to a single line
+                # first, or pass the field via direct frontmatter Edit.
+                case "$2" in
+                    *$'\n'*) echo "Error: --field value must be single-line (got embedded newline in: ${2%%=*}=...)" >&2; return 1 ;;
+                esac
                 if [ -n "$extra_fields" ]; then
                     extra_fields="$extra_fields"$'\n'"$2"
                 else
@@ -3095,6 +3104,45 @@ cmd_mkfile() {
                 _*)  echo "Error: projects --slug cannot start with underscore" >&2; return 1 ;;
             esac
 
+            # Per rill-projects.md, every new project must carry a descriptive
+            # `name` and a 1-3 sentence `description` in frontmatter. Both
+            # double as the GUI preview source and the task-classification
+            # 1-liner. Callers (skills / scripts) must pass them via --field
+            # with a non-empty value — `--field 'name='` is treated as
+            # missing, not as "set to empty string".
+            #
+            # `extra_fields` is newline-delimited, so values containing a
+            # literal newline would split into multiple frontmatter rows
+            # downstream. Multiline `name` / `description` is rejected up
+            # front; callers must collapse to a single line before passing
+            # the field. (See `/project new` SKILL.md for the prompt that
+            # handles this on the caller side.)
+            #
+            # Counting only one match per key prevents `--field 'name=A'
+            # --field 'name=B'` (or a stray newline payload that ended up
+            # in `extra_fields`) from sneaking past the required-field
+            # check by inflating the match count.
+            if [ -z "$extra_fields" ]; then
+                echo "Error: projects requires --field 'name=...' and --field 'description=...'" >&2; return 1
+            fi
+            # Count keys: total occurrences (`name=` / `description=`,
+            # including empty values) must equal the non-empty match count
+            # AND that count must be exactly 1. This rejects both "no field"
+            # and "two fields where one is empty" (which would otherwise
+            # write duplicate YAML keys, where the empty one wins per YAML
+            # 1.2 last-wins parsing).
+            local name_total name_nonempty desc_total desc_nonempty
+            name_total=$(echo "$extra_fields" | grep -cE '^name=' || true)
+            name_nonempty=$(echo "$extra_fields" | grep -cE '^name=.+' || true)
+            desc_total=$(echo "$extra_fields" | grep -cE '^description=' || true)
+            desc_nonempty=$(echo "$extra_fields" | grep -cE '^description=.+' || true)
+            if [ "${name_total:-0}" != "1" ] || [ "${name_nonempty:-0}" != "1" ]; then
+                echo "Error: projects requires exactly one --field 'name=...' (descriptive title, ~30-60 chars, single line, non-empty)" >&2; return 1
+            fi
+            if [ "${desc_total:-0}" != "1" ] || [ "${desc_nonempty:-0}" != "1" ]; then
+                echo "Error: projects requires exactly one --field 'description=...' (1-3 sentences, single line, non-empty)" >&2; return 1
+            fi
+
             local project_dir="$abs_dir/$slug"
             if [ -e "$project_dir" ] && [ ! -d "$project_dir" ]; then
                 echo "Error: projects/$slug exists and is not a directory" >&2; return 1
@@ -3172,17 +3220,11 @@ cmd_mkfile() {
                 if [ -n "$tags" ]; then echo "tags: $tags"; fi
                 ;;
             projects)
-                # ADR-080: top-level project — auto fill id/name/status
+                # ADR-080: top-level project. `name` and `description` are
+                # required via --field (enforced in the directory dispatch
+                # above); they will be emitted by the "Extra fields" loop
+                # below. Status defaults to `planning` when omitted.
                 echo "id: $slug"
-                # Default name = slug (caller can override via --field 'name=...')
-                local has_name_field=0
-                if [ -n "$extra_fields" ] && echo "$extra_fields" | grep -q '^name='; then
-                    has_name_field=1
-                fi
-                if [ "$has_name_field" -eq 0 ]; then
-                    echo "name: $slug"
-                fi
-                # Default status = planning (caller can override via --field 'status=...')
                 local has_status_field=0
                 if [ -n "$extra_fields" ] && echo "$extra_fields" | grep -q '^status='; then
                     has_status_field=1
@@ -3193,20 +3235,62 @@ cmd_mkfile() {
                 ;;
         esac
 
-        # Extra fields
+        # Extra fields. Free-text fields known to carry human input
+        # (`name`, `description`) are YAML-double-quoted with backslash and
+        # double-quote escaped so values containing `:`, `#`, leading
+        # special chars or other YAML-reserved syntax do not produce a
+        # malformed `_project.md`. Other fields (enum-like, e.g. `status`)
+        # stay as plain scalars to keep the diff/output readable.
         if [ -n "$extra_fields" ]; then
             while IFS= read -r field; do
                 local key="${field%%=*}"
                 local value="${field#*=}"
-                echo "$key: $value"
+                case "$key" in
+                    name|description)
+                        local escaped="${value//\\/\\\\}"
+                        escaped="${escaped//\"/\\\"}"
+                        echo "$key: \"$escaped\""
+                        ;;
+                    *)
+                        echo "$key: $value"
+                        ;;
+                esac
             done <<< "$extra_fields"
         fi
 
         echo "---"
         echo ""
-        # Skeleton body: signals to GUI that content is being generated
-        echo "_Generating content..._"
-        echo ""
+        # Skeleton body. Projects ship with the full canonical section set
+        # so downstream skills (/promote appends to ## Key Facts, /project
+        # status reads ## Current Focus, /refresh-project owns ## Active
+        # Tasks and ## Related Workspaces) can write into the file without
+        # first having to scaffold missing headings. Author fills the Goal
+        # bullet after creation. Other directories get the generic
+        # "Generating content" marker that signals the GUI that the body
+        # is still being produced.
+        if [ "$directory" = "projects" ]; then
+            echo "## Goal"
+            echo ""
+            echo "- TODO: fill in the project's verifiable completion condition"
+            echo ""
+            echo "## Current Focus"
+            echo ""
+            echo "## Active Tasks"
+            echo ""
+            echo "## Related Workspaces"
+            echo ""
+            echo "## Watch"
+            echo ""
+            echo "### Competitors"
+            echo ""
+            echo "### Keywords"
+            echo ""
+            echo "## Key Facts"
+            echo ""
+        else
+            echo "_Generating content..._"
+            echo ""
+        fi
     } > "$filepath"
 
     # Output relative path to stdout
@@ -4058,11 +4142,23 @@ EOF
         # insert empty ## Active Tasks + ## Related Workspaces before ## Watch
         # (or append at body end if no ## Watch).
         if ! awk '
-            BEGIN { fm=0; section_inserted=0 }
+            BEGIN { fm=0; section_inserted=0; has_desc=0 }
             /^---$/ {
-                print
-                if (fm == 0) { fm=1; next }
-                else if (fm == 1) { fm=2; next }
+                if (fm == 0) { print; fm=1; next }
+                else if (fm == 1) {
+                    # Synthesise a description: line before closing the
+                    # frontmatter when the source file did not carry one.
+                    # The post-ADR-080 schema requires description. Seed is
+                    # filled in a second pass after this awk run; the empty
+                    # placeholder here keeps the closing --- in a valid
+                    # position. Author edits are expected afterwards.
+                    if (!has_desc) {
+                        print "description: \"\""
+                    }
+                    print
+                    fm=2
+                    next
+                }
                 else { print; next }
             }
             fm==1 {
@@ -4075,6 +4171,7 @@ EOF
                     else if (val == "completed") print "status: done"
                     else                         print "status: " val
                 } else {
+                    if ($0 ~ /^description:[[:space:]]/) { has_desc = 1 }
                     print
                 }
                 next
@@ -4111,6 +4208,57 @@ EOF
             echo "  ✗ error: failed to transform $slug" >&2
             ((errors++))
             continue
+        fi
+
+        # Second pass: if the synthesised `description: ""` is still empty,
+        # seed it from the body's first non-blank, non-heading paragraph so
+        # the migrated file ships with a real summary rather than an empty
+        # preview. This runs only when the placeholder is still present
+        # exactly as written above. If the source already had a frontmatter
+        # `description:` (very rare for pre-ADR-080 files), the awk above
+        # left it alone and this no-ops.
+        if grep -q '^description: ""$' "$dst_file"; then
+            local body_seed
+            body_seed=$(awk '
+                BEGIN { fm = 0 }
+                /^---$/ {
+                    if (fm == 0) { fm = 1; next }
+                    if (fm == 1) { fm = 2; next }
+                }
+                fm == 2 {
+                    line = $0
+                    sub(/^[[:space:]]+/, "", line)
+                    sub(/[[:space:]]+$/, "", line)
+                    if (line == "") next
+                    # Stop when we hit the first ## heading without having
+                    # seen a real overview paragraph yet. We do NOT want to
+                    # seed description from the first ## Goal bullet (that
+                    # is a completion condition, not the project scope) or
+                    # from Current Focus / Key Facts. Better to leave the
+                    # placeholder empty and let an author edit later.
+                    if (line ~ /^##/) exit
+                    if (line ~ /^#/) next
+                    # Escape double quote and backslash for YAML double-
+                    # quoted form.
+                    gsub(/\\/, "\\\\", line)
+                    gsub(/"/, "\\\"", line)
+                    print line
+                    exit
+                }
+            ' "$dst_file")
+            if [ -n "$body_seed" ]; then
+                # Replace the empty description with the seeded value. Use a
+                # python helper to avoid sed quoting hazards with arbitrary
+                # body text.
+                python3 - "$dst_file" "$body_seed" <<'PY' || true
+import sys, pathlib
+path = pathlib.Path(sys.argv[1])
+seed = sys.argv[2]
+text = path.read_text()
+text = text.replace('description: ""', f'description: "{seed}"', 1)
+path.write_text(text)
+PY
+            fi
         fi
 
         # Verify the new file has frontmatter delimiters and a status line
