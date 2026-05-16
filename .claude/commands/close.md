@@ -54,8 +54,7 @@ Decide up-front whether this `/close` should chain into `/promote` at the end. T
 
 1. Read the workspace metadata file's frontmatter `mentions`. Extract `projects/{id}` entries
 2. Branch:
-   - **At least one project mentioned** AND the workspace body contains unchecked actionable items (`- [ ] ...`) → ask via AskUserQuestion: "After this /close completes, should I chain /promote {id} to crystallise into [{project}]?". Store the answer (yes / no) in parent state
-   - **No project mentioned** but the workspace has actionable items → ask: "This workspace does not link to a project. After /close, should I run /promote {id} to either link a new project or create one?" Store the answer
+   - **Workspace has actionable items** (`- [ ] ...`), with or without a `projects/{id}` mention → ask via AskUserQuestion: "After this /close completes, should I chain /promote {id} to crystallise this workspace into a project? You'll pick new-project vs an existing one (when eligible) during /promote." Store the answer (yes / no) in parent state. Do not name a specific mentioned project in the prompt — `/promote` defaults to new-project creation regardless of `mentions`, and naming an existing project here mis-sets the user's expectation
    - **No actionable items** → skip the predeclare (no promotion candidates)
 3. The stored answer is applied in Phase 9.5 (new). Non-interactive `--auto-approve` mode skips this predeclare entirely (the user can run `/promote` manually after `/close` returns)
 

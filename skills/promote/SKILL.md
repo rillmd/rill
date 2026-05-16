@@ -89,10 +89,13 @@ By default `/promote` proposes creating a **new project** for the workspace, not
    - **(b) merge into existing**:
      - If exactly 1 eligible candidate → that is the target; continue to Phase 2
      - If 2+ eligible candidates → ask a second question (Question 2) listing each eligible `projects/{id}` as a flat option (one per row, with `status: ...`). The user selects one. Cap the list at 4 (AskUserQuestion's max); if more than 4 eligible candidates exist, list the 3 most-recently-touched and add a 4th option "Specify another slug" that falls through to (c) handling
-   - **(c) specify other** → ask for the slug, verify `projects/{slug}/_project.md` exists and its `status ≠ done`. On failure, fall back to (a). On success, if `projects/{slug}` is not already in the workspace's `mentions`, Edit `_workspace.md` to add it so `/refresh-project` reverse-lookup picks up the workspace afterwards (Phase 3 Step 2 relies on this linkage)
+   - **(c) specify other** → ask for the slug. Validate `projects/{slug}/_project.md`:
+     - File missing → ask if the user meant to create a new project with that slug; on yes, fall through to (a) with the slug as the suggestion; on no, re-prompt
+     - File exists and `status: done` → refuse: "Project is done and not accepting new tasks. Pick another slug or take option (a)"
+     - File exists but frontmatter is malformed → refuse: "Project's `_project.md` is malformed. Repair it before promoting (see Error handling)" and exit `/promote`
+     - File exists and `status ≠ done` → record this slug as the target. Do **not** edit the workspace's `mentions` yet — the backlink is written at the end of Phase 5 only if Phase 3 succeeds (avoids leaving the workspace linked to a project the user later cancelled into)
 
-6. **Edge case — zero mentions**: option (b) has no candidates. Present (a) and (c) only, default still (a)
-7. **Edge case — all mentioned projects are ineligible** (every candidate is `status: done`): present (a) and (c) only, and announce why (b) was skipped: "All mentioned projects are done (umbrella state); a new project is the only safe merge target"
+6. **Edge case — zero eligible candidates** (`eligible == 0`, whether because there are zero mentions, all mentions are done, all are stale, or all are malformed): option (b) is suppressed entirely. Present (a) and (c) only, default still (a). When the suppression is because of done/stale/malformed mentions, announce why in the prelude: "All mentioned projects are ineligible ({K} done / {M} stale / {L} malformed); pick (a) new project or (c) specify another slug"
 
 ### Phase 2: Candidate extraction
 
@@ -152,18 +155,20 @@ This phase runs when Phase 1's user choice was (a) — the default. It also runs
 1. Confirm the slug with the user (default = the slug proposed in Phase 1 Step 3). The user may override
 2. Ask for a Goal — a verifiable completion condition. `/promote` does not auto-write a Goal; project DoD is the user's call
 3. Invoke `/project new {slug}` to create `projects/{slug}/_project.md` with the user-supplied Goal
-4. Edit the workspace's `_workspace.md` frontmatter `mentions` to include `projects/{slug}` (so future `/refresh-project` reverse-lookup finds it). Preserve any existing mentions
-5. Set the target = `projects/{slug}` and branch back to Phase 2 (candidate extraction)
+4. Set the target = `projects/{slug}` and branch back to Phase 2 (candidate extraction). The workspace's `mentions` backlink is written at the end of Phase 5 only if Phase 3 succeeds (avoids leaving the workspace linked to a project the user later cancelled into)
 
 If the user cancels at any sub-step, exit `/promote` without changes.
 
-### Phase 5: Workspace Next Steps update
+### Phase 5: Workspace backlink + Next Steps update
 
-After Phase 3 completes, update the workspace's `_workspace.md` `## Next Steps` section to point forward to the project:
+This phase runs only if Phase 3 succeeded (Key Facts appended, tasks created without error). On any earlier user cancellation, Phase 5 is skipped — the workspace stays as-is.
 
-```markdown
-- Continued in [projects/{slug}/_project.md](../../projects/{slug}/_project.md)
-```
+1. If `projects/{target-slug}` is not already in the workspace's `_workspace.md` `mentions`, Edit `_workspace.md` to add it. Preserve other mentions. This is the deferred backlink for both the (c) "specify other" path and the Phase 4 new-project path
+2. Update the workspace's `_workspace.md` `## Next Steps` section to point forward to the project:
+
+   ```markdown
+   - Continued in [projects/{slug}/_project.md](../../projects/{slug}/_project.md)
+   ```
 
 Do not change the workspace's frontmatter `status` — that stays `completed`. `/promote` does not close, reopen, or otherwise modify the workspace's lifecycle.
 
