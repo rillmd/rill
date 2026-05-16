@@ -60,20 +60,27 @@ By default `/promote` proposes creating a **new project** for the workspace, not
 1. Read the workspace's `_workspace.md` frontmatter `mentions`. Extract every entry matching `projects/{id}`
 2. **Pre-check mentioned projects** — for each `projects/{id}` in `mentions`, Read `projects/{id}/_project.md` and classify:
    - **eligible**: `status: planning` / `active` / `paused`
-   - **ineligible**: `status: done` (these projects are no longer accumulating work and must not receive new tasks); `_project.md` does not exist (stale mention after rename or cleanup); or frontmatter is malformed (no `status` field)
+   - **ineligible — done**: `status: done` (these projects are no longer accumulating work and must not receive new tasks)
+   - **ineligible — stale**: `_project.md` does not exist (stale mention after rename or cleanup)
+   - **malformed**: `_project.md` exists but frontmatter is malformed (no `status` field, or unreadable). **Excluded from option (b) AND announced loudly in the Question 1 prelude** so the user knows to repair the broken target if they intended it as the promotion destination (rather than silently routing the workspace into a fresh project hub)
 
-   `status` is the sole gate for existing projects. Body-text markers (e.g. "decomposed into sub-projects", "umbrella dissolved") are not part of the check — the vault language is unconstrained and any body-pattern check is brittle. Projects in active umbrella-dissolution should already carry `status: done`. Stale mentions are ineligible (not fatal): they just disappear from option (b) and the default new-project path remains available
+   `status` is the sole gate for healthy existing projects. Body-text markers (e.g. "decomposed into sub-projects", "umbrella dissolved") are not part of the check — the vault language is unconstrained and any body-pattern check is brittle. Projects in active umbrella-dissolution should already carry `status: done`
 3. Suggest a **new-project slug** from the workspace id / name: strip the leading `YYYY-MM-DD-` date prefix, strip trailing `-design` / `-investigation` / `-exploration` suffixes if present, and propose the remainder. Example: `2026-05-14-ai-agent-language-localization-design` → suggest `ai-agent-language-localization`. The user may rename (e.g. prefix with a parent-project tag) at confirmation time
-4. Ask the user via the harness's question primitive (Question 1 — coarse choice):
+4. Ask the user via the harness's question primitive (Question 1 — coarse choice). If any malformed projects were detected in pre-check, prepend a warning line before the question:
 
    ```
+   Warning: {K} mentioned project{s} have malformed _project.md and were excluded:
+   - projects/{id-x} — no status field
+   - projects/{id-y} — unreadable frontmatter
+   Repair these if you intended one as the promotion target, or proceed.
+
    How should the workspace's results land?
 
    (a) Create a new project (default, recommended)
        Suggested slug: {suggested-slug}
        Reason: 1 workspace = 1 execution unit; keep this workspace's tasks under their own hub
    (b) Merge into an existing project
-       ({N} eligible candidate{s} found from workspace mentions{; M done project{s} excluded as ineligible})
+       ({N} eligible candidate{s} found from workspace mentions{; M done project{s} excluded as ineligible}{; K malformed excluded — see warning above})
    (c) Specify a different project (slug)
    ```
 
@@ -134,8 +141,8 @@ After user approval:
 2. **Related Workspaces** — `/refresh-project {slug}` will pick up the workspace via `mentions` reverse-lookup automatically. `/refresh-project` lists both active and completed workspaces (the latter capped at the 20 most-recently-touched), each with an explicit `status:` marker. The workspace is already linked via `mentions: [projects/{slug}]`. `/promote` does not directly edit this section; it just makes sure the next `/refresh-project` will reflect the change
 3. **Task creation** — for each approved actionable item:
    - Check for duplicates against existing tasks in `tasks/` (Grep the title, judge whether the existing one already covers it)
-   - If unique, create via `rill mkfile tasks --slug {slug} --type task --field 'status=open' --field 'source={artifact-path}' --field 'mentions=[projects/{target-slug}]'`. Use `_task:create-agent` for substance authoring — pass the actionable item as `candidate`. Rationale for `status: open` (not `status: draft`): `/promote` itself gates task creation behind the Phase 2 candidate-approval `AskUserQuestion`, so each created task has already passed a human review. ADR-069's draft-review pattern targets unattended task extraction (e.g. `/distill task-extraction`); `/promote` is an attended path and does not need a second review surface
-   - If a near-duplicate exists, ask the user whether to skip, enrich the existing task, or create anyway
+   - If unique: invoke `_task:create-agent` in `extract` mode with `source_path={artifact-path}`, `candidate={the actionable item}`, and shared taxonomy / people / orgs / projects context. The agent owns slug generation, frontmatter assembly, and substance authoring; it creates `tasks/{slug}/_task.md` with `status: draft` per its contract. **After the agent returns the created path**: Edit the file's frontmatter `status: draft` → `status: open`, and Edit `mentions` to include `projects/{target-slug}` if not already present (the agent does not know `/promote`'s target project). Rationale for `status: open` (not the agent's default `status: draft`): `/promote` itself gates task creation behind the Phase 2 candidate-approval `AskUserQuestion`, so each created task has already passed a human review. ADR-069's draft-review pattern targets unattended task extraction (e.g. `/distill task-extraction`); `/promote` is an attended path and does not need a second review surface
+   - If a near-duplicate exists, ask the user whether to skip, enrich the existing task (re-invoke `_task:create-agent` in `enrich` mode with `task_path` pointing at the duplicate), or create anyway
 4. After all writes complete, invoke `/refresh-project {target-slug}` so the project's `## Active Tasks` reflects the new tickets and `## Related Workspaces` reflects the workspace
 
 ### Phase 4: New project creation (Phase 1 default path)
