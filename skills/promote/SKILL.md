@@ -146,20 +146,19 @@ After user approval:
    - Check for duplicates against existing tasks in `tasks/` (Grep the title, judge whether the existing one already covers it)
    - If unique: invoke `_task:create-agent` in `extract` mode with `source_path={artifact-path}`, `candidate={the actionable item}`, and shared taxonomy / people / orgs / projects context. The agent owns slug generation, frontmatter assembly, and substance authoring; it creates `tasks/{slug}/_task.md` with `status: draft` per its contract. **After the agent returns the created path**: Edit the file's frontmatter `status: draft` → `status: open`, and Edit `mentions` to include `projects/{target-slug}` if not already present (the agent does not know `/promote`'s target project). Rationale for `status: open` (not the agent's default `status: draft`): `/promote` itself gates task creation behind the Phase 2 candidate-approval `AskUserQuestion`, so each created task has already passed a human review. ADR-069's draft-review pattern targets unattended task extraction (e.g. `/distill task-extraction`); `/promote` is an attended path and does not need a second review surface
    - If a near-duplicate exists, ask the user whether to skip, enrich the existing task (re-invoke `_task:create-agent` in `enrich` mode with `task_path` pointing at the duplicate), or create anyway
-4. After all writes complete, invoke `/refresh-project {target-slug}` so the project's `## Active Tasks` reflects the new tickets and `## Related Workspaces` reflects the workspace
+4. The `/refresh-project {target-slug}` call is deferred to Phase 5 (after the workspace backlink lands). Calling it here would refresh `## Related Workspaces` before the `mentions` reverse-lookup key exists, leaving the just-promoted workspace missing from the project's surface until a later manual refresh
 
 ### Phase 4: New project creation (Phase 1 default path)
 
 This phase runs when Phase 1's user choice was (a) — the default. It also runs when the user picked (c) and the named slug did not exist.
 
 1. Confirm the slug with the user (default = the slug proposed in Phase 1 Step 3). The user may override
-2. Ask for a Goal — a verifiable completion condition. `/promote` does not auto-write a Goal; project DoD is the user's call
-3. Invoke `/project new {slug}` to create `projects/{slug}/_project.md` with the user-supplied Goal
-4. Set the target = `projects/{slug}` and branch back to Phase 2 (candidate extraction). The workspace's `mentions` backlink is written at the end of Phase 5 only if Phase 3 succeeds (avoids leaving the workspace linked to a project the user later cancelled into)
+2. Invoke `/project new {slug}` with the confirmed slug. **`/project new` owns the Goal + initial-status prompts and the project file creation** — `/promote` does not collect those itself (avoids double-prompting and value drift between the two skills)
+3. After `/project new` returns successfully, set the target = `projects/{slug}` and branch back to Phase 2 (candidate extraction). The workspace's `mentions` backlink is written at the end of Phase 5 only if Phase 3 succeeds (avoids leaving the workspace linked to a project the user later cancelled into)
 
-If the user cancels at any sub-step, exit `/promote` without changes.
+If the user cancels at any sub-step (including inside `/project new`), exit `/promote` without changes.
 
-### Phase 5: Workspace backlink + Next Steps update
+### Phase 5: Workspace backlink + Next Steps update + project refresh
 
 This phase runs only if Phase 3 succeeded (Key Facts appended, tasks created without error). On any earlier user cancellation, Phase 5 is skipped — the workspace stays as-is.
 
@@ -169,6 +168,8 @@ This phase runs only if Phase 3 succeeded (Key Facts appended, tasks created wit
    ```markdown
    - Continued in [projects/{slug}/_project.md](../../projects/{slug}/_project.md)
    ```
+
+3. Invoke `/refresh-project {target-slug}` (deferred from Phase 3 Step 4). Running it here, after the workspace's `mentions` backlink has been written, ensures the project's `## Related Workspaces` regenerates with the just-promoted workspace included. `## Active Tasks` also picks up the new tickets created in Phase 3
 
 Do not change the workspace's frontmatter `status` — that stays `completed`. `/promote` does not close, reopen, or otherwise modify the workspace's lifecycle.
 
