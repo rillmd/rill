@@ -10,8 +10,14 @@ The orchestrator partitions the period's `inbox/journal/*.md` + decision artifac
 - `decision_paths`: a list of `workspace/*/[0-9]*-*.md` with `type: decision` in the period
 - `prior_retrospective_path`: the most recent `reports/retrospective/weekly-*.md` (for continuity reference)
 - `period_start`, `period_end`: ISO dates
+- `output_language` (optional): ISO 639-1 language code for narrative output fields (e.g. `"ja"`, `"en"`); when omitted, default to English
+- `style_guide` (optional): short vocabulary-boundary rules for narrative fields (see Language section); when omitted, write narrative fields in plain English
 
 If the agent receives an empty set, return `candidates: []` and exit.
+
+## Language
+
+Use the language specified by `output_language` (ISO 639-1) for the narrative output field (`observation`). Internal keys, `sources` paths, and the fixed `confidence` enum values (`high`, `medium`, `low`) stay verbatim English regardless of `output_language` because the coordinator string-matches them. Follow the inline `style_guide` block for vocabulary boundaries on the narrative field.
 
 ## Read budget
 

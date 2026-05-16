@@ -153,9 +153,14 @@ After user approval:
 
 This phase runs when Phase 1's user choice was (a) — the default. It also runs when the user picked (c) and the named slug did not exist.
 
-1. Confirm the slug with the user (default = the slug proposed in Phase 1 Step 3). The user may override
-2. Invoke `/project new {slug}` with the confirmed slug. **`/project new` owns the Goal + initial-status prompts and the project file creation** — `/promote` does not collect those itself (avoids double-prompting and value drift between the two skills)
-3. After `/project new` returns successfully, set the target = `projects/{slug}` and branch back to Phase 2 (candidate extraction). The workspace's `mentions` backlink is written at the end of Phase 5 only if Phase 3 succeeds (avoids leaving the workspace linked to a project the user later cancelled into)
+1. Confirm the slug with the user (default = the slug proposed in Phase 1 Step 3 — Phase 1 already routed the user here by selecting option (a); no separate "create a new project?" confirmation is needed)
+2. Draft seeds for `/project new`'s four required inputs from the workspace's `_summary.md` (falling back to `_workspace.md` when the summary is absent) and present them as proposals the user can accept verbatim or rewrite:
+   - **Slug**: the slug confirmed in Step 1
+   - **Name**: a descriptive one-line title (~30–60 chars). Pull from the workspace's frontmatter `name` if it already reads like a project title, otherwise summarise the summary's first paragraph
+   - **Description**: 1–3 sentences (~120–300 chars) derived from the summary's overview / outcome sections. This will go into `_project.md` frontmatter and is read by task-classification skills, so keep it factual and scope-bearing rather than narrative
+   - **Goal**: the project's completion condition (DoD). Often the summary already names a verifiable end-state; lift it if so
+3. Invoke `/project new {slug}` with these four seeds. `/project new` confirms each with the user (it asks for name, description, Goal, status) before calling `rill mkfile projects --field 'name=...' --field 'description=...' --field 'status=...'`. The seeds avoid double-prompting cold while still letting the user adjust before commit
+4. After `/project new` returns successfully, set the target = `projects/{slug}` and branch back to Phase 2 (candidate extraction). The workspace's `mentions` backlink is written at the end of Phase 5 only if Phase 3 succeeds (avoids leaving the workspace linked to a project the user later cancelled into)
 
 If the user cancels at any sub-step (including inside `/project new`), exit `/promote` without changes.
 

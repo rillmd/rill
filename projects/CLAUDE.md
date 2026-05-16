@@ -35,7 +35,15 @@ Tasks physically live under `tasks/`, linked to projects virtually via `mentions
 ## Creating New
 
 ```bash
-rill mkfile projects --slug {id} --type project
+rill mkfile projects --slug {id} --type project \
+  --field 'name=...' \
+  --field 'description=...'
 ```
 
-Or via the `/promote` skill, crystallizing from a workspace.
+Both `--field 'name=...'` (~30-60 chars descriptive title) and
+`--field 'description=...'` (1-3 sentence summary) are required —
+`rill mkfile` rejects calls missing either.
+
+For interactive creation use `/project new` (it asks for name,
+description, Goal, status). For workspace crystallisation use
+`/promote`, which seeds the inputs from `_summary.md`.

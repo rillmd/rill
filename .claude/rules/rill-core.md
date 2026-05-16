@@ -47,10 +47,9 @@ Container `CLAUDE.md` files (e.g., `inbox/meetings/`, `knowledge/people/`) load 
 
 ## Language Rules
 
-- Body text: user's preferred language
-- Technical terms: English (Markdown, API, frontmatter)
-- File/directory names: English kebab-case
-- Frontmatter keys, commit messages: English
+- **Body text**: user's preferred language (distribution default: English; personal vaults override via `.claude/rules/personal-*.md`)
+- **English exceptions** (only): tokens inside backticks, proper nouns, ASCII acronyms
+- **File/directory names, frontmatter keys, commit messages**: English
 
 ## Customization
 
