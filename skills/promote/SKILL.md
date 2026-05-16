@@ -66,13 +66,13 @@ By default `/promote` proposes creating a **new project** for the workspace, not
 
    `status` is the sole gate for healthy existing projects. Body-text markers (e.g. "decomposed into sub-projects", "umbrella dissolved") are not part of the check — the vault language is unconstrained and any body-pattern check is brittle. Projects in active umbrella-dissolution should already carry `status: done`
 3. Suggest a **new-project slug** from the workspace id / name: strip the leading `YYYY-MM-DD-` date prefix, strip trailing `-design` / `-investigation` / `-exploration` suffixes if present, and propose the remainder. Example: `2026-05-14-ai-agent-language-localization-design` → suggest `ai-agent-language-localization`. The user may rename (e.g. prefix with a parent-project tag) at confirmation time
-4. Ask the user via the harness's question primitive (Question 1 — coarse choice). If any malformed projects were detected in pre-check, prepend a warning line before the question:
+4. Ask the user via the harness's question primitive (Question 1 — coarse choice). If any mentioned projects were excluded by pre-check (malformed, stale, or done), prepend a warning line before the question so the user can see what was filtered out — particularly important in mixed cases where one mention is eligible and another was silently dropped:
 
    ```
-   Warning: {K} mentioned project{s} have malformed _project.md and were excluded:
-   - projects/{id-x} — no status field
-   - projects/{id-y} — unreadable frontmatter
-   Repair these if you intended one as the promotion target, or proceed.
+   Note: {X} mentioned project{s} excluded from option (b):
+   - projects/{id-x} — malformed (no status field) — repair if you intended this as the target
+   - projects/{id-y} — stale (file not found at projects/{id-y}/_project.md)
+   - projects/{id-z} — done (no longer accepting new tasks)
 
    How should the workspace's results land?
 
@@ -80,7 +80,7 @@ By default `/promote` proposes creating a **new project** for the workspace, not
        Suggested slug: {suggested-slug}
        Reason: 1 workspace = 1 execution unit; keep this workspace's tasks under their own hub
    (b) Merge into an existing project
-       ({N} eligible candidate{s} found from workspace mentions{; M done project{s} excluded as ineligible}{; K malformed excluded — see warning above})
+       ({N} eligible candidate{s} remaining{; see exclusions above})
    (c) Specify a different project (slug)
    ```
 
@@ -144,7 +144,8 @@ After user approval:
 2. **Related Workspaces** — `/refresh-project {slug}` will pick up the workspace via `mentions` reverse-lookup automatically. `/refresh-project` lists both active and completed workspaces (the latter capped at the 20 most-recently-touched), each with an explicit `status:` marker. The workspace is already linked via `mentions: [projects/{slug}]`. `/promote` does not directly edit this section; it just makes sure the next `/refresh-project` will reflect the change
 3. **Task creation** — for each approved actionable item:
    - Check for duplicates against existing tasks in `tasks/` (Grep the title, judge whether the existing one already covers it)
-   - If unique: invoke `_task:create-agent` in `extract` mode with `source_path={artifact-path}`, `candidate={the actionable item}`, and shared taxonomy / people / orgs / projects context. The agent owns slug generation, frontmatter assembly, and substance authoring; it creates `tasks/{slug}/_task.md` with `status: draft` per its contract. **After the agent returns the created path**: Edit the file's frontmatter `status: draft` → `status: open`, and Edit `mentions` to include `projects/{target-slug}` if not already present (the agent does not know `/promote`'s target project). Rationale for `status: open` (not the agent's default `status: draft`): `/promote` itself gates task creation behind the Phase 2 candidate-approval `AskUserQuestion`, so each created task has already passed a human review. ADR-069's draft-review pattern targets unattended task extraction (e.g. `/distill task-extraction`); `/promote` is an attended path and does not need a second review surface
+   - If unique: invoke `_task:create-agent` in `extract` mode with `source_path={artifact-path}`, `candidate={the actionable item}`, and shared taxonomy / people / orgs / projects context. The agent owns slug generation, frontmatter assembly, and substance authoring; it creates `tasks/{slug}/_task.md` with `status: draft` per its contract. **Note**: the agent's `extract` mode can transparently fall back to `enrich` when it detects a duplicate, returning an existing task's path instead of a new draft.
+   - **After the agent returns the path**: Read the returned file's frontmatter `status`. Flip `status: draft` → `status: open` **only if the current status is `draft`** (the newly-created case). If the status is anything else (`open` / `waiting` / `done` / `cancelled`), the agent enriched an existing task — leave its status untouched to preserve its existing workflow state. Regardless of the status path, Edit `mentions` to include `projects/{target-slug}` if not already present (the agent does not know `/promote`'s target project). Rationale for the `draft → open` flip on newly-created tasks: `/promote` itself gates task creation behind the Phase 2 candidate-approval `AskUserQuestion`, so each created task has already passed a human review. ADR-069's draft-review pattern targets unattended task extraction (e.g. `/distill task-extraction`); `/promote` is an attended path and does not need a second review surface
    - If a near-duplicate exists, ask the user whether to skip, enrich the existing task (re-invoke `_task:create-agent` in `enrich` mode with `task_path` pointing at the duplicate), or create anyway
 4. The `/refresh-project {target-slug}` call is deferred to Phase 5 (after the workspace backlink lands). Calling it here would refresh `## Related Workspaces` before the `mentions` reverse-lookup key exists, leaving the just-promoted workspace missing from the project's surface until a later manual refresh
 
