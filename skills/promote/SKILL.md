@@ -58,11 +58,11 @@ $ARGUMENTS — one of:
 By default `/promote` proposes creating a **new project** for the workspace, not merging into an existing one. A workspace is a single design session whose actionable items form one execution unit; co-locating that unit under its own project keeps "where is this workspace's execution layer?" trivially answerable. The user may still merge into an existing project — `/promote` just stops defaulting to it.
 
 1. Read the workspace's `_workspace.md` frontmatter `mentions`. Extract every entry matching `projects/{id}`
-2. **Pre-check mentioned projects** — for each `projects/{id}` in `mentions`, Read `projects/{id}/_project.md` and classify by frontmatter `status`:
+2. **Pre-check mentioned projects** — for each `projects/{id}` in `mentions`, Read `projects/{id}/_project.md` and classify:
    - **eligible**: `status: planning` / `active` / `paused`
-   - **ineligible**: `status: done` (these projects are no longer accumulating work and must not receive new tasks)
+   - **ineligible**: `status: done` (these projects are no longer accumulating work and must not receive new tasks); `_project.md` does not exist (stale mention after rename or cleanup); or frontmatter is malformed (no `status` field)
 
-   `status` is the sole gate. Body-text markers (e.g. "decomposed into sub-projects", "umbrella dissolved") are not part of the check — the vault language is unconstrained and any body-pattern check is brittle. Projects in active umbrella-dissolution should already carry `status: done`
+   `status` is the sole gate for existing projects. Body-text markers (e.g. "decomposed into sub-projects", "umbrella dissolved") are not part of the check — the vault language is unconstrained and any body-pattern check is brittle. Projects in active umbrella-dissolution should already carry `status: done`. Stale mentions are ineligible (not fatal): they just disappear from option (b) and the default new-project path remains available
 3. Suggest a **new-project slug** from the workspace id / name: strip the leading `YYYY-MM-DD-` date prefix, strip trailing `-design` / `-investigation` / `-exploration` suffixes if present, and propose the remainder. Example: `2026-05-14-ai-agent-language-localization-design` → suggest `ai-agent-language-localization`. The user may rename (e.g. prefix with a parent-project tag) at confirmation time
 4. Ask the user via the harness's question primitive (Question 1 — coarse choice):
 
@@ -82,7 +82,7 @@ By default `/promote` proposes creating a **new project** for the workspace, not
    - **(b) merge into existing**:
      - If exactly 1 eligible candidate → that is the target; continue to Phase 2
      - If 2+ eligible candidates → ask a second question (Question 2) listing each eligible `projects/{id}` as a flat option (one per row, with `status: ...`). The user selects one. Cap the list at 4 (AskUserQuestion's max); if more than 4 eligible candidates exist, list the 3 most-recently-touched and add a 4th option "Specify another slug" that falls through to (c) handling
-   - **(c) specify other** → ask for the slug, verify `projects/{slug}/_project.md` exists and its `status ≠ done`; on failure, fall back to (a)
+   - **(c) specify other** → ask for the slug, verify `projects/{slug}/_project.md` exists and its `status ≠ done`. On failure, fall back to (a). On success, if `projects/{slug}` is not already in the workspace's `mentions`, Edit `_workspace.md` to add it so `/refresh-project` reverse-lookup picks up the workspace afterwards (Phase 3 Step 2 relies on this linkage)
 
 6. **Edge case — zero mentions**: option (b) has no candidates. Present (a) and (c) only, default still (a)
 7. **Edge case — all mentioned projects are ineligible** (every candidate is `status: done`): present (a) and (c) only, and announce why (b) was skipped: "All mentioned projects are done (umbrella state); a new project is the only safe merge target"
