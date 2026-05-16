@@ -39,8 +39,8 @@ if [[ -z "$VAULT_DIR" ]]; then
   cp -r "$REPO_DIR/.claude" "$VAULT_DIR/.claude"
   cp -r "$REPO_DIR/bin" "$VAULT_DIR/bin"
   [[ -d "$REPO_DIR/plugins" ]] && cp -r "$REPO_DIR/plugins" "$VAULT_DIR/plugins"
-  cp "$REPO_DIR/taxonomy.md" "$VAULT_DIR/taxonomy.md"
-  cp "$REPO_DIR/CLAUDE.md" "$VAULT_DIR/CLAUDE.md"
+  [[ -f "$REPO_DIR/taxonomy.md" ]] && cp "$REPO_DIR/taxonomy.md" "$VAULT_DIR/taxonomy.md"
+  [[ -f "$REPO_DIR/CLAUDE.md" ]] && cp "$REPO_DIR/CLAUDE.md" "$VAULT_DIR/CLAUDE.md"
   [[ -f "$REPO_DIR/SPEC.md" ]] && cp "$REPO_DIR/SPEC.md" "$VAULT_DIR/SPEC.md"
   cd "$VAULT_DIR"
   git init -q
@@ -119,19 +119,19 @@ if [[ -f "$DAILY_NOTE" ]]; then
   assert_true "[[ -n '$TITLE_LINE' ]]" "SC-01: Has H1 title"
 
   # SC-02: Yesterday's Activity
-  HAS_ACTIVITY=$(grep -ci '^## .*Yesterday\|^## .*Activity' "$DAILY_NOTE" 2>/dev/null || echo "0")
+  HAS_ACTIVITY=$({ grep -ci '^## .*Yesterday\|^## .*Activity' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
   assert_gt "$HAS_ACTIVITY" 0 "SC-02: Has activity section"
 
   # SC-03: Today's Focus
-  HAS_FOCUS=$(grep -ci '^## .*Today\|^## .*Focus' "$DAILY_NOTE" 2>/dev/null || echo "0")
+  HAS_FOCUS=$({ grep -ci '^## .*Today\|^## .*Focus' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
   assert_gt "$HAS_FOCUS" 0 "SC-03: Has focus section"
 
   # SC-04: Situation Analysis
-  HAS_ANALYSIS=$(grep -ci '^## .*Situation\|^## .*Analysis' "$DAILY_NOTE" 2>/dev/null || echo "0")
+  HAS_ANALYSIS=$({ grep -ci '^## .*Situation\|^## .*Analysis' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
   assert_gt "$HAS_ANALYSIS" 0 "SC-04: Has analysis section"
 
   # SC-05: Notes (optional — only check if content warrants it)
-  HAS_NOTES=$(grep -ci '^## .*Notes\|^## .*Attention\|^## .*Caution' "$DAILY_NOTE" 2>/dev/null || echo "0")
+  HAS_NOTES=$({ grep -ci '^## .*Notes\|^## .*Attention\|^## .*Caution' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
   echo "  INFO: Notes section present: $HAS_NOTES (optional)"
 fi
 echo ""

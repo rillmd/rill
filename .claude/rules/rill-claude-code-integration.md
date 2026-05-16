@@ -1,37 +1,23 @@
 # Claude Code Integration Rules — Rill
 
-Rill operates as a companion tool for Claude Code. This document defines integration boundaries, CLI usage, shell compatibility, and other cross-cutting rules.
+Rill is a companion tool for Claude Code. Integration boundaries, CLI usage, shell compatibility.
 
 ## Claude Code Integration Boundary (ADR-068, critical)
 
-Rill is a Claude Code CLI companion tool. **The following are prohibited**:
+**Prohibited**:
 
-1. **Adopting Agent SDK (`@anthropic-ai/claude-agent-sdk`)**
-2. **Extracting or managing OAuth tokens**
-3. **Using `--bare` mode**
-4. **Using API Keys as default authentication**
+1. Adopting Agent SDK (`@anthropic-ai/claude-agent-sdk`)
+2. Extracting or managing OAuth tokens
+3. Using `--bare` mode
+4. Using API Keys as default authentication
 
-### Automated Execution Sessions
-- Use `claude -p --output-format stream-json` for automation
-- Designed for Max Plan
-
-### Alternative Architecture
-When automation is needed:
-- macOS: `launchd` (plist)
-- Linux: systemd timer or `cron`
-- Execution: `claude -p --output-format stream-json "/distill"` etc. (invoke existing skills)
-- Auth: Uses the user's Max Plan auth (held by Claude Code itself)
-- Logging: `reports/` or dedicated log file + 1-line entry in `activity-log.md`
+For automation: `claude -p --output-format stream-json` (designed for Max Plan auth held by Claude Code itself). Alternative architecture: macOS `launchd` / Linux `systemd timer` or `cron` calling `claude -p --output-format stream-json "/distill"` etc. Log to `reports/` or dedicated log file plus 1-line `activity-log.md` entry.
 
 ## File Creation: `rill mkfile` Required (ADR-060)
 
-**Use `rill mkfile` for all new file creation.** Ensures timestamp accuracy.
+**Use `rill mkfile` for all new file creation.** Ensures timestamp accuracy. Auto-assigns `created` in ISO 8601 — **LLMs must never write `created` directly**.
 
-- Format: `rill mkfile {dir} --slug {slug} --type {type}`
-- `rill mkfile` auto-assigns `created` field in ISO 8601 format
-- **LLMs must never write `created` values directly**
-
-### Examples
+Format: `rill mkfile {dir} --slug {slug} --type {type}`.
 
 ```bash
 rill mkfile knowledge/notes --slug whisper-api-comparison --type insight
@@ -40,61 +26,30 @@ rill mkfile tasks --slug review-contract --type task
 rill mkfile pages --slug rill-roadmap --type page
 ```
 
-### Exceptions
-
-- System files like `.claude/rules/*.md`, subdirectory `CLAUDE.md` etc. have no frontmatter, so `rill mkfile` is not needed
-- Not needed for editing existing files (use Edit tool)
+Exceptions: system files without frontmatter (`.claude/rules/*.md`, subdirectory `CLAUDE.md`); editing existing files (use Edit tool).
 
 ## GUI Integration: show paths, don't auto-navigate
 
-When you want to point the user at a file you've explored, created, or analyzed, **display the repo-relative path as text** — as a Markdown link `[display name](relative/path.md)` or in backticks. The user opens it themselves via the header search box (or `Cmd+P` palette) in the Rill GUI, which accepts a pasted path directly.
+Point users at files by displaying repo-relative paths as text — Markdown link `[display name](relative/path.md)` or backticks. The user opens them via the GUI header search box (or `Cmd+P`).
 
-**Do not run `rill open` to force-navigate the GUI.** Forcible navigation disrupts the user while they are reading a different document. The header search box is the user-controlled entry point — keep the decision to switch views on their side.
+**Do not run `rill open`** to force-navigate. The header search box is the user-controlled entry point — keep the decision to switch views on their side.
 
-This applies to:
-1. Artifacts produced by `/distill`, `/focus`, `/solve`, etc. — list the resulting paths at the end of the run
-2. Files the user asked "where is this?" about — reply with the path, not an open command
-3. Related files you want to highlight — mention the path in prose
-
-The `rill open` CLI still exists for manual / scripted use, but skills and ad-hoc assistant turns must not invoke it.
+Applies to: artifacts produced by `/distill`, `/focus`, `/solve` (list paths at end of run); files the user asked about; related files highlighted in prose. `rill open` CLI exists for manual / scripted use only — skills and ad-hoc turns must not invoke it.
 
 ## Activity Log
 
-When adding new skills, consider activity-log support. User-initiated activities that don't leave file traces should be recorded in `activity-log.md`:
-- Add path detection patterns to the PostToolUse hook
-- Or call `rill activity-log add` at the end of the skill (ADR-034)
+When adding skills, consider activity-log support. User-initiated activities without file traces should be recorded in `activity-log.md`: add path patterns to the PostToolUse hook, or call `rill activity-log add` at end of skill (ADR-034).
 
-## zsh Compatibility (when generating Bash commands)
+## zsh Compatibility
 
-Claude Code's shell environment is zsh, so be aware of:
+Claude Code's shell is zsh:
 
-### 1. Glob Zero-Match Error Prevention
-- `ls dir/*.md 2>/dev/null`
-- Or use the Glob tool (recommended)
-- `for f in dir/*.md; do ...` errors on zero matches → replace with Glob tool
+- **Glob zero-match**: prefer the Glob tool, or `ls dir/*.md 2>/dev/null`. `for f in dir/*.md; do ...` errors on zero matches.
+- **Reserved variable names**: `status` (read-only), `aliases` (associative array) — use `file_status`, `alias_list`.
+- **Prefer the Glob tool** over `for f in dir/*.md`; prefer Grep tool over running `rg` or `grep` directly.
 
-### 2. Reserved Variable Name Avoidance
-- `status` (read-only) — cannot be used → use `file_status` etc.
-- `aliases` (associative array) — cannot be used → use `alias_list` etc.
+## Other Cross-Cutting
 
-### 3. Prefer Glob Tool for File Collection
-- Use Glob tool instead of Bash `for f in dir/*.md`
-- Use Grep tool instead of running `rg` or `grep` directly
-
-## Other Cross-Cutting Rules
-
-### docs/ vs PKM Distinction
-- `docs/` is **documentation about the Rill system itself**
-- Distinct from PKM data (inbox/, knowledge/, workspace/, etc.)
-- Technical decisions are recorded as ADRs in `docs/decisions/`
-- Update `SPEC.md` on system design changes
-
-### Binary Assets
-- **PII-bearing source binaries** (business cards, meeting slides, scanned contracts containing real names / emails / phone numbers) — do not commit. Default `.gitignore` excludes `inbox/sources/*.{jpg,jpeg,png,heic,pdf}` per ADR-047 D47-2.
-- **Non-PII asset binaries** (app icons, logos, documentation screenshots, generated figures) — commit when reasonably small (~2 MB soft cap) and the user has approved the asset. Prefer SVG / Markdown over raster when equivalent.
-- The gate is PII-content, not file format. A 100 KB app icon is fine; a screenshot leaking real email addresses is not.
-
-### `_distill/` Internal Templates
-- `.claude/commands/_distill/` contains internal templates for /distill
-- Underscore prefix means not user-invocable
-- Agents Read and use them (ADR-048)
+- **`docs/` vs PKM**: `docs/` is documentation about Rill itself (distinct from inbox/, knowledge/, workspace/). ADRs live in `docs/decisions/`. Update `SPEC.md` on system design changes.
+- **Binary assets**: PII-bearing source binaries (business cards, scanned contracts, screenshots with real names/emails/phones) — don't commit; excluded by default `.gitignore` per ADR-047 D47-2. Non-PII asset binaries (app icons, logos, doc screenshots, figures) — commit if small (~2 MB soft cap) and user-approved. Prefer SVG / Markdown. Gate is PII content, not format.
+- **`_distill/` internal templates**: `.claude/commands/_distill/` holds internal templates for /distill (underscore = not user-invocable, agents Read them, ADR-048).
