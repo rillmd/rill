@@ -253,11 +253,11 @@ echo ""
 
 # 10. Profile immutability check (PF-02)
 echo "=== PF-02: Profile category descriptions ==="
-if [[ -f "knowledge/me.md" && -f "$FIXTURES_DIR/knowledge/me.md" ]]; then
+if [[ -f "knowledge/self/interests.md" && -f "$FIXTURES_DIR/knowledge/self/interests.md" ]]; then
   # Check that category descriptions in parentheses are unchanged
   for category in "Deep Interests" "Curiosity" "Obligations" "Career"; do
-    ORIG_LINE=$(grep "## $category" "$FIXTURES_DIR/knowledge/me.md" 2>/dev/null || true)
-    CURR_LINE=$(grep "## $category" "knowledge/me.md" 2>/dev/null || true)
+    ORIG_LINE=$(grep "## $category" "$FIXTURES_DIR/knowledge/self/interests.md" 2>/dev/null || true)
+    CURR_LINE=$(grep "## $category" "knowledge/self/interests.md" 2>/dev/null || true)
     if [[ -n "$ORIG_LINE" ]]; then
       assert_eq "$CURR_LINE" "$ORIG_LINE" "PF-02: '$category' heading unchanged"
     fi

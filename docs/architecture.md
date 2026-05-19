@@ -68,7 +68,7 @@ The distilled, evergreen layer. What Rill knows *about you and for you*.
 
 | Subdirectory | Purpose |
 |--------------|---------|
-| `knowledge/me.md` | Your interest profile. Drives `/newsletter` targeting |
+| `knowledge/self/` | Your Self entity (8 files: profile / interests / direction / current-state / decisions / observations / history / constraints). Drives `/newsletter` / `/briefing` / `/pulse` / `/retrospective` |
 | `knowledge/notes/` | Atomic knowledge notes — one fact/insight per file, flat |
 | `knowledge/people/` | Person entities (id, key facts, relationships) |
 | `knowledge/orgs/` | Organization entities |
@@ -127,12 +127,12 @@ flowchart TB
     Distill --> Notes["knowledge/notes/"]
     Distill --> Entities["knowledge/people/<br/>knowledge/orgs/<br/>knowledge/projects/"]
     Distill --> TaskTickets["tasks/"]
-    Distill --> MeUpdate["knowledge/me.md<br/>(interest profile)"]
+    Distill --> SelfUpdate["knowledge/self/<br/>(Self entity, 8 files)"]
 
     subgraph Knowledge["3. Knowledge (evergreen)"]
         Notes
         Entities
-        MeUpdate
+        SelfUpdate
     end
 
     subgraph Tasks["4. Action"]
@@ -205,7 +205,7 @@ Every skill is a single Markdown file in `.claude/commands/`. The file *is* the 
 | `/focus` | theme + `knowledge/`, `inbox/` | `workspace/{new-id}/_workspace.md` | Start or resume a thinking session |
 | `/close` | `workspace/{id}/` | `workspace/{id}/_summary.md`, `knowledge/notes/`, `status: completed` | Complete a workspace, distill its insights |
 | `/briefing` | `reports/daily/` (yesterday), `inbox/journal/` (today), `tasks/` | `reports/daily/{today}.md` | Daily note |
-| `/newsletter` | `knowledge/me.md`, web | `reports/newsletter/{today}.md` | Research report |
+| `/newsletter` | `knowledge/self/{profile,interests,direction}.md`, web | `reports/newsletter/{today}.md` | Research report |
 | `/page` | canonical sources + `{id}.recipe.md` | `pages/{id}.md` | Refresh a materialized view |
 | `/sync` | plugin adapters (`plugins/*/adapter.sh`) | `inbox/*/` | Pull from external services |
 | `/morning` | — (orchestrator) | `/briefing` + `/newsletter` (parallel) | Daily user-facing reports. Maintenance (`/sync`, `/distill`) is intentionally separate — see [scheduling guide](./guides/scheduling.md) |

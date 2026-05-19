@@ -33,7 +33,7 @@ Sources that `/briefing` reads:
 - `inbox/journal/` recent journals
 - `tasks/` urgent tickets
 - `reports/daily/` recent dailies (for trend awareness)
-- `knowledge/me.md` Interest Profile
+- `knowledge/self/` Self entity (current-state / direction / interests / decisions)
 - `workspace/` active workspaces
 
 ## Task Handling
