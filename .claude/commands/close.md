@@ -68,6 +68,70 @@ Prepare context data once in the parent, so both the Analysis sub-agent and the 
 
 This is the same preparation that /distill Step 1 performs. Hold the result in parent state for injection into sub-agent prompts.
 
+### Phase 1.5: Build language args
+
+Before launching either the Analysis sub-agent (Phase 2) or the Distillation sub-agents (Phase 4), call `build_language_args()` to decide whether to inject narrative-language args into each sub-agent invocation. The function is intentionally trivial — distribution default is English (sub-agent prompts are written in English), so absence of a personal override means no args are injected and the sub-agent's English default takes over naturally. No fallback logic needed on either side.
+
+The top-of-file "Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`" instruction governs the orchestrator's (main session's) user-facing utterances; this prologue governs argument injection into sub-agent invocations. They share a trigger file but operate on different surfaces — the user-facing rule has no effect on sub-agent output, which is exactly what this prologue closes.
+
+```bash
+# build_language_args()
+# Returns: inject_args string (or empty if no non-English target is detected).
+# Called once per skill invocation, before agent fanout.
+#
+# Locale detection: presence of personal-language.md is NOT a signal — the
+# onboarding skill creates the file for English vaults too, and `rill init
+# --lang en` likewise. We pattern-match for any byte sequence with the UTF-8
+# prefix E3 81, E3 82, or E3 83 — these three prefixes cover the Hiragana
+# block (U+3040-309F) and the Katakana block (U+30A0-30FF). Both scripts are
+# exclusive to Japanese — Chinese and Korean writing systems use Han / Hangul
+# respectively and contain neither Hiragana nor Katakana — so a hit here is
+# a near-certain ja signal. The stock-ja personal-language.md template
+# contains both Hiragana (particles, verb endings) and Katakana (loanwords)
+# in its body bullets, so any user-edited derivative that retains even one
+# Hiragana or Katakana glyph is detected. Pure-Kanji-only Japanese content
+# is the one remaining miss case (Kanji is shared with Chinese, so we cannot
+# distinguish), but that style is uncommon for personal-language.md.
+# Stock-en and other Latin-script vaults have no such bytes and fall through
+# to the no-injection branch.
+#
+# Multi-locale detection (mapping all 9 onboarding-supported locales correctly)
+# is out of scope for this task and deferred to a separate task. Doing it right
+# requires a structured marker (frontmatter or sentinel comment) that bin/rill
+# would have to write — and migration of existing personal-language.md files.
+# Until that lands, vaults in zh / ko / fr / de / es / pt / it / en receive
+# English narrative output (the same behavior as before this skill landed).
+
+output_language=""
+if [[ -f .claude/rules/personal-language.md ]] && \
+   LC_ALL=C grep -qE $'\xe3\x81|\xe3\x82|\xe3\x83' .claude/rules/personal-language.md; then
+  output_language="ja"
+fi
+
+if [[ -n "$output_language" ]]; then
+  # style_guide is hardcoded English. Protocol sentinels listed below MUST stay
+  # English literal in sub-agent output — the coordinator string-matches them
+  # later (see analysis-agent.md Language section and distillation-agent.md
+  # Language section). Translating them would break clustering, rendering, and
+  # the parent's self-check / aggregation logic.
+  style_guide='Write narrative output fields (summary, rationale, observation, note body prose, and similar free text) in the language specified by output_language. English exceptions (only): (1) tokens inside backticks, (2) proper nouns, (3) ASCII acronyms, (4) any literal sentinel string or fixed enum value documented in this sub-agent prompt'\''s Output schema or Language section — including structured IDs (`D-{ws-short}-{n}`, `IA-{ws-short}-{n}`, `L1-{n}`, `L2-{n}`), slugs, paths, type enum values (`record`/`insight`/`reference`), priority labels (`HIGH`/`LOW`), status labels (`created`/`updated`/`skipped`), justification labels (`EVERGREEN_DUPLICATE`/`INTERMEDIATE_CONCLUSION`/`IMPLEMENTATION_DETAIL`/`MERGED_INTO_OTHER`), and the section-empty sentinel `"(No invalidated approaches in this workspace.)"` — which must remain verbatim English regardless of output_language because the coordinator string-matches them. Translate all other English (common nouns, adjectives, verb metaphors).'
+  inject_args="output_language: ${output_language}
+style_guide: |
+  ${style_guide}"
+else
+  # No detected non-English target. Sub-agent prompt is in English, so absence
+  # of args naturally yields English output — no fallback logic needed here.
+  # The top-of-file "use the user's input language if personal-language.md is
+  # absent" rule governs the orchestrator's user-facing utterances only (the
+  # disambiguation paragraph above states this explicitly). Sub-agent narrative
+  # output uses the prompt-language default (English) until the user expresses
+  # a persistent preference by running onboarding or `rill init --lang`.
+  inject_args=""
+fi
+```
+
+When `inject_args` is non-empty, append it as additional YAML lines to **each** sub-agent invocation's prompt in Phase 2 and Phase 4, alongside the existing placeholder substitutions (`{workspace_id}`, `{shared_context_placeholder}`, `{candidate_yaml}`, etc.). The `style_guide` string is hardcoded in English on purpose: the public `rillmd/rill` repo stays ASCII-only, and the string is itself an English instruction. The `output_language` value is the only locale-dependent runtime input; broader-locale support (`ko`, `zh`, `fr`, `de`, `es`, `pt`, `it`) extends the detection branch above (and requires a corresponding bin/rill change to mark `personal-language.md` with the chosen locale) without touching the sub-agent prompts or the `style_guide` content.
+
 ### Phase 2: Spawn Analysis Sub-agent
 
 Read `.claude/commands/_close/analysis-agent.md` and fill in the placeholders with actual values:
@@ -75,6 +139,8 @@ Read `.claude/commands/_close/analysis-agent.md` and fill in the placeholders wi
 - `{workspace_id}` — resolved workspace id
 - `{metadata_file_name}` — `_workspace.md` / `_session.md` / `_project.md`
 - `{shared_context_placeholder}` — the tag vocabulary, people/orgs/projects mappings from Phase 1
+
+After substituting placeholders, append `inject_args` (from Phase 1.5) to the bottom of the rendered prompt when non-empty. Skip the append when `inject_args` is empty (English-default vault) — the sub-agent prompt is written in English so absence of args naturally yields English output.
 
 Spawn the sub-agent via the Agent tool (`subagent_type: general-purpose`), passing the filled-in template as the `prompt` parameter.
 
@@ -127,7 +193,7 @@ Then use AskUserQuestion to get approval:
 
 - **Approve** → proceed to Phase 4
 - **Approve with edits** → apply specified additions / removals / slug changes to the candidate list in parent state, then proceed
-- **Re-analyze** → re-spawn the Analysis sub-agent with supplementary instructions (e.g., "also enumerate reference-type units from 002")
+- **Re-analyze** → re-spawn the Analysis sub-agent with supplementary instructions (e.g., "also enumerate reference-type units from 002"). When `inject_args` (from Phase 1.5) is non-empty, append it to the re-spawn prompt too — the language args must localize the re-analysis pass as well, otherwise the second run can overwrite a localized `_summary.md` with English output
 - **Abort** → keep `_summary.md` in place, exit without distillation (the workspace remains `status: active`)
 
 ### Phase 4: Spawn Distillation Sub-agents (parallel, up to 5)
@@ -139,6 +205,8 @@ Read `.claude/commands/_close/distillation-agent.md` once. For each approved can
 - `{deliverable_moc}` — list of all deliverables with 1-line descriptions (parent builds this from the Analysis sub-agent's report + deliverable frontmatter)
 - `{invalidated_list}` — the invalidated approaches from the Analysis report
 - `{shared_context}` — tag vocabulary + entity mappings from Phase 1
+
+After substituting placeholders, append `inject_args` (from Phase 1.5) to the bottom of each rendered prompt when non-empty. Skip the append when `inject_args` is empty (English-default vault). The same `inject_args` value computed in Phase 1.5 is reused across all parallel Distillation sub-agent invocations.
 
 **Dispatch strategy**:
 
