@@ -58,8 +58,8 @@ Behavioral specification for /briefing. A fully automated (no interaction) skill
 |----|------|---------------------|--------|
 | TK-01 | Tasks are collected from ticket files (tasks/*/_task.md) | Source confirmation | ✅ |
 | TK-02 | Focus targets: due within 7 days / waiting / matching projects of active WSs | ⚠️ LLM judgment | ✅ |
-| TK-03 | Task links use relative path format `[Title](../../tasks/{slug}/_task.md)` | regex | ✅ |
-| TK-04 | Waiting tickets display `waiting` in backticks | grep | ✅ |
+| TK-03 | Reference links use relative path format — `[Title](../../tasks/{slug}/_task.md)` or `[Title](../../workspace/{id}/_workspace.md)` (v3: 5-item narrowing may produce all-workspace briefings; at least one link of either kind must be present) | regex | ✅ |
+| TK-04 | Waiting tickets display `waiting` in backticks **when surfaced as a card**. In v3, waiting tickets may collapse into the discard-count summary `待機 タスク N 件` without surfacing as a card, in which case the literal `waiting` token may not appear — TK-04 is informational only in this case | grep (optional) | ✅ |
 | TK-05 | Overdue tasks are detected and displayed | ⚠️ LLM judgment | ✅ |
 | TK-06 | done, draft, cancelled, someday statuses are not Read | Log confirmation | ✅ |
 

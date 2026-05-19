@@ -139,14 +139,13 @@ echo ""
 # 4. Task display rules (TK-03, TK-04)
 echo "=== TK: Task display ==="
 if [[ -f "$DAILY_NOTE" ]]; then
-  # TK-03: Task links use relative path format ../../tasks/
-  TASK_LINKS=$(grep -c '../../tasks/\|tasks/' "$DAILY_NOTE" 2>/dev/null || echo "0")
-  assert_gt "$TASK_LINKS" 0 "TK-03: Has task links"
+  # TK-03: Reference links — task OR workspace (v3 relaxation, the 5-card narrowing may produce all-workspace briefings)
+  REF_LINKS=$({ grep -c '../../tasks/\|../../workspace/' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
+  assert_gt "$REF_LINKS" 0 "TK-03: Has task or workspace reference links (v3-relaxed)"
 
-  # TK-04: waiting tasks shown with backtick marker
-  # The fixture has confirm-jordan-kim-onboarding with status: waiting
-  HAS_WAITING=$({ grep -c '`waiting`\|waiting' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
-  assert_gt "$HAS_WAITING" 0 "TK-04: waiting task marker present"
+  # TK-04: waiting tasks marker — optional in v3 (waiting tasks may collapse into the discard count summary `待機 タスク N 件` without surfacing the literal `waiting` token)
+  HAS_WAITING=$({ grep -c '`waiting`\|waiting\|待機' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
+  echo "  INFO: Waiting marker present: $HAS_WAITING (optional in v3, may be summarized in 絞り込みから外したもの)"
 
   # Check that open tasks are referenced
   HAS_OAUTH_TASK=$({ grep -c 'oauth-provider-investigation\|OAuth' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')

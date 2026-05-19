@@ -87,7 +87,7 @@ The invocation is synchronous (the harness's Skill tool blocks until /pulse retu
 Read the following self/ files. **Skip a file silently if it is not present** — `decisions.md` is a Phase 2 deliverable populated by `/retrospective`, so it may be empty or absent.
 
 1. `knowledge/self/current-state.md` — pulse snapshot (high-velocity, updated by `/pulse`)
-2. `knowledge/self/direction.md` — cross-project meta-direction (medium-velocity, monthly). **v3**: also used to determine the **重要** axis for Top filtering — workspaces / tasks not mentioned in Active Projects here are not eligible for the "重要 × 手つかず" Top slot
+2. `knowledge/self/direction.md` — cross-project meta-direction (medium-velocity, monthly). **v3**: this is the **primary** signal for the **重要** axis for Top filtering — workspaces / tasks mentioned in Active Projects here qualify directly. Items not in Active Projects can still qualify via the **secondary** signal `constraints.md` (Step C #6 below) — both paths are valid, the "ineligible" verdict only fires when neither direction.md nor constraints.md mentions the item
 3. `knowledge/self/interests.md` — Deep Interests / Curiosity / Obligations / Career (medium-velocity, monthly)
 4. `knowledge/self/decisions.md` — curated decision digest (3-month window, updated by `/retrospective`). **If absent or empty**, treat the "直近意思決定" section in Phase 2 as empty/skipped
 
