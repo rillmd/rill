@@ -10,7 +10,7 @@ type: self
 (Placeholder for current main theme.)
 
 ## Active Projects
-- [Sample Project](../../projects/sample-project/_project.md) — Authentication SaaS (active)
+- [Sample Project](../projects/sample-project.md) — Authentication SaaS (active)
 
 ## Career
 
