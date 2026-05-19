@@ -39,7 +39,7 @@ When the argument is a file or directory, execute the following:
 When a file or non-workspace directory is specified.
 
 1. **Resolve target files**: If directory, target all .md files inside (exclude `_workspace.md`, `_summary.md`, `_organized/`). If `_organized/` has a file with the same name, prefer that one
-2. **Knowledge extraction**: Launch an Agent per target file (`_distill/knowledge-agent.md` template + shared context injection. Max 5 parallel)
+2. **Knowledge extraction**: Launch an Agent per target file (`_distill/knowledge-agent.md` template + shared context injection. Max 5 parallel). When `inject_args` (from Step 1.6) is non-empty, append it to each agent's prompt
 3. **Entity detection**: If newly created knowledge/notes/ mentions reference entities not in knowledge/people/ or knowledge/orgs/, auto-create them (Phase 2.5 equivalent)
 4. **Task extraction**: For each target file, launch `_task/create-agent.md` as a sub-agent in `mode=extract` (parallel up to 5) **with `model: "sonnet"`** (Tier 2 LLM-as-judge eval, 2026-04-19: 3/3 decision agreement with Opus baseline including correct ENRICH-vs-CREATE judgment on a thin-duplicate case and correct skip discipline on a 4-item committed/speculative mix; 0/3 DEGRADED-MAJOR; cost reduced ~24% vs Opus on this workload, larger savings expected in production where cache effects are smaller). Pass `source_path` = the target file, the shared context (taxonomy + entity mappings), and the list of knowledge/notes/ paths created in step 2 as hints. The sub-agent owns duplicate checking, substance writing, and file creation per `.claude/rules/rill-tasks.md`. It sets `status=draft` via `rill mkfile --field` (ADR-069)
 5. **Post-processing**: Run `rill strip-entity-tags` on created knowledge/notes/, append new tags to taxonomy.md
@@ -161,6 +161,84 @@ If `TIER1_CURATION_DUE=1`, Step 7.5 (below) will fire after Group 2 completes. O
 
 **Day-of-week guard**: To avoid same-session collision with `/retrospective` (which fires on Thursdays per 012 §0.2), if today is Thursday and the Plan or prior session-state indicates `/retrospective` is queued, defer `TIER1_CURATION_DUE` by 1 day (set to 0 for this run, will fire on the next /distill invocation). Standalone Thursday /distill runs without retrospective context proceed normally.
 
+### Step 1.6: Build language args
+
+Before launching any sub-agent (single-file mode step 2, Step 4 Group 1, Step 6 Group 2 Phase 3, or Step 8 Group 3 Phase 4), call `build_language_args()` to decide whether to inject narrative-language args into each sub-agent invocation. The function is intentionally trivial — distribution default is English (sub-agent prompts are written in English), so absence of a personal override means no args are injected and the sub-agent's English default takes over naturally. No fallback logic needed on either side.
+
+The top-of-file "Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`" instruction governs the orchestrator's (main session's) user-facing utterances; this prologue governs argument injection into sub-agent invocations. They share a trigger file but operate on different surfaces — the user-facing rule has no effect on sub-agent output, which is exactly what this prologue closes.
+
+```bash
+# build_language_args()
+# Returns: inject_args string (or empty if no non-English target is detected).
+# Called once per skill invocation, before agent fanout.
+#
+# Locale detection: presence of personal-language.md is NOT a signal — the
+# onboarding skill creates the file for English vaults too, and `rill init
+# --lang en` likewise. We pattern-match for any byte sequence with the UTF-8
+# prefix E3 81, E3 82, or E3 83 — these three prefixes cover the Hiragana
+# block (U+3040-309F) and the Katakana block (U+30A0-30FF). Both scripts are
+# exclusive to Japanese — Chinese and Korean writing systems use Han / Hangul
+# respectively and contain neither Hiragana nor Katakana — so a hit here is
+# a near-certain ja signal. The stock-ja personal-language.md template
+# contains both Hiragana (particles, verb endings) and Katakana (loanwords)
+# in its body bullets, so any user-edited derivative that retains even one
+# Hiragana or Katakana glyph is detected. Pure-Kanji-only Japanese content
+# is the one remaining miss case (Kanji is shared with Chinese, so we cannot
+# distinguish), but that style is uncommon for personal-language.md.
+# Stock-en and other Latin-script vaults have no such bytes and fall through
+# to the no-injection branch.
+#
+# Multi-locale detection (mapping all 9 onboarding-supported locales correctly)
+# is out of scope for this task and deferred to a separate task. Doing it right
+# requires a structured marker (frontmatter or sentinel comment) that bin/rill
+# would have to write — and migration of existing personal-language.md files.
+# Until that lands, vaults in zh / ko / fr / de / es / pt / it / en receive
+# English narrative output (the same behavior as before this skill landed).
+
+output_language=""
+if [[ -f .claude/rules/personal-language.md ]] && \
+   LC_ALL=C grep -qE $'\xe3\x81|\xe3\x82|\xe3\x83' .claude/rules/personal-language.md; then
+  output_language="ja"
+fi
+
+if [[ -n "$output_language" ]]; then
+  # style_guide is hardcoded English. Protocol sentinels listed below MUST stay
+  # English literal in sub-agent output — the coordinator string-matches them
+  # later (see journal-agent.md / knowledge-agent.md / think-output-agent.md /
+  # profile-agent.md / task-extraction.md Language sections, and Step 9's
+  # `### Created knowledge files` aggregation). Translating them would break
+  # pipeline aggregation, .processed status tracking, and Tier-aware processing.
+  style_guide='Write narrative output fields (knowledge note bodies, _organized/ restructured prose, key fact entries, task candidate Title and hint, and Interest Profile additions / updates) in the language specified by output_language. English exceptions (only): (1) tokens inside backticks, (2) proper nouns, (3) ASCII acronyms, (4) any literal sentinel string or fixed enum value documented in this sub-agent prompt'\''s Language section or Output schema — including the section heading `### Created knowledge files`, the sentinels `No tasks` and `No changes to Interest Profile`, status labels (`organized`/`extracted`/`skipped`/`success`/`failed`), Tier enum (`tier1`/`tier2`/`tier3`), type enum (`record`/`insight`/`reference`), all kebab-case slugs, paths, mentions entity IDs, frontmatter field names and values, and task pipe field names (`slug:`/`mentions:`/`source:`/`hint:`/`depends-on:`/`blocks:`) — which must remain verbatim English regardless of output_language because the coordinator string-matches them. Translate all other English (common nouns, adjectives, verb metaphors).'
+  inject_args="output_language: ${output_language}
+style_guide: |
+  ${style_guide}"
+else
+  # No detected non-English target. Sub-agent prompt is in English, so absence
+  # of args naturally yields English output — no fallback logic needed here.
+  # The top-of-file "use the user's input language if personal-language.md is
+  # absent" rule governs the orchestrator's user-facing utterances only (the
+  # disambiguation paragraph above states this explicitly). Sub-agent narrative
+  # output uses the prompt-language default (English) until the user expresses
+  # a persistent preference by running onboarding or `rill init --lang`.
+  inject_args=""
+fi
+```
+
+When `inject_args` is non-empty, append it as additional YAML lines to **each** sub-agent invocation's prompt, alongside the existing shared context block. The `style_guide` string is hardcoded in English on purpose: the public `rillmd/rill` repo stays ASCII-only, and the string is itself an English instruction. Broader-locale support (`ko`, `zh`, `fr`, `de`, `es`, `pt`, `it`) extends the detection branch above without touching the sub-agent prompts or the `style_guide` content.
+
+**Append targets** (5 spawn sites in this skill):
+
+1. Single-File Mode step 2 (`_distill/knowledge-agent.md`)
+2. Step 4 Group 1 Phase 1a (`_distill/journal-agent.md`)
+3. Step 4 Group 1 Phase 1b (`_distill/think-output-agent.md`)
+4. Step 6 Group 2 Phase 3 (`_distill/knowledge-agent.md`)
+5. Step 8 Group 3 Phase 4 (`_distill/profile-agent.md`)
+
+**Do NOT append to** (receivers do not implement language args; out of this task's scope, tracked as follow-up work):
+
+- Single-File Mode step 4 and Step 5 step 3 (`_task/create-agent.md` invocations)
+- Step 4 Group 1 Phase 2 (`plugins/*/distill.md` invocations)
+
 ### Step 2: Collect Processing Targets
 
 Collect unprocessed files in 2 categories:
@@ -218,8 +296,8 @@ Shared context:
 {task_extraction_rules}
 ```
 
-- **Phase 1a (journal)**: `_distill/journal-agent.md` (1 file/Agent). **Launch via Agent tool with `model: "sonnet"`** — this task is journal organization + atomic knowledge extraction with task-candidate inference, and Sonnet has been validated as production-equivalent to Opus on this workload (Tier 2 LLM-as-judge eval, 2026-04-19: 0/3 DEGRADED-MAJOR, 1/3 EQUIVALENT, 1/3 DIFFERENT-OK, 1/3 DEGRADED-MINOR — the minor case missed one inferred task and one cross-reference, neither blocking; cost reduced ~50% vs Opus). Monitor /distill output 1–2 weeks for task-extraction completeness; revert to Opus if regressions appear.
-- **Phase 1b (think-outputs)**: `_distill/think-output-agent.md` (1 file/Agent). **Launch via Agent tool with `model: "sonnet"`** — same routing rationale as Phase 1a (atomic microfile + Evergreen extraction; no organize step is performed because AI structures the file at write time). Inherit Sonnet eval until think-outputs accumulate enough volume for a separate evaluation.
+- **Phase 1a (journal)**: `_distill/journal-agent.md` (1 file/Agent). **Launch via Agent tool with `model: "sonnet"`** — this task is journal organization + atomic knowledge extraction with task-candidate inference, and Sonnet has been validated as production-equivalent to Opus on this workload (Tier 2 LLM-as-judge eval, 2026-04-19: 0/3 DEGRADED-MAJOR, 1/3 EQUIVALENT, 1/3 DIFFERENT-OK, 1/3 DEGRADED-MINOR — the minor case missed one inferred task and one cross-reference, neither blocking; cost reduced ~50% vs Opus). Monitor /distill output 1–2 weeks for task-extraction completeness; revert to Opus if regressions appear. When `inject_args` (from Step 1.6) is non-empty, append it to each agent's prompt
+- **Phase 1b (think-outputs)**: `_distill/think-output-agent.md` (1 file/Agent). **Launch via Agent tool with `model: "sonnet"`** — same routing rationale as Phase 1a (atomic microfile + Evergreen extraction; no organize step is performed because AI structures the file at write time). Inherit Sonnet eval until think-outputs accumulate enough volume for a separate evaluation. When `inject_args` (from Step 1.6) is non-empty, append it to each agent's prompt
 - **Phase 2**: Resolved plugin `distill.md` (1 file/Agent). Read the plugin's distill.md, extract the ``` block template from `## Agent Prompt` section → expand template variables (`{file_path}`, `{taxonomy_yaml}`, `{people_mapping}`, `{orgs_mapping}`, `{projects_mapping}`, `{task_extraction_rules}`) → pass expanded prompt directly to Agent's prompt
 
 **Error handling**: If an agent reports an error, skip that file and proceed to the next. Skipped files are not appended to `.processed`.
@@ -254,7 +332,7 @@ Phase 2.5 and Phase 3 are mutually independent, so execute in parallel.
   1. Identify files with status `organized` from each subdirectory's `.processed` (exclude `extracted`, `skipped`)
   2. If no candidates, display "No knowledge extraction candidates" and skip
   3. **Launch Agent per file with `model: "sonnet"`** (max 5 parallel, `run_in_background: true`) — knowledge extraction's defining behavior is the Evergreen check (merge/skip/create-new judgment), and Sonnet has been validated as production-equivalent on this dimension (Tier 2 LLM-as-judge eval, 2026-04-19: 3/3 Evergreen judgments agreed with Opus baseline; 0/3 DEGRADED-MAJOR; 1/3 EQUIVALENT, 1/3 DIFFERENT-OK, 1/3 DEGRADED-MINOR — the minor case had thinner body prose but correct Evergreen call; cost reduced ~49% vs Opus). Monitor /distill output 1–2 weeks for note-body richness and speculative content; revert to Opus if regressions appear.
-  4. Inject shared context (taxonomy_yaml, people/orgs/projects mappings, **tier_assignment dict from Step 1**). The tier_assignment dict is required for `_distill/knowledge-agent.md` Tier-Aware Processing (artifact 013 §6.1)
+  4. Inject shared context (taxonomy_yaml, people/orgs/projects mappings, **tier_assignment dict from Step 1**). The tier_assignment dict is required for `_distill/knowledge-agent.md` Tier-Aware Processing (artifact 013 §6.1). When `inject_args` (from Step 1.6) is non-empty, append it to each agent's prompt alongside the shared context
 
 ### Step 7: Group 2 Result Collection
 
@@ -347,7 +425,7 @@ EOF
   ### Newly created entities (people/, orgs/)
   {list of entities created in Phase 2.5}
   ```
-  Skip if 0 files were processed in Phase 1-3.
+  When `inject_args` (from Step 1.6) is non-empty, append it to the agent's prompt alongside the processing-results summary. Skip if 0 files were processed in Phase 1-3.
 
 - **Phase 5**: Read `plugins/.enabled`. For each enabled plugin, check if `plugins/{name}/hooks/post-distill.md` exists. If `.enabled` does not exist or is empty, skip Phase 5. For each found hook, launch Agent. Pass the following context:
   - **Created file list**: File paths of _organized/, knowledge/notes/, knowledge/people/, knowledge/orgs/ created in Phase 1-3

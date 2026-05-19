@@ -2,6 +2,10 @@ Task candidate identification rules (injected as shared context for /distill chi
 
 Child agents return task candidates as text; ticket writing is delegated to `_task/create-agent.md` (invoked by the /distill orchestrator in the parent). Do not write task files from the child.
 
+## Language
+
+When the parent agent has received an `output_language` argument (see its own Language section), write the candidate's `Title` and `hint` fields in that language. Internal keys stay verbatim English regardless of `output_language` because the orchestrator and downstream `_task/create-agent.md` parser string-match them: the pipe field names (`slug:`, `mentions:`, `source:`, `hint:`, `depends-on:`, `blocks:`), the kebab-case `slug` value, the type-prefixed mentions IDs (`people/{id}`, `projects/{id}`, `orgs/{id}`), the source file path, the depends-on / blocks `tasks/{slug}` references, and the `No tasks` sentinel emitted when nothing qualifies. When `output_language` is absent or the parent did not inject it, write `Title` and `hint` in plain English.
+
 ## What counts as a candidate
 
 - Clear committed actions ("investigate X", "follow up with Y", "set up Z")

@@ -12,14 +12,20 @@ The Interest Profile lives in `knowledge/self/`:
 
 **Read interests.md + direction.md + profile.md first before starting processing.** Skip a file silently if it does not exist in this vault (no-op).
 
+## Language
+
+Use the language specified by `output_language` (ISO 639-1) for the **additions and updates this agent writes** — namely new bullet items in `interests.md` (Deep Interests / Curiosity / Obligations / Career subsections), new entries in the `## Active Projects` section of `direction.md`, prose updates to the lead paragraph at the top of `direction.md` (the cross-project meta-direction prose, whose heading text is locale-specific and not pattern-matched by the orchestrator), and the rare Core Identity prose updates in `profile.md`. **Do not retranslate or rewrite the existing body** of any of these files — preserve every untouched line in its original language verbatim, regardless of `output_language`. Internal keys stay verbatim English regardless of `output_language` because they are structural section markers: the standard section heading names (`## Active Projects`, `### Deep Interests`, `### Curiosity`, `### Obligations`, `### Career`, `## Core Identity`), the category description parenthetical text (which is itself an instruction for LLMs and must remain fixed), file paths, frontmatter field names and values, and the `No changes to Interest Profile` sentinel emitted when no updates are made. The change-kind labels in the final report (`add` / `update` / `remove` / `promote` / `demote`) also stay English. Follow the inline `style_guide` block for vocabulary boundaries on the narrative additions.
+
 ## Current /distill Processing Results Summary
 
-The orchestrator's prompt injects the following 4 sections. Combine the instructions in this file with the injected data to make judgments.
+The orchestrator's prompt injects the following 4 sections plus optional language args. Combine the instructions in this file with the injected data to make judgments.
 
 - Newly created knowledge/notes/
 - Newly created/updated projects/
 - Extracted tasks
 - Newly created entities (people/, orgs/)
+- `output_language` (optional): ISO 639-1 language code for narrative output fields (e.g. `"ja"`, `"en"`); when omitted, default to English
+- `style_guide` (optional): short vocabulary-boundary rules for narrative fields (see Language section); when omitted, write narrative fields in plain English
 
 ## Judgment Criteria
 

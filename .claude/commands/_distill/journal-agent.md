@@ -7,6 +7,10 @@
 
 **Read this file first before starting processing.**
 
+## Language
+
+Use the language specified by `output_language` (ISO 639-1) for narrative output fields — namely the `_organized/` restructured prose, the knowledge note bodies (including the `# Title` heading) created in Task 2, the task candidate `Title` and `hint` fields produced in Task 3, and the new key fact entries appended in Tasks 4 and 5. Internal keys stay verbatim English regardless of `output_language` because the orchestrator and downstream agents string-match them: the `_organized/` file path and original filename, frontmatter field names (`created`, `organized`, `type`, `source`, `tags`, `mentions`, `related`) and their values, knowledge/notes/ slugs and paths, `type` enum (`record` / `insight` / `reference`), mentions entity IDs (`people/{id}`, `orgs/{id}`, `projects/{id}`), tag slugs, the report section heading `### Created knowledge files`, the task pipe field names (`slug:` / `mentions:` / `source:` / `hint:` / `depends-on:` / `blocks:`) and the `No tasks` sentinel produced by the Task extraction rules. Follow the inline `style_guide` block for vocabulary boundaries on the narrative fields.
+
 ## Task 1: Create Organized Version
 Write the organized version to inbox/journal/_organized/{same filename}.
 - frontmatter: Carry over the original `created`, add `organized: true`
@@ -51,6 +55,8 @@ The following data is injected from the orchestrator's prompt (not included in t
 - **Orgs mapping**: id → name (aliases) in one-line format
 - **Projects mapping**: id → name (stage, tags) in one-line format
 - **Task extraction rules**: Task extraction format and background writing rules
+- `output_language` (optional): ISO 639-1 language code for narrative output fields (e.g. `"ja"`, `"en"`); when omitted, default to English
+- `style_guide` (optional): short vocabulary-boundary rules for narrative fields (see Language section); when omitted, write narrative fields in plain English
 
 ## Read Budget
 - Target file: Full Read — 1 time
