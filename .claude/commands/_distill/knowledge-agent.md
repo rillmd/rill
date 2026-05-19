@@ -7,6 +7,10 @@
 
 **Read this file first before starting processing.**
 
+## Language
+
+Use the language specified by `output_language` (ISO 639-1) for narrative output fields — namely the body of every newly created `knowledge/notes/{slug}.md` note (including the `# Title` heading and the 200-800 character prose underneath) and any new key fact entries appended to `knowledge/people/{id}.md` or `projects/{id}/_project.md`. Internal keys stay verbatim English regardless of `output_language` because the orchestrator and downstream agents string-match them: the kebab-case `slug` itself, frontmatter field names (`created`, `type`, `source`, `tags`, `mentions`, `related`) and their values, all paths (source path, knowledge/notes/ paths, related paths, `projects/{id}/_project.md`), the `type` enum (`record` / `insight` / `reference`), tag slugs, mentions entity IDs (`people/{id}`, `orgs/{id}`, `projects/{id}`), the Tier enum (`tier1` / `tier2` / `tier3`) read from the injected `tier_assignment` dict, and the report section heading `### Created knowledge files`. The project section headings `## Key Facts` / `## Watch` / `### Competitors` / `### Keywords` written into `projects/{id}/_project.md` also stay English (they are section ownership markers consumed by `/refresh-project`). Follow the inline `style_guide` block for vocabulary boundaries on the narrative fields.
+
 ## Knowledge Extraction Rules
 - 1 file = 1 atomic piece of knowledge
 - Filename: English kebab-case reflecting the content (saved in knowledge/notes/ directory)
@@ -25,7 +29,6 @@
   - tags: Optional (max 3, **topics only**. Do not put entity IDs in tags; use mentions instead. Refer to tag desc to select matching tags. Inline array)
   - mentions: Optional (Match entity list against the body text, extract referenced people/, orgs/, projects/ IDs. Format: `mentions: [people/person-id, orgs/org-id, projects/project-id]`. Type prefix required)
   - related: Optional (up to 5 related files discovered during Evergreen check below)
-- Body: Follow the language rules specified in CLAUDE.md; technical terms in English
 - Add `# Title` at the beginning of the body (a concise title describing the content)
 - Use standard Markdown links (no Wikilinks)
 
@@ -70,6 +73,8 @@ The following data is injected from the orchestrator's prompt (not included in t
 - **Orgs mapping**: id → name (aliases) in one-line format
 - **Projects mapping**: id → name (stage, tags) in one-line format
 - **Tier dict**: `tier_assignment` mapping each entity ID to `tier3 | tier2 | tier1` (artifact 013, dream-phase-2). Computed once by the orchestrator in /distill Step 1; do NOT recompute via grep inside this agent
+- `output_language` (optional): ISO 639-1 language code for narrative output fields (e.g. `"ja"`, `"en"`); when omitted, default to English
+- `style_guide` (optional): short vocabulary-boundary rules for narrative fields (see Language section); when omitted, write narrative fields in plain English
 
 ## Tier-Aware Processing
 
