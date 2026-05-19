@@ -6,7 +6,7 @@
 
 ```
 knowledge/
-├── self/         # Interest Profile + state layer (8 files; see below)
+├── self/         # Self entity + state layer (8 files; see below)
 ├── notes/        # Distilled atomic knowledge (pool, flat)
 ├── people/       # Person entities
 └── orgs/         # Organization entities
@@ -48,7 +48,7 @@ Duplicate-check before creating (Grep/Glob); update existing on overlap.
 
 **Do NOT write**: interaction history, task lists, artifact links, aggregation results. Those belong in `journal/`, `tasks/`, `workspace/`, `pages/`. Dynamic aggregation runs via grep/read.
 
-## knowledge/self/ (Interest Profile + state layer)
+## knowledge/self/ (Self entity + state layer)
 
 Singleton entity (`type: self`). **8 files**, each owned by a distinct velocity / skill:
 

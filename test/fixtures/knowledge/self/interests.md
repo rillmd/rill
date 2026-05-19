@@ -1,12 +1,9 @@
 ---
 created: 2026-01-01T00:00+09:00
-type: interest-profile
+type: self
 ---
 
-# Interest Profile
-
-## Active Projects
-- [Sample Project](projects/sample-project.md) — Authentication SaaS (active)
+# Interests
 
 ## Deep Interests (sustained focus)
 - SaaS business model design

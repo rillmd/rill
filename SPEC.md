@@ -84,7 +84,7 @@ A personal information management system that distills fragmented thoughts enter
 | Person | `knowledge/people/` | Search anchor (updatable) | None (existence = valid) |
 | Org | `knowledge/orgs/` | Search anchor (updatable) | None (existence = valid) |
 | Project | `knowledge/projects/` | Project profile (updatable) | None (existence = valid) |
-| Interest Profile | `knowledge/me.md` | User interest profile (updatable) | None (single file) |
+| Self | `knowledge/self/*.md` | Self entity, 8 files (profile/interests/direction/current-state/decisions/observations/history/constraints, updatable) | None (existence = valid) |
 | Task | `tasks/*/_task.md` | Ticket file (ADR-063) | frontmatter `status` |
 | Daily Note | `reports/daily/` | Generated output (updatable) | Date file existence |
 | Newsletter | `reports/newsletter/` | Generated output (updatable) | Date file existence |
@@ -107,7 +107,7 @@ The following entities are updatable:
 - `knowledge/people/*.md` — Status changes, alias additions, key fact accumulation, etc.
 - `knowledge/orgs/*.md` — Status changes, alias additions, key fact accumulation, etc.
 - `knowledge/projects/*.md` — Competitors, Watch Keywords, key fact updates (/distill auto-accumulates)
-- `knowledge/me.md` — Interest Profile updates (/distill Phase 4 auto-updates, manual updates also allowed)
+- `knowledge/self/*.md` — Self entity, 8 files (/distill Phase 4 auto-updates interests + direction, plus rare year-scale updates to profile; /pulse refreshes current-state; /retrospective auto-appends decisions while observations require explicit user `[x]` approval via `--finalize`; constraints.md and history.md are manual)
 - `workspace/{id}/_workspace.md` — Status changes, workspace information updates
 - `workspace/{id}/_log.md` — Session history appending
 - `tasks/*/_task.md` — Task ticket addition and state changes
@@ -651,17 +651,33 @@ What is currently being worked on (/distill auto-updates).
 
 Projects are initiatives the user is actively pursuing. Regardless of business, personal, or learning context, and regardless of whether they have completion conditions (ADR-049). Independent from workspace/ (no 1:1 correspondence required). /distill auto-updates "Current Focus," "Key Facts," and "See Also." /newsletter uses Watch > Keywords for Alert search keyword generation. Stage has 3 levels: `active` (in progress), `idea` (concept stage), `completed` (done).
 
-### 4.14 knowledge/me.md frontmatter
+### 4.14 knowledge/self/ entity (8 files)
 
 ```yaml
 ---
-created: 2026-03-14T01:00+09:00       # Required: ISO 8601 + TZ
-type: interest-profile                 # Required: fixed value
-updated: 2026-03-14                    # Required: last updated date (/distill Phase 4 auto-updates)
+created: 2026-05-11T17:16+09:00       # Required: ISO 8601 + TZ
+type: self                             # Required: shared across all 8 files
+updated: 2026-05-11                    # Optional: refreshed by responsible skill
 ---
 ```
 
-User's interest profile. Single file. Composed of Core Identity, Active Projects (links to knowledge/projects/), and Interests (Deep Interests / Curiosity / Obligations / Career). Referenced by /newsletter as the Identity layer during search strategy construction (Phase 1). Auto-updated by /distill Phase 4.
+User's Self entity, split into 8 files by update velocity and responsible skill:
+
+**Static group (year-scale)**:
+- `profile.md` — Core Identity, career summary, Skills (manual; /distill profile-agent updates rare year-scale role / employer changes)
+- `history.md` — career / life milestones (manual)
+
+**Mid-velocity group (weekly to monthly)**:
+- `constraints.md` — family / financial / health / life events (manual)
+- `interests.md` — Deep Interests / Curiosity / Obligations / Career theme statements (/distill profile-agent auto-updates)
+- `direction.md` — Active Projects + cross-project meta-direction + Career direction (/distill profile-agent auto-updates)
+- `decisions.md` — curated decision digest, 3-month window (/retrospective auto-appends)
+- `observations.md` — longitudinal self-observations (/retrospective surfaces candidates; written only by `/retrospective --finalize` after explicit user `[x]` approval)
+
+**High-velocity group (daily to hourly)**:
+- `current-state.md` — pulse snapshot (/pulse refreshes, capped at 80 lines)
+
+All 8 files share `type: self`. The filename is the semantic discriminator; skills read by path, not by type. Referenced by /briefing (Step C reads current-state / direction / interests / decisions), /newsletter (Identity layer reads profile + interests + direction), /pulse (writes current-state), /retrospective (auto-appends decisions; observations only on --finalize approval), /eval (search target includes profile + interests + direction), /solve (reads profile + constraints), /distill profile-agent (updates interests + direction + rare profile).
 
 ### 4.15 workspace/{id}/_workspace.md template
 
@@ -772,7 +788,7 @@ Architecture:
     +-- _distill/journal-agent.md   — Phase 1 journal distillation
     +-- _distill/knowledge-agent.md — Phase 3 knowledge extraction (also ref'd by /close)
     +-- _distill/task-extraction.md — Task extraction rules (shared definition)
-    +-- _distill/profile-agent.md   — Phase 4 Interest Profile update
+    +-- _distill/profile-agent.md   — Phase 4 Self entity update (interests + direction; rare profile)
     +-- plugins/*/distill.md        — Phase 2 source-type-specific organization (plugins)
 
   close.md (workspace distillation, ADR-072)
@@ -810,10 +826,11 @@ Phase 3: Automatic knowledge extraction
   Output: knowledge/notes/*.md (with mentions)
   State:  Update inbox/*/.processed to extracted
 
-Phase 4: Interest Profile update
+Phase 4: Self entity update (Interests + Direction; rare Profile)
   Input:  Summary of all Phase 1-3 processing results
-  Process: Update knowledge/me.md via _distill/profile-agent.md
-  Output: knowledge/me.md
+  Process: Update knowledge/self/interests.md and knowledge/self/direction.md via _distill/profile-agent.md
+           (rare: year-scale role / employer / company changes also write knowledge/self/profile.md)
+  Output: knowledge/self/interests.md, knowledge/self/direction.md (+ knowledge/self/profile.md when applicable)
 
 Phase 5: Post-distill Hooks
   Input:  plugins/*/hooks/post-distill.md
