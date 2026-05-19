@@ -97,7 +97,7 @@ Two bulk Greps + targeted Reads (009 §2.3, 010 v2):
 
 ### Phase 2: Per-section aggregation
 
-Each section caps at 7 entries (5 for contradictions). All caps are hard — overflow is signaled, not displayed (see Phase 4).
+Each section caps at 7 entries (3 for execution gap, 5 for contradictions). All caps are hard — overflow is signaled, not displayed (see Phase 4).
 
 #### Section 1 — 今の方向性 (4-6 line prose, no triage)
 
@@ -180,7 +180,36 @@ If total hits ≥ 8, append a warning line:
 
 If total ≥ 14 (twice target), bold the warning.
 
-#### Section 6 — 既知の前提矛盾 (cap 5)
+#### Section 6 — 執行ギャップ (cap 3, additive signal orthogonal to Section 2/5 scoring)
+
+**Purpose**: Surface "decided but unexecuted, deadline-past" items that sink from Section 2 (WS score) and Section 5 (judgment gate) because `recency_factor = exp(-days_since_modified / 7)` halves the WS score at >7 days and zeroes at >14 days. This section inverts that decay — stale WSs with unchecked execution items rise to the top here.
+
+**Source set** (stricter than Section 5):
+- Active WS `_workspace.md` files only (no artifacts)
+- WS frontmatter `updated` (fallback `created`) is **> 7 days ago** (skip otherwise)
+- Inside such a WS, read the body and extract unchecked checkboxes (`- [ ]`) only from `## Next Steps` and `## 即時アクション` headings (decided-action sections; stop at the next `## ` heading). Do **not** include `## 考えるべき論点` / `## Issues to Consider` — those are deliberation-stage and stay in Section 5.
+
+**Date-parse failures are defensive** — if a WS's `updated` / `created` cannot be parsed to a date, exclude it from this section (do not crash).
+
+**Sort key**: `days_since_updated × unchecked_count_in_WS` descending. Tie-break: oldest `updated` first (older WS surfaces first within the same product score).
+
+**Cap**: 3 in the initial iteration (intentionally tight — relax later after a sample-size week of operation per 016 §6 schedule). Items beyond cap 3 are dropped silently — no "+N more" footer.
+
+**Empty-case**: If no candidates, omit the entire section header (do not render an empty `## 執行ギャップ`).
+
+**Output** (each entry 1 line):
+
+```markdown
+- {N}d [{checkbox text}](workspace/{id}/_workspace.md) — {WS name}
+```
+
+Where `{N}d` = days since `updated` (integer days, e.g. `21d`). Keep `{checkbox text}` to a single line — if multi-line, take the first line only.
+
+**Overlap with Section 5**: A given checkbox can in principle appear in both sections (Section 5 keeps `## Next Steps` in its source set). In practice, items that surface here (stale-WS bias) are unlikely to also surface in Section 5 (recent-WS bias). If a duplicate does occur, that is itself a signal — "this item is important AND stale" — and is acceptable for the first iteration. A future revision may refine the partition.
+
+**/briefing impact**: None directly. /briefing's Step C reads `self/current-state.md` whole; the new section is additive context. /briefing may choose to surface 執行ギャップ items in its `## Today's Focus` under P0 if appropriate, but that is a follow-up design decision (out of scope here).
+
+#### Section 7 — 既知の前提矛盾 (cap 5)
 
 - If `reports/retrospective/*.md` does not exist → single line: `(retrospective 未実装。Phase 2 で埋まる)`
 - Otherwise: Read the latest `reports/retrospective/{period}.md`, parse the `## Contradictions` section, top 5. Mark with `[aged]` if same item persisted for 4+ weeks across retrospectives.
@@ -191,7 +220,7 @@ If total ≥ 14 (twice target), bold the warning.
 
 ### Phase 3: Render full file
 
-Assemble the 6 sections under a `# Current State — {YYYY-MM-DD HH:MM JST}` heading. The frontmatter (`type: self`, etc.) is already on the existing skeleton — preserve it and overwrite only the body.
+Assemble the 7 sections under a `# Current State — {YYYY-MM-DD HH:MM JST}` heading. The frontmatter (`type: self`, etc.) is already on the existing skeleton — preserve it and overwrite only the body. Section 6 (執行ギャップ) is omitted entirely when empty (per Section 6 empty-case rule); the section numbering still reflects the canonical 7-section layout in this document for clarity.
 
 Skeleton example for the body:
 
@@ -220,6 +249,10 @@ Skeleton example for the body:
 ## 判断ゲート
 - ...
 {8 件以上なら警告行}
+
+## 執行ギャップ
+- {N}d [...](...) — ...
+{empty case: section header omitted entirely}
 
 ## 既知の前提矛盾
 {Phase 1: stub / Phase 2: real entries}
