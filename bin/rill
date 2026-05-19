@@ -2436,6 +2436,29 @@ EOF
         done
     fi
 
+    # 2b-2: skills/{name}/ — SKILL.md format. Source layout is top-level
+    # skills/{name}/SKILL.md; vault destination is .claude/skills/{name}/SKILL.md
+    # (Claude Code SKILL.md convention requires the .claude/ prefix).
+    # Legacy vaults may have .claude/skills/{name} as a symlink into the
+    # source repo (pre-mechanism bootstrap); rm before mkdir+cp so the
+    # destination becomes a real file, not a write-through to source.
+    local found_skill_files
+    found_skill_files="$(find "$rill_source/skills" -type f 2>/dev/null || true)"
+    if [ -n "$found_skill_files" ]; then
+        echo "$found_skill_files" | while IFS= read -r src; do
+            [ -f "$src" ] || continue
+            local skill_rel=".claude/${src#"$rill_source"/}"
+            local skill_dest="$vault_dir/$skill_rel"
+            local skill_dest_dir
+            skill_dest_dir="$(dirname "$skill_dest")"
+            [ -L "$skill_dest_dir" ] && rm -f "$skill_dest_dir"
+            mkdir -p "$skill_dest_dir"
+            [ -L "$skill_dest" ] && rm -f "$skill_dest"
+            cp "$src" "$skill_dest"
+            echo "$skill_rel" >> "$vault_dir/.rill/managed-files.txt"
+        done
+    fi
+
     # 2c: Subdirectory CLAUDE.md (container schemas, 15 files)
     local subdir_claude
     for subdir_claude in \
@@ -2775,6 +2798,29 @@ EOF
                 mkdir -p "$vpath/$(dirname "$rel")"
                 cp "$src" "$vpath/$rel"
                 echo "$rel" >> "$managed_file"
+            done
+        fi
+
+        # Skills: skills/{name}/ — SKILL.md format. Source is top-level
+        # skills/{name}/SKILL.md; vault destination is
+        # .claude/skills/{name}/SKILL.md (.claude/ prefix added).
+        # Legacy vaults may have .claude/skills/{name} as a symlink into the
+        # source repo (pre-mechanism bootstrap); rm before mkdir+cp so the
+        # destination becomes a real file, not a write-through to source.
+        local found_skill_files
+        found_skill_files="$(find "$rill_source/skills" -type f 2>/dev/null || true)"
+        if [ -n "$found_skill_files" ]; then
+            echo "$found_skill_files" | while IFS= read -r src; do
+                [ -f "$src" ] || continue
+                local skill_rel=".claude/${src#"$rill_source"/}"
+                local skill_dest="$vpath/$skill_rel"
+                local skill_dest_dir
+                skill_dest_dir="$(dirname "$skill_dest")"
+                [ -L "$skill_dest_dir" ] && rm -f "$skill_dest_dir"
+                mkdir -p "$skill_dest_dir"
+                [ -L "$skill_dest" ] && rm -f "$skill_dest"
+                cp "$src" "$skill_dest"
+                echo "$skill_rel" >> "$managed_file"
             done
         fi
 
