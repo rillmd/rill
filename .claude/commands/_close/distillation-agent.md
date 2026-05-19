@@ -27,6 +27,9 @@ suggested_mentions: [projects/rill]
 
 ## Reference material
 
+- `output_language` (optional): ISO 639-1 language code for narrative output fields (e.g. `"ja"`, `"en"`); when omitted, default to English
+- `style_guide` (optional): short vocabulary-boundary rules for narrative fields (see Language section); when omitted, write narrative fields in plain English
+
 ### Workspace context
 
 - Workspace ID: `{workspace_id}`
@@ -70,6 +73,10 @@ IA-1: html-comment-marker-for-claude-md
 ```
 
 (Contains: tag vocabulary in YAML list format, people/orgs/projects mappings)
+
+## Language
+
+Use the language specified by `output_language` (ISO 639-1) for the narrative output field — namely the **body of the created `knowledge/notes/{slug}.md` note, including the `# {Title}` heading**. Internal keys stay verbatim English regardless of `output_language` because the coordinator string-matches them: the `slug` itself, the `source` / `related` / `mentions` paths and entity IDs, `tags` slugs, `type` enum values (`record` / `insight` / `reference`), all frontmatter field names, the `candidate_id` value, the status labels (`created` / `updated` / `skipped`), the justification labels (`EVERGREEN_DUPLICATE` / `INTERMEDIATE_CONCLUSION` / `IMPLEMENTATION_DETAIL` / `MERGED_INTO_OTHER`), and every structural key in the return-YAML schema (`status`, `path`, `verify`, `details`, etc.) all remain English. Follow the inline `style_guide` block for vocabulary boundaries on the narrative field.
 
 ## Process — MUST follow in this exact order
 
@@ -145,8 +152,6 @@ Then `Edit` the created file to append the body. Body requirements:
 
 - Start with `# {Title}` (concise title describing the content)
 - 200-800 characters (not too terse, not padded)
-- Match the workspace's language (Japanese body if source is Japanese)
-- Technical terms in English
 - Use standard Markdown links `[display](path)` — never Wiki links `[[...]]`
 - Do not repeat the frontmatter content in the body
 

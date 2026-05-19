@@ -9,8 +9,14 @@
 - Workspace ID: `{workspace_id}`
 - Workspace path: `workspace/{workspace_id}/`
 - Metadata file: `{metadata_file_name}` (one of `_workspace.md` / `_session.md` / `_project.md`)
+- `output_language` (optional): ISO 639-1 language code for narrative output fields (e.g. `"ja"`, `"en"`); when omitted, default to English
+- `style_guide` (optional): short vocabulary-boundary rules for narrative fields (see Language section); when omitted, write narrative fields in plain English
 
 **Read the metadata file and all numbered deliverables (NNN-*.md) before starting analysis.**
+
+## Language
+
+Use the language specified by `output_language` (ISO 639-1) for narrative output fields — namely the `_summary.md` body prose (Overview, Decision titles and rationales, Invalidated Approach `Why it matters`, Open Issues free text) and the candidate `rationale` line in the structured report. Internal keys stay verbatim English regardless of `output_language` because the coordinator string-matches them: the structured IDs (`D-{ws-short}-{n}` / `IA-{ws-short}-{n}` / `L1-{n}` / `L2-{n}`), candidate `slug` field, source / anchor / `Adopted from` / `Proposed in` / `Invalidated by` paths, `type` enum values (`record` / `insight` / `reference`), priority labels (`HIGH` / `LOW`), the section-empty sentinel `"(No invalidated approaches in this workspace.)"`, the skip-hint labels (`IMPLEMENTATION_DETAIL`, `INTERMEDIATE_CONCLUSION`), and the `_summary.md` template section headings (`## Overview`, `## Deliverables`, `## Decisions`, `## Invalidated Approaches`, `## Open Issues`) all remain English. Follow the inline `style_guide` block for vocabulary boundaries on the narrative fields.
 
 ## Your job
 
@@ -89,12 +95,6 @@ Then Edit the output path to append the body. Use this structure:
 - [ ] Issue 1
 - [ ] Issue 2
 ```
-
-### Language
-
-- Match the workspace's language (Japanese body if workspace files are in Japanese)
-- Technical terms in English
-- Follow the repository CLAUDE.md language rules
 
 ### IA discovery heuristics (scan order)
 
