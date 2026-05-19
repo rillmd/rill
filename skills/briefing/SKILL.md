@@ -94,14 +94,15 @@ Read the following self/ files. **Skip a file silently if it is not present** �
 **v3 additional inputs for narrowing**:
 
 5. `activity-log.md` — read tail entries (recent 12 hours + past 5 days). Used for two purposes: (a) the **「今日の流れ」** section in Phase 2 (recent 12h, prose summary grouped into 朝 / 午後 / 直近); (b) the **手つかず** axis for Top filtering — a workspace / task / project mentioned in `direction.md` Active Projects but with no `activity-log` touch in the past 5 days qualifies as 手つかず
-6. `status: draft` tasks — `Grep(pattern="^status: draft", path="tasks/", glob="**/_task.md", output_mode="files_with_matches")`. Used for the **🔵 起票候補 (draft)** slot in Phase 2 (cap 1, most recent `created`). If 0 matches, the slot is replaced by a second 進行中 entry or omitted entirely — the 5-count is not strict
+6. `knowledge/self/constraints.md` — family / financial / health / life-event constraints. Used as a **secondary signal** for the **重要** axis when an item is not in `direction.md` Active Projects but is tied to a `constraints.md` constraint (e.g. iDeCo deadline tied to financial constraint, health checkup tied to health constraint). Skip silently if absent or empty
+7. `status: draft` tasks — `Grep(pattern="^status: draft", path="tasks/", glob="**/_task.md", output_mode="files_with_matches")`. Used for the **🔵 起票候補 (draft)** slot in Phase 2 (cap 1, most recent `created`). If 0 matches, the slot is replaced by a second 進行中 entry or omitted entirely — the 5-count is not strict
 
 These files are the **primary input** for Phase 2 generation. v3 narrowing logic:
 
 - The **主軸 1-line** is rendered from `self/direction.md` § 現在のメインテーマ (compress to 1 line, dense)
 - The **「今日の流れ」** 3 lines are rendered from `activity-log.md` recent 12h (group entries by time-of-day or by activity type, prose)
 - The **⚠️ 今日の重点** (Top, hierarchical) is filtered by the **3-condition product**:
-  1. **重要**: mentioned in `direction.md` Active Projects, or tied to `constraints.md` constraints
+  1. **重要**: mentioned in `direction.md` Active Projects, OR tied to a `constraints.md` constraint (the file actually read in Step C #6)
   2. **手つかず**: no `activity-log` touch in past 5 days for that project / workspace / task
   3. **引力あり**: `due` / `scheduled` / explicit deadline / promise / doctrine
   Tie-break: explicit deadline > scheduled/due > general doctrine; longer delay first. If 0 candidates qualify, fall back to the most active project (label as **「★ 今日の重点 (進行中)」** instead of 「⚠️」)
@@ -236,11 +237,13 @@ Total 5 items by default; the cap is soft (3-7 is acceptable when source-set var
 The Top item only is expanded in 3 tiers inside an ASCII tree block. Use Unicode box-drawing characters (`├ └ │`). Tiers are typically: **戦略** (decided means, "悩み直す段ではない" if already decided) → **実行 ← 手つかず** (concrete action delayed N days, the stuck node) → **障害対処** (guardrails / fallback scenarios). If the dependency chain is shallow, collapse to 2 tiers; do not pad to 4.
 
 ```markdown
-# YYYY-MM-DD (曜) Daily Briefing
+# YYYY-MM-DD Daily Briefing
+
+(SC-01 contract: H1 must match `# YYYY-MM-DD Daily Briefing` exactly. Weekday goes into the main-axis line below, not into the H1.)
 
 (If Step E set `nudge == ON or DELAYED`, prepend ONE prose line above the main-axis line — no heading, no list bullet. Tone: warm, conversational, ending with the literal command `/retrospective weekly`. Marker word "delayed" or equivalent in `DETECTED_LANG` if nudge state is DELAYED. Omit this line entirely if `nudge == OFF`.)
 
-**主軸**: {direction.md 現在のメインテーマ を 1 行に圧縮、dense}。**求職方向**: {if applicable}。**本日**: {曜日, 時間制約}。
+**主軸**: {direction.md 現在のメインテーマ を 1 行に圧縮、dense}。**求職方向**: {if applicable}。**本日 ({曜})**: {時間制約}。
 
 ## 今日の流れ (直近 12 時間で触れたもの)
 
@@ -326,7 +329,7 @@ The Top item only is expanded in 3 tiers inside an ASCII tree block. Use Unicode
 | `/pulse` Section 6 0 entries | Fill 🟠 緊急 from `due` past / `scheduled` past only; if 0, set 緊急 count to 0 and add a second 🟢 進行中 |
 | `status: draft` task 0 entries | Omit 🔵 起票候補 card entirely (4 items output is fine) |
 | `activity-log` past 12h 0 entries | "今日の流れ" section: single line "直近の活動なし" |
-| All active workspaces 0 | Skip Top and 並走 entirely; output only main-axis + Notes + "絞り込みから外したもの" with explicit "現在 active workspace なし" |
+| All active workspaces 0 | **Do not drop Top + 並走 wholesale.** Re-source Top + 並走 entirely from `tasks/` instead: Top = highest-引力 task (overdue, then `scheduled` past, then `due` near, then `status: draft`); 並走 = remaining 緊急 tasks (overdue / scheduled past / `/pulse` Section 6) + draft tasks. Top still uses the same `## ⚠️ 今日の重点` heading but the hierarchical tree degrades to 1-tier (no 戦略 / 障害対処 sub-branches when the source is a single task). Add an explicit note "現在 active workspace なし — tasks/ から緊急項目を surface" at the top of the Top card |
 
 **Language for body text**: Body text follows `personal-language.md` rules (Japanese for body, English only inside backticks / proper nouns / ASCII acronyms). **Filter at generation time**, not as a post-pass — translate phrases like "Top" → 「今日の重点」, "Stuck" → 「停滞」, "Next 1" → 「次の一手」, "Source" → 「出典」 inline as they form.
 

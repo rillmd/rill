@@ -118,17 +118,17 @@ if [[ -f "$DAILY_NOTE" ]]; then
   TITLE_LINE=$(grep '^# ' "$DAILY_NOTE" | head -1)
   assert_true "[[ -n '$TITLE_LINE' ]]" "SC-01: Has H1 title"
 
-  # SC-02: Yesterday's Activity
-  HAS_ACTIVITY=$({ grep -ci '^## .*Yesterday\|^## .*Activity' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
+  # SC-02: Activity section (v3: 今日の流れ / v2 fallback: Yesterday's Activity)
+  HAS_ACTIVITY=$({ grep -c '^## .*流れ\|^## .*Yesterday\|^## .*Activity' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
   assert_gt "$HAS_ACTIVITY" 0 "SC-02: Has activity section"
 
-  # SC-03: Today's Focus
-  HAS_FOCUS=$({ grep -ci '^## .*Today\|^## .*Focus' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
+  # SC-03: Focus section (v3: 今日の重点 / v2 fallback: Today's Focus)
+  HAS_FOCUS=$({ grep -c '^## .*重点\|^## .*Today\|^## .*Focus' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
   assert_gt "$HAS_FOCUS" 0 "SC-03: Has focus section"
 
-  # SC-04: Situation Analysis
-  HAS_ANALYSIS=$({ grep -ci '^## .*Situation\|^## .*Analysis' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
-  assert_gt "$HAS_ANALYSIS" 0 "SC-04: Has analysis section"
+  # SC-04: Cards section (v3: 並走 N 件 / v2 fallback: Situation Analysis)
+  HAS_ANALYSIS=$({ grep -c '^## .*並走\|^## .*Situation\|^## .*Analysis' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
+  assert_gt "$HAS_ANALYSIS" 0 "SC-04: Has cards section"
 
   # SC-05: Notes (optional — only check if content warrants it)
   HAS_NOTES=$({ grep -ci '^## .*Notes\|^## .*Attention\|^## .*Caution' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')

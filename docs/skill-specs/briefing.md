@@ -42,13 +42,13 @@ Behavioral specification for /briefing. A fully automated (no interaction) skill
 
 | ID | Rule | Verification Method | Status |
 |----|------|---------------------|--------|
-| SC-01 | Title is `# YYYY-MM-DD Daily Briefing` | grep `^# ` | ✅ |
-| SC-02 | `## Yesterday's Activity` section exists | grep `^## Yesterday's Activity` | ✅ |
-| SC-03 | `## Today's Focus` section exists | grep | ✅ |
-| SC-04 | `## Situation Analysis` section exists | grep | ✅ |
+| SC-01 | Title is `# YYYY-MM-DD Daily Briefing` (weekday goes in the main-axis line, not the H1) | grep `^# ` | ✅ |
+| SC-02 | Activity section exists: `## 今日の流れ` (v3) or `## Yesterday's Activity` (v2 fallback) | grep `^## .*流れ\|^## .*Yesterday\|^## .*Activity` | ✅ |
+| SC-03 | Focus section exists: `## ⚠️ 今日の重点` or `## ★ 今日の重点` (v3) or `## Today's Focus` (v2 fallback) | grep `^## .*重点\|^## .*Focus\|^## .*Today` | ✅ |
+| SC-04 | Cards section exists: `## 並走 N 件` (v3) or `## Situation Analysis` (v2 fallback) | grep `^## .*並走\|^## .*Situation\|^## .*Analysis` | ✅ |
 | SC-05 | `## Notes` section exists (may be omitted if no information) | grep (optional) | ✅ |
-| SC-06 | `## Related` section (only when newsletter exists) | Conditional grep | ✅ |
-| SC-07 | Each section is prose-based (not bullet-point lists) | ⚠️ LLM judgment | ✅ |
+| SC-06 | Discards section exists: `## 絞り込みから外したもの` (v3) or `## Related` (v2 fallback, conditional) | grep `^## .*絞り込み\|^## .*Related` | ✅ |
+| SC-07 | Each section is prose-based (not bullet-point lists) — exception: 並走 4 件 cards use the fixed 4-element schema (停滞 / 次の一手 / 再開 / 出典) as bulleted | ⚠️ LLM judgment | ✅ |
 
 ---
 
