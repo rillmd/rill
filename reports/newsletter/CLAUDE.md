@@ -27,7 +27,7 @@ keyword-count: 8
 ## 3-Layer Context Model
 
 Based on user feedback:
-- **Identity** — User's core interests (from knowledge/me.md)
+- **Identity** — User's core interests (from knowledge/self/profile.md + interests.md + direction.md + watches.md)
 - **Attention** — Current focus (active workspaces, recent journals)
 - **Impulse** — Spontaneous interests (recent searches, etc.)
 

@@ -6,7 +6,7 @@
 
 ```
 knowledge/
-├── self/         # Interest Profile + state layer (8 files; see below)
+├── self/         # Self entity + state layer (9 files; see below)
 ├── notes/        # Distilled atomic knowledge (pool, flat)
 ├── people/       # Person entities
 └── orgs/         # Organization entities
@@ -48,20 +48,21 @@ Duplicate-check before creating (Grep/Glob); update existing on overlap.
 
 **Do NOT write**: interaction history, task lists, artifact links, aggregation results. Those belong in `journal/`, `tasks/`, `workspace/`, `pages/`. Dynamic aggregation runs via grep/read.
 
-## knowledge/self/ (Interest Profile + state layer)
+## knowledge/self/ (Self entity + state layer)
 
-Singleton entity (`type: self`). **8 files**, each owned by a distinct velocity / skill:
+Singleton entity (`type: self`). **9 files**, each owned by a distinct velocity / skill:
 
 - `profile.md` — Core Identity (year-scale)
-- `interests.md` — Deep Interests / Curiosity / Obligations / Career (monthly)
+- `interests.md` — Deep Interests / Curiosity / Obligations / Career theme statements (monthly)
 - `direction.md` — Active Projects + cross-project meta-direction + Career direction (monthly)
 - `current-state.md` — pulse snapshot (high-velocity, by `/pulse`, capped at 80 lines)
 - `decisions.md` — curated decision digest (3-month window, by `/retrospective`)
 - `observations.md` — longitudinal self-observations (by `/retrospective` with user `[x]` approval)
+- `watches.md` — concrete watch targets, Competitors / Keywords / Key Facts (by `/newsletter` Alerts; manual additions)
 - `history.md` — career / event history (manual)
 - `constraints.md` — constraints (family / financial / health, manual)
 
-Referenced by `/briefing`, `/newsletter`, `/pulse`, `/solve`, `/eval`, `/distill profile-agent`. **Guide, not constraint** — LLMs may suggest adjacent areas. `interests.md` / `direction.md` auto-update via `/distill profile-agent` (conservative rules). Design rationale: `workspace/2026-05-07-dream-system-rill-application/006-self-knowledge-layer-design.md`.
+Referenced by `/briefing`, `/newsletter`, `/pulse`, `/solve`, `/eval`, `/distill profile-agent`. **Guide, not constraint** — LLMs may suggest adjacent areas. `interests.md` / `direction.md` auto-update via `/distill profile-agent` (conservative rules). Boundary: `interests.md` holds broad theme statements, `watches.md` holds concrete entities the user tracks; both feed `/newsletter` on different sub-paths. Design rationale: `workspace/2026-05-07-dream-system-rill-application/006-self-knowledge-layer-design.md`.
 
 ## Contact Information (ADR-047)
 

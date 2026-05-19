@@ -30,7 +30,7 @@ Behavioral specification for /distill. Codifies all rules of the skill, serving 
 | IO-O5 | `knowledge/people/*.md` (new/updated) | Phase 1, 2.5 |
 | IO-O6 | `knowledge/orgs/*.md` (new/updated) | Phase 2.5 |
 | IO-O7 | `knowledge/projects/*.md` (updated) | Phase 1, 3 |
-| IO-O8 | `knowledge/me.md` (updated) | Phase 4 |
+| IO-O8 | `knowledge/self/interests.md`, `knowledge/self/direction.md` (updated; rare year-scale: `knowledge/self/profile.md`) | Phase 4 |
 | IO-O9 | `inbox/*/.processed` (updated) | Phase 1 result collection, Phase 3 result collection |
 | IO-O10 | `taxonomy.md` (appended) | Result collection |
 
