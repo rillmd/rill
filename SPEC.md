@@ -84,7 +84,7 @@ A personal information management system that distills fragmented thoughts enter
 | Person | `knowledge/people/` | Search anchor (updatable) | None (existence = valid) |
 | Org | `knowledge/orgs/` | Search anchor (updatable) | None (existence = valid) |
 | Project | `knowledge/projects/` | Project profile (updatable) | None (existence = valid) |
-| Self | `knowledge/self/*.md` | Self entity, 9 files (profile/interests/direction/current-state/decisions/observations/history/constraints/watches, updatable) | None (existence = valid) |
+| Self | `knowledge/self/*.md` | Self entity, 8 files (profile/interests/direction/current-state/decisions/observations/history/constraints, updatable) | None (existence = valid) |
 | Task | `tasks/*/_task.md` | Ticket file (ADR-063) | frontmatter `status` |
 | Daily Note | `reports/daily/` | Generated output (updatable) | Date file existence |
 | Newsletter | `reports/newsletter/` | Generated output (updatable) | Date file existence |
@@ -107,7 +107,7 @@ The following entities are updatable:
 - `knowledge/people/*.md` — Status changes, alias additions, key fact accumulation, etc.
 - `knowledge/orgs/*.md` — Status changes, alias additions, key fact accumulation, etc.
 - `knowledge/projects/*.md` — Competitors, Watch Keywords, key fact updates (/distill auto-accumulates)
-- `knowledge/self/*.md` — Self entity, 9 files (/distill Phase 4 auto-updates interests + direction, plus rare year-scale updates to profile; /pulse refreshes current-state; /retrospective auto-appends decisions while observations require explicit user `[x]` approval via `--finalize`; watches.md and constraints.md/history.md are manual)
+- `knowledge/self/*.md` — Self entity, 8 files (/distill Phase 4 auto-updates interests + direction, plus rare year-scale updates to profile; /pulse refreshes current-state; /retrospective auto-appends decisions while observations require explicit user `[x]` approval via `--finalize`; constraints.md and history.md are manual)
 - `workspace/{id}/_workspace.md` — Status changes, workspace information updates
 - `workspace/{id}/_log.md` — Session history appending
 - `tasks/*/_task.md` — Task ticket addition and state changes
@@ -651,17 +651,17 @@ What is currently being worked on (/distill auto-updates).
 
 Projects are initiatives the user is actively pursuing. Regardless of business, personal, or learning context, and regardless of whether they have completion conditions (ADR-049). Independent from workspace/ (no 1:1 correspondence required). /distill auto-updates "Current Focus," "Key Facts," and "See Also." /newsletter uses Watch > Keywords for Alert search keyword generation. Stage has 3 levels: `active` (in progress), `idea` (concept stage), `completed` (done).
 
-### 4.14 knowledge/self/ entity (9 files)
+### 4.14 knowledge/self/ entity (8 files)
 
 ```yaml
 ---
 created: 2026-05-11T17:16+09:00       # Required: ISO 8601 + TZ
-type: self                             # Required: shared across all 9 files
+type: self                             # Required: shared across all 8 files
 updated: 2026-05-11                    # Optional: refreshed by responsible skill
 ---
 ```
 
-User's Self entity, split into 9 files by update velocity and responsible skill:
+User's Self entity, split into 8 files by update velocity and responsible skill:
 
 **Static group (year-scale)**:
 - `profile.md` — Core Identity, career summary, Skills (manual; /distill profile-agent updates rare year-scale role / employer changes)
@@ -673,12 +673,11 @@ User's Self entity, split into 9 files by update velocity and responsible skill:
 - `direction.md` — Active Projects + cross-project meta-direction + Career direction (/distill profile-agent auto-updates)
 - `decisions.md` — curated decision digest, 3-month window (/retrospective auto-appends)
 - `observations.md` — longitudinal self-observations (/retrospective surfaces candidates; written only by `/retrospective --finalize` after explicit user `[x]` approval)
-- `watches.md` — Watch targets (Competitors / Keywords / Key Facts; concrete entities tracked by /newsletter for Alerts; manual additions)
 
 **High-velocity group (daily to hourly)**:
 - `current-state.md` — pulse snapshot (/pulse refreshes, capped at 80 lines)
 
-All 9 files share `type: self`. The filename is the semantic discriminator; skills read by path, not by type. Boundary: `interests.md` carries broad theme statements ("what am I interested in"), `watches.md` carries concrete watch entities ("which competitors / keywords"); both feed /newsletter (interests → Deep Dive / Discovery, watches → Alerts). Referenced by /briefing (Step C reads current-state / direction / interests / decisions), /newsletter (Identity layer reads profile + interests + direction + watches), /pulse (writes current-state), /retrospective (auto-appends decisions; observations only on --finalize approval), /eval (search target includes profile + interests + direction), /solve (reads profile + constraints), /distill profile-agent (updates interests + direction + rare profile).
+All 8 files share `type: self`. The filename is the semantic discriminator; skills read by path, not by type. Referenced by /briefing (Step C reads current-state / direction / interests / decisions), /newsletter (Identity layer reads profile + interests + direction), /pulse (writes current-state), /retrospective (auto-appends decisions; observations only on --finalize approval), /eval (search target includes profile + interests + direction), /solve (reads profile + constraints), /distill profile-agent (updates interests + direction + rare profile).
 
 ### 4.15 workspace/{id}/_workspace.md template
 

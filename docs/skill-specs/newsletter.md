@@ -17,7 +17,7 @@ Behavioral specification for /newsletter. A skill that generates daily news repo
 
 | ID | Input | Condition |
 |----|-------|-----------|
-| IO-I1 | `knowledge/self/profile.md`, `knowledge/self/interests.md`, `knowledge/self/direction.md`, `knowledge/self/watches.md` | Identity layer |
+| IO-I1 | `knowledge/self/profile.md`, `knowledge/self/interests.md`, `knowledge/self/direction.md` | Identity layer |
 | IO-I2 | `knowledge/projects/*.md` | Identity layer (Competitors, Watch Keywords) |
 | IO-I3 | `workspace/**/_workspace.md` (past 2 weeks) | Attention layer |
 | IO-I4 | `inbox/journal/*.md` (past 7 days) | Impulse layer |
@@ -62,7 +62,7 @@ Behavioral specification for /newsletter. A skill that generates daily news repo
 
 | ID | Rule | Verification Method | Status |
 |----|------|-------------------|--------|
-| CX-01 | Read knowledge/self/{profile,interests,direction,watches}.md | ⚠️ Log verification | ✅ |
+| CX-01 | Read knowledge/self/{profile,interests,direction}.md | ⚠️ Log verification | ✅ |
 | CX-02 | Read knowledge/projects/*.md | ⚠️ Log verification | ✅ |
 | CX-03 | Read workspace/ from the past 2 weeks | ⚠️ Log verification | ✅ |
 | CX-04 | Read inbox/journal/ from the past 7 days | ⚠️ Log verification | ✅ |

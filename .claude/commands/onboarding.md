@@ -141,14 +141,14 @@ Otherwise (default mode):
 >
 > Do **not** use the words `distill`, `workspace`, `session`, or `vault` in this framing. Land on everyday language. After the framing, hand off to the next step (name question below).
 
-If `knowledge/self/profile.md` does not exist, ask for the user's name at the end of the greeting. After they respond, scaffold the self/ knowledge layer — 9 files total, with profile / interests / direction getting initial bodies (014 §3.6.1) and the other 6 left as skeletons.
+If `knowledge/self/profile.md` does not exist, ask for the user's name at the end of the greeting. After they respond, scaffold the self/ knowledge layer — 8 files total, with profile / interests / direction getting initial bodies (014 §3.6.1) and the other 5 left as skeletons.
 
 **Scaffolding sequence**:
 
-1. Create the 9 self/ skeleton files. Use `rill mkfile` for each so the `created` timestamp is correct, then rename to bare names (the singleton-entity convention; same idea as `knowledge/projects/{id}.md`):
+1. Create the 8 self/ skeleton files. Use `rill mkfile` for each so the `created` timestamp is correct, then rename to bare names (the singleton-entity convention; same idea as `knowledge/projects/{id}.md`):
 
    ```bash
-   for slug in profile interests direction current-state decisions observations history constraints watches; do
+   for slug in profile interests direction current-state decisions observations history constraints; do
      rill mkfile knowledge/self --slug "$slug" --type self
    done
    # rill mkfile prefixes a date — strip it so the files match the entity-directory pattern
@@ -211,7 +211,7 @@ If `knowledge/self/profile.md` does not exist, ask for the user's name at the en
 
    (Localize headings into `DETECTED_LANG` if not Japanese.)
 
-5. Leave `current-state.md` / `decisions.md` / `observations.md` / `history.md` / `constraints.md` / `watches.md` as skeletons (frontmatter + `# Title` heading only). Each is populated by its responsible skill (`/pulse`, `/retrospective`) or by the user (manual: `watches.md` accumulates concrete watch entities for `/newsletter` Alerts, `constraints.md` / `history.md` are manual notes).
+5. Leave `current-state.md` / `decisions.md` / `observations.md` / `history.md` / `constraints.md` as skeletons (frontmatter + `# Title` heading only). Each is populated by its responsible skill (`/pulse`, `/retrospective`) later.
 
 ---
 
