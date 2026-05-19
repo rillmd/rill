@@ -30,7 +30,7 @@ $ARGUMENTS — one of the following:
 
 **3-Layer Context Collection** (execute in parallel):
 
-5. **Identity: Interest Profile** — Read `knowledge/self/profile.md` + `knowledge/self/interests.md` + `knowledge/self/direction.md` (the Identity layer is the static + medium-velocity combination)
+5. **Identity: Self entity** — Read `knowledge/self/profile.md` + `knowledge/self/interests.md` + `knowledge/self/direction.md` + `knowledge/self/watches.md` (the Identity layer is the static + medium-velocity combination; `watches.md` carries concrete watch entities used for Alerts)
 6. **Identity: Project Entities** — Read all `knowledge/projects/*.md` (get Competitors, Watch Keywords)
 7. **Attention: Workspaces** — From all directories under `workspace/`, read `_workspace.md` (or `_session.md`) for **workspaces created within the past 2 weeks**, extracting (regardless of status — both active and completed):
    - `# heading` (workspace name)
