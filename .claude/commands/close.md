@@ -81,10 +81,10 @@ The top-of-file "Conduct ALL conversation with the user in the language defined 
 #
 # Locale detection: presence of personal-language.md is NOT a signal — the
 # onboarding skill creates the file for English vaults too, and `rill init
-# --lang en` likewise. We pattern-match for any byte sequence with the UTF-8
-# prefix E3 81, E3 82, or E3 83 — these three prefixes cover the Hiragana
-# block (U+3040-309F) and the Katakana block (U+30A0-30FF). Both scripts are
-# exclusive to Japanese — Chinese and Korean writing systems use Han / Hangul
+# --lang en` likewise. We pattern-match for any Unicode codepoint in the
+# range U+3040-U+30FF, which spans the Hiragana block (U+3040-U+309F) and
+# the Katakana block (U+30A0-U+30FF). Both scripts are exclusive to
+# Japanese — Chinese and Korean writing systems use Han / Hangul
 # respectively and contain neither Hiragana nor Katakana — so a hit here is
 # a near-certain ja signal. The stock-ja personal-language.md template
 # contains both Hiragana (particles, verb endings) and Katakana (loanwords)
@@ -92,8 +92,16 @@ The top-of-file "Conduct ALL conversation with the user in the language defined 
 # Hiragana or Katakana glyph is detected. Pure-Kanji-only Japanese content
 # is the one remaining miss case (Kanji is shared with Chinese, so we cannot
 # distinguish), but that style is uncommon for personal-language.md.
-# Stock-en and other Latin-script vaults have no such bytes and fall through
-# to the no-injection branch.
+# Stock-en and other Latin-script vaults have no such codepoints and fall
+# through to the no-injection branch.
+#
+# Implementation: We use `perl -CSD` (UTF-8 decode on STDIN) with the
+# codepoint range above. The earlier `LC_ALL=C grep -qE $'\xe3\x81|...'`
+# form relied on bash ANSI-C byte literals, which the default zsh harness
+# Claude Code launches via the Bash tool does not interpret as raw bytes —
+# detection silently failed under zsh and `output_language` came back empty.
+# perl is in PATH on every macOS / Linux distribution that ships Claude
+# Code, and Unicode codepoint regexes carry no shell-quoting ambiguity.
 #
 # Multi-locale detection (mapping all 9 onboarding-supported locales correctly)
 # is out of scope for this task and deferred to a separate task. Doing it right
@@ -104,7 +112,7 @@ The top-of-file "Conduct ALL conversation with the user in the language defined 
 
 output_language=""
 if [[ -f .claude/rules/personal-language.md ]] && \
-   LC_ALL=C grep -qE $'\xe3\x81|\xe3\x82|\xe3\x83' .claude/rules/personal-language.md; then
+   perl -CSD -e 'while(<>){if(/[\x{3040}-\x{30ff}]/){exit 0}} exit 1' .claude/rules/personal-language.md; then
   output_language="ja"
 fi
 
