@@ -62,9 +62,9 @@ Collect the following data in parallel:
      `Grep(pattern="^status: (open|waiting)", path="tasks/", glob="**/_task.md", output_mode="files_with_matches")`
    - Read only matched files (skip done, cancelled, someday)
    - Also reference Step A's `task_tickets` statistics (counts, due_soon list) as supplementary data
-   - Collect from each ticket: title (h1), status, due, mentions (projects/{id}), background (body opening), request
+   - Collect from each ticket: title (h1), status, due, **scheduled** (v3: scheduled-only tasks like IMAP follow-up qualify for 🟠 緊急 via past `scheduled`, must be extracted), mentions (projects/{id}), background (body opening), request
    - **v3 — draft task collection** (for the 🔵 起票候補 slot): additionally grep `Grep(pattern="^status: draft", path="tasks/", glob="**/_task.md", output_mode="files_with_matches")`, sort by `created` descending, **Read the most recent 1 draft task body** (title, frontmatter `created` / `source` / `mentions`, Goal, Background opening) — needed for deterministic 🔵 起票候補 card rendering. If 0 drafts, skip the slot
-2. **activity-log.md** — **v3**: get entries within the **past 5 days** (not just `activity_window`). Used for: (a) the activity_window subset feeds v2-style summaries / detection; (b) the recent 12h subset feeds the v3 "今日の流れ" section; (c) the full 5-day range feeds the v3 "手つかず" axis (a project / workspace / task with no touch in this window qualifies as 手つかず). Implementation: read the tail of `activity-log.md`; if the file is long, restrict to entries with timestamps within the past 5 days
+2. **activity-log.md** — **v3**: get entries within the **past 5 days relative to TARGET_DATE** (not wall-clock, so backfilled `/briefing YYYY-MM-DD` runs produce the correct slice). The activity window is anchored as: `[TARGET_DATE - 5 days at day_boundary, TARGET_DATE at day_boundary]`. Three subsets are used: (a) the activity_window subset (TARGET_DATE-1 → TARGET_DATE at day_boundary) feeds v2-style summaries / detection; (b) the **recent 12h subset relative to TARGET_DATE** (TARGET_DATE-12h → TARGET_DATE) feeds the v3 "今日の流れ" section; (c) the full 5-day range feeds the v3 "手つかず" axis (a project / workspace / task with no touch in this window qualifies as 手つかず). Implementation: read the tail of `activity-log.md`; if the file is long, restrict to entries with timestamps within `[TARGET_DATE - 5 days, TARGET_DATE]`
 3. **reports/newsletter/** — Check if today's newsletter exists (for linking)
 4. **Previous briefing** — Read the most recent `reports/daily/` file (excluding today's). Skip if none exists
 
@@ -106,8 +106,8 @@ These files are the **primary input** for Phase 2 generation. v3 narrowing logic
   1. **重要**: mentioned in `direction.md` Active Projects, OR tied to a `constraints.md` constraint (the file actually read in Step C #6)
   2. **手つかず**: no `activity-log` touch in past 5 days for that project / workspace / task
   3. **引力あり**: `due` / `scheduled` / explicit deadline / promise / doctrine
-  Tie-break: explicit deadline > scheduled/due > general doctrine; longer delay first. If 0 candidates qualify, fall back to the most active project (label as **「★ 今日の重点 (進行中)」** instead of 「⚠️」)
-- The **並走 4-件 cards** are filled in this order: 1× 🟢 進行中 (most active in `activity-log` past 12h) + 1-2× 🟠 緊急 (`due` past / `scheduled` past / `/pulse` Section 6 execution-gap entries) + 0-1× 🔵 起票候補 (most recent `status: draft` task)
+  Tie-break: explicit deadline > scheduled/due > general doctrine; longer delay first. If 0 candidates qualify, fall back to the most active project from `activity-log` past 12h (label as **「★ 今日の重点 (進行中)」** instead of 「⚠️」)
+- The **並走 4-件 cards** are filled in this order: 1× 🟢 進行中 (most active in `activity-log` past 12h) + 1-2× 🟠 緊急 (`due` past / `scheduled` past / `/pulse` Section 6 execution-gap entries) + 0-1× 🔵 起票候補 (most recent `status: draft` task). **De-duplication rule**: if the Top fell back to "進行中" (i.e. no 重要 × 手つかず candidate) and the 🟢 並走 slot's most-active leader is the same project, the 🟢 slot picks the **next-most-active** project instead — never spend 2 of 5 slots on the same item
 - The **「絞り込みから外したもの」** section summarizes counts upfront (do **not** fold via `<details>` — Markdown viewer compatibility) — see Phase 2 Template
 - Analytical work (contradictions, longitudinal observations) is **not** regenerated here — it lives in `self/observations.md` and the `/retrospective` skill instead
 
