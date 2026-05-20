@@ -60,10 +60,11 @@ Collect the following data in parallel:
 1. **Task collection** (from ticket files)
    - Use Grep for fast filtering of target tickets:
      `Grep(pattern="^status: (open|waiting)", path="tasks/", glob="**/_task.md", output_mode="files_with_matches")`
-   - Read only matched files (skip done, draft, cancelled, someday)
+   - Read only matched files (skip done, cancelled, someday)
    - Also reference Step A's `task_tickets` statistics (counts, due_soon list) as supplementary data
    - Collect from each ticket: title (h1), status, due, mentions (projects/{id}), background (body opening), request
-2. **activity-log.md** — Get entries within the activity window
+   - **v3 — draft task collection** (for the 🔵 起票候補 slot): additionally grep `Grep(pattern="^status: draft", path="tasks/", glob="**/_task.md", output_mode="files_with_matches")`, sort by `created` descending, **Read the most recent 1 draft task body** (title, frontmatter `created` / `source` / `mentions`, Goal, Background opening) — needed for deterministic 🔵 起票候補 card rendering. If 0 drafts, skip the slot
+2. **activity-log.md** — **v3**: get entries within the **past 5 days** (not just `activity_window`). Used for: (a) the activity_window subset feeds v2-style summaries / detection; (b) the recent 12h subset feeds the v3 "今日の流れ" section; (c) the full 5-day range feeds the v3 "手つかず" axis (a project / workspace / task with no touch in this window qualifies as 手つかず). Implementation: read the tail of `activity-log.md`; if the file is long, restrict to entries with timestamps within the past 5 days
 3. **reports/newsletter/** — Check if today's newsletter exists (for linking)
 4. **Previous briefing** — Read the most recent `reports/daily/` file (excluding today's). Skip if none exists
 
@@ -95,7 +96,7 @@ Read the following self/ files. **Skip a file silently if it is not present** �
 
 5. `activity-log.md` — read tail entries (recent 12 hours + past 5 days). Used for two purposes: (a) the **「今日の流れ」** section in Phase 2 (recent 12h, prose summary grouped into 朝 / 午後 / 直近); (b) the **手つかず** axis for Top filtering — a workspace / task / project mentioned in `direction.md` Active Projects but with no `activity-log` touch in the past 5 days qualifies as 手つかず
 6. `knowledge/self/constraints.md` — family / financial / health / life-event constraints. Used as a **secondary signal** for the **重要** axis when an item is not in `direction.md` Active Projects but is tied to a `constraints.md` constraint (e.g. iDeCo deadline tied to financial constraint, health checkup tied to health constraint). Skip silently if absent or empty
-7. `status: draft` tasks — `Grep(pattern="^status: draft", path="tasks/", glob="**/_task.md", output_mode="files_with_matches")`. Used for the **🔵 起票候補 (draft)** slot in Phase 2 (cap 1, most recent `created`). If 0 matches, the slot is replaced by a second 進行中 entry or omitted entirely — the 5-count is not strict
+7. `status: draft` tasks — already collected in Step B #1 (the v3 addendum reads the most recent 1 draft task body in full). Used here only as a cross-reference for the **🔵 起票候補 (draft)** slot in Phase 2 (cap 1, most recent `created`, sourced from Step B's Read). If 0 matches, the slot is replaced by a second 進行中 entry or omitted entirely — the 5-count is not strict
 
 These files are the **primary input** for Phase 2 generation. v3 narrowing logic:
 
