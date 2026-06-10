@@ -5,7 +5,7 @@ description: Run the daily morning routine — invoke /briefing (Daily Note) fol
 
 # /morning — Morning Routine
 
-**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
 
 > **Tool references in this skill** ("skill invocation") describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in Skill tool; Codex CLI uses its own skill invocation mechanism (mention / implicit / `/skills`).
 

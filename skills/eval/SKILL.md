@@ -5,7 +5,7 @@ description: Quantitatively evaluate the search quality and efficiency of the Ri
 
 # /eval — Exploration Benchmark (monthly. Verify that note structure actually works in practice)
 
-**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
 
 > **Tool references in this skill** (`sub-agent`, `shell`, `Read`, `Edit`, `Glob`, `Grep`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in Agent / Bash / Read / Edit tools as named; Codex CLI uses CSV fan-out / shell / `apply_patch` etc. as appropriate.
 

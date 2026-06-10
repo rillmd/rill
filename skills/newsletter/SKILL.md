@@ -13,6 +13,8 @@ gui:
 
 # /newsletter — Daily News
 
+**Conduct ALL conversation with the user — and write the generated report body — in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
+
 > **Tool references in this skill** (`shell`, `Read`, `Edit`, `Glob`, `WebSearch`, `WebFetch`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in tools as named; Codex CLI uses shell / `apply_patch` / `--search` / its own URL fetcher as appropriate.
 
 Performs web searches based on the user's Interest Profile, Project entities, workspaces, and journals (3-layer context), generating a daily news report focused on **discovering unknowns + alerts**. Fully automated (no interaction).
@@ -147,6 +149,18 @@ Fetch full content with WebFetch by category:
 ### Phase 4: Report Generation
 
 Generate at `reports/newsletter/YYYY-MM-DD.md` with the following structure.
+
+#### Report Body Language
+
+Write the report body in the language defined by `.claude/rules/personal-language.md` (English when absent). This skill floods the context with English web sources — **translate their vocabulary instead of importing it**. A large amount of English in the context is not a reason to mix English words into the report. English exceptions (only): (1) tokens inside backticks, (2) proper nouns (products, companies, people), (3) ASCII acronyms, (4) fixed template strings — the section headings and labels defined in the Template below (`# YYYY-MM-DD Daily News`, `## Alerts`, `## Deep Dive:`, `## Discovery`, `## Research Metadata`, and the `Alert:` / `Deep Dive:` / `Discovery:` keyword labels) stay verbatim English because downstream tooling parses them.
+
+When a term has no obvious rendering in the target language, decide in this order:
+
+1. Use the established translation — a word actually used in documents written by native speakers of the target language.
+2. If none exists but a loanword form is in common use, use the loanword (e.g., ja: chunk → チャンク).
+3. Otherwise keep the English term inside backticks and add a short parenthetical gloss on first use.
+
+Never invent literal calques that do not exist in the target language, and use one consistent rendering per concept within the document.
 
 #### File Creation
 
