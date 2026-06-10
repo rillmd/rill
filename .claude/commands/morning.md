@@ -1,6 +1,6 @@
 # /morning — Morning Routine
 
-**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
 
 Runs the two user-facing daily reports in sequence: Daily Note (/briefing) and research newsletter (/newsletter). Both run inline within the current Claude Code session via the Skill tool.
 

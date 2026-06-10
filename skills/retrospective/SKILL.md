@@ -15,7 +15,7 @@ gui:
 
 > **Registration convention**: skill metadata lives at `skills/retrospective/SKILL.md` and follows the `/pulse` precedent (`skills/pulse/SKILL.md`); there is **no** `.claude/commands/retrospective.md` and one is not required. The `rill update` propagation of `skills/*/SKILL.md` to consumer vaults is tracked as a separate follow-up.
 
-**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms.
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
 
 > **Tool references in this skill** (`Bash`, `Grep`, `Read`, `Edit`, `Glob`, `Agent`, `Skill`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent.
 
@@ -173,7 +173,7 @@ if [[ -n "$output_language" ]]; then
   # English literal in sub-agent output — the coordinator string-matches them
   # later (see this skill's Phase 4 render section and theme-extraction-agent
   # failure handling). Translating them would break clustering and rendering.
-  style_guide='Write narrative output fields (summary, conclusion, observation, and similar prose) in the language specified by output_language. English exceptions (only): (1) tokens inside backticks, (2) proper nouns, (3) ASCII acronyms, (4) any literal sentinel string or fixed enum value documented in this sub-agent prompt'\''s Output schema or Failure handling section — including "(in progress)", "(skipped — ...)", "(could not read _workspace.md)", and confidence levels like "high"/"medium"/"low" — which must remain verbatim English regardless of output_language because the coordinator string-matches them. Translate all other English (common nouns, adjectives, verb metaphors).'
+  style_guide='Write narrative output fields (summary, conclusion, observation, and similar prose) in the language specified by output_language. English exceptions (only): (1) tokens inside backticks, (2) proper nouns, (3) ASCII acronyms, (4) any literal sentinel string or fixed enum value documented in this sub-agent prompt'\''s Output schema or Failure handling section — including "(in progress)", "(skipped — ...)", "(could not read _workspace.md)", and confidence levels like "high"/"medium"/"low" — which must remain verbatim English regardless of output_language because the coordinator string-matches them. Translate all other English (common nouns, adjectives, verb metaphors). When translating, prefer the established target-language term (a word actually used in documents written by native speakers); if none exists, prefer a loanword form in common use; otherwise keep the English term inside backticks with a short parenthetical gloss on first use. Never invent literal calques that do not exist in the target language, and keep one consistent rendering per concept within a document.'
   inject_args="output_language: ${output_language}
 style_guide: |
   ${style_guide}"

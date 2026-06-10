@@ -11,7 +11,7 @@ gui:
 
 # /briefing — Daily Note Generation
 
-**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
 
 Generates a Daily Note that aggregates the day's situation by reading the `knowledge/self/` snapshot (current-state.md, direction.md, interests.md, decisions.md) as the primary input and emitting a thin 4-section Daily Note (~1500 chars target). Uses internal data only, fully automated (no interaction). Aims for prose-quality readable reports. See 007 design doc in `workspace/2026-05-07-dream-system-rill-application/007-briefing-derivation-redesign.md`.
 
@@ -180,6 +180,8 @@ Collect data from plugin briefing hooks.
 5. Insert collected hook sections in Phase 2
 
 ### Phase 2: Daily Note Generation
+
+Write the report body in the language defined by `.claude/rules/personal-language.md` (English when absent), with the same exceptions as the conversation rule above. When a term has no established translation in the target language, prefer a loanword in common use; otherwise keep the English term inside backticks with a short parenthetical gloss — never invent literal calques that do not exist in the target language.
 
 #### File Creation
 
