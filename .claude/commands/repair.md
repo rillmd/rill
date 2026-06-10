@@ -1,6 +1,6 @@
 # /repair — Note Quality Repair (Run after /inspect. Batch-processes the queue)
 
-**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
 
 > Workflow: `/inspect` → `/repair` → `/eval` (Inspect → Repair → Evaluate)
 

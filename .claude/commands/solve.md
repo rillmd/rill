@@ -11,7 +11,7 @@ gui:
 
 # /solve — Plan-Gated Autonomous Task Execution
 
-**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
 
 > **Tool references** (`Read`, `Edit`, `Grep`, `Glob`, `WebSearch`, the harness's question primitive, `find`, `shell`) describe **intent**, not Claude-specific tool calls. Each harness maps them to its native equivalent.
 

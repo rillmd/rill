@@ -1,6 +1,6 @@
 # /eval — Exploration Benchmark (monthly. Verify that note structure actually works in practice)
 
-**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions: code blocks, slash commands, technical terms (Markdown, frontmatter, etc.).
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
 
 > Workflow: `/inspect` -> `/repair` -> `/eval` (inspect -> repair -> verify)
 

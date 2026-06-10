@@ -56,7 +56,7 @@ Map the result to a language:
 
 Set the result as `DETECTED_LANG`.
 
-**From this point on, conduct ALL conversation in `DETECTED_LANG`.** The only exceptions are: code blocks, slash commands (e.g., `/distill`), and technical terms (e.g., Markdown, frontmatter) — keep those in English.
+**From this point on, conduct ALL conversation in `DETECTED_LANG`.** The only exceptions are: tokens inside backticks or code blocks (e.g., `/distill`, `frontmatter`), proper nouns, and ASCII acronyms — keep those in English.
 
 #### 0-2: Create personal-language.md
 
