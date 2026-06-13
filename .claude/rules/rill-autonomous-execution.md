@@ -202,6 +202,10 @@ Auto-approval rule (in `/solve` autonomous mode):
 
 The fail-safe (never silently auto-approve on an unreadable verdict) is load-bearing: it prevents a broken Codex CLI from becoming a rubber stamp. Auto-approval requires a **positively-parsed PASS label**, never merely the absence of FAIL — a zero-label or WARN-only output must not pass.
 
+### Consequence-framed approval (ADR-082 D82-8)
+
+The policy approval is the one synchronous human gate, so it must be one the user can actually judge. **Write it by consequence, not by mechanism** — in the user's language, with concrete values (real task titles / repos / numbers), covering only: what the runner will do unattended, what it will always stop for, when it stops, and what it will work on. Do **not** surface internal labels (`Lane`, `Tier 2`, `entry filter`, `stop-condition trio`, `Codex PASS`) on the approval screen; translate each to what will happen, and keep the mechanism references (§8–§11) for the implementer. The same rule governs every human-facing surface (the human-decision queue entries, the stop summary, the future HTML digest). Rationale: an approval the user can't understand defeats the gate. See `personal-plain-communication.md` and `skills/project/SKILL.md` Step 1.
+
 ## 9. Human-Decision Queue (ADR-082)
 
 In autonomous mode, every point that would synchronously ask the user instead writes a **`[DECISION-QUEUE]`** entry into the task's `## Current Position` and exits `status: open` (or skips, for Tier 2). No new file or schema — the queue is the set of open tasks carrying the marker.
