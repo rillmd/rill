@@ -17,6 +17,8 @@ gui:
 
 The default is to solve a task end-to-end in a single ticket. **Phase 3 Plan approval is the only required user gate.** Once the Plan is approved, Phase 4 and Phase 5 run autonomously, with three narrow exceptions defined in §"Three Remaining Breakpoints" below.
 
+When delegated from `/project {slug} run` (ADR-082), `/solve` runs in **autonomous mode**: even the Phase 3 approval is replaced by a project-level execution policy + Codex PASS, and the remaining decision points queue instead of asking. See §"Autonomous Mode" below.
+
 If the session is cleared (`/clear`) and `/solve {slug}` is invoked again later, the `## Current Position` section at the top of `_task.md` plus the worktree state (for Lane B) are enough to identify the resumption point. Worst-case rework is "one step that was started but not completed".
 
 This skill is governed by `rill-autonomous-execution.md` (lane detection, Plan gate, worktree convention, Codex dual usage, two-channel write invariant, three-tier destructive operations). Reading both files together gives the full picture.
@@ -59,10 +61,60 @@ Any other case where Phase 4 cannot proceed is a **Plan-gap blocker** (§"Plan-g
 | Tier | Examples | How |
 |---|---|---|
 | **1 — AI autonomous** | feature-branch push, worktree add/remove, PR create + squash-merge, `codex` invocations, file Edit/Write, `rill push` / `rill mkfile` | No user prompt; the Plan implicitly authorized these by being approved |
-| **2 — User confirmation** | bulk file deletion, `.claude/` config via the Lane A channel (misclassification signal), `_task.md` → `status: cancelled`, non-squash merges to main, removing a worktree the current task did not create | Surface to the user before acting |
+| **2 — User confirmation** | bulk file deletion, `.claude/` config via the Lane A channel (misclassification signal), `_task.md` → `status: cancelled`, non-squash merges to main, removing a worktree the current task did not create, **weakening a task's own verification** (editing the Plan's `## Verification` to drop/loosen a check, or deleting / hollowing out a test the Plan relies on — ADR-082 D82-5) | Surface to the user before acting |
 | **3 — Deny (enforced via settings.json)** | `git push --force`, direct push to main/master, `git reset --hard`, `git clean -f`, `git branch -D`, `gh pr merge --admin`, absolute-path `rm -rf` | Refuse and report |
 
 See `rill-autonomous-execution.md` §6 for the full tier 3 deny matrix.
+
+## Autonomous Mode (invoked by `/project {slug} run`)
+
+`/solve` runs in one of two modes:
+
+- **Interactive mode** (default — a direct `/solve {slug}` invocation): the decision points below ask the user via the harness's question primitive, exactly as each Phase describes.
+- **Autonomous mode** (delegated from `/project {slug} run` under an approved execution policy — ADR-082): the same points **never ask**. Each records a `[DECISION-QUEUE]` entry in `_task.md` `## Current Position` and either skips the step or exits with `status: open`, so the project runner can move to the next task without blocking.
+
+The caller signals the mode (the project runner states "autonomous mode" when delegating). When unsignalled, default to interactive. External messaging and real-world/physical actions are **never** performed in autonomous mode — they queue, regardless of policy.
+
+### Decision points and their autonomous routing
+
+| Decision point | Phase | Interactive | Autonomous |
+|---|---|---|---|
+| Draft-task approval | 1.1 | Ask to approve / run | `[DECISION-QUEUE]` + skip (do not run the draft) |
+| Codex Material on Plan | 3.3 | Surface for manual rework | `[DECISION-QUEUE]` + exit (`status: open`) |
+| Codex Material on code | 4.5 | Halt and surface | `[DECISION-QUEUE]` + exit (`status: open`) |
+| Human-input knowledge gap | 4.8 | Ask the user | `[DECISION-QUEUE]` + exit (`status: open`) |
+| Tier 2 operation (incl. verification weakening) | anywhere | Surface before acting | `[DECISION-QUEUE]` + skip (do not perform the operation) |
+
+Auto-recoverable knowledge gaps (§4.8) are still resolved automatically in both modes — only the *human-input-required* branch queues.
+
+### Plan approval in autonomous mode (replaces Phase 3.4)
+
+The per-task user approval gate (Phase 3.4) is **replaced** by the project-level execution policy (approved once at `/project run` start) plus the Codex Plan review:
+
+- Codex Plan review **PASS** (per the §3.3 table: `>= 1` PASS label **and** `FAIL == 0` **and** `WARN <= 1`) **and** the Plan stays inside the policy envelope → auto-approve; proceed to Phase 4 with no user prompt.
+- Plan falls **outside** the policy envelope (touches a repo / lane / PUBLIC-push the policy did not authorize) → `[DECISION-QUEUE]` + exit.
+- Codex output is **unparseable** (zero labels parsed) **or any non-PASS verdict** (a lone WARN with no PASS, etc.) → **do not auto-approve**; `[DECISION-QUEUE]` + exit (fail-safe, ADR-082 D82-1). Auto-approval requires a positively-parsed PASS, never merely the absence of FAIL.
+
+### `[DECISION-QUEUE]` entry format
+
+Written into `## Current Position` (it persists because the task exits `status: open`):
+
+```markdown
+## Current Position
+
+- [DECISION-QUEUE] {one-line what-needs-deciding}
+  - What: {the decision}
+  - Why AI can't decide: {missing authority / fact / judgment}
+  - Options + recommendation: {A / B; AI leans A because …}
+  - Blocks: {what stays stuck until this is decided}
+- Next action: user resolves via the digest, then re-runs /solve {slug} (interactive) or /project {slug} run
+```
+
+Any `grep -rl '\[DECISION-QUEUE\]' tasks/*/_task.md` enumerates the queue. See `rill-autonomous-execution.md` §9.
+
+### Verification immutability (ADR-082 D82-5)
+
+In **any** mode, the AI must not weaken a task's verification to make it pass. Editing the Plan's `## Verification` to remove / loosen a check, or deleting / hollowing out a test the Plan relies on, is a **Tier 2** operation (user confirmation; in autonomous mode → `[DECISION-QUEUE]` + skip). Fixing the code under test is fine; rewriting the gate so it is trivially satisfiable is not.
 
 ## State Persistence — `## Current Position` in `_task.md`
 
@@ -111,7 +163,7 @@ Even when the Plan declares Lane B and the task has an active worktree, **`_task
 3. Validation:
    - Confirm `type: task`. Otherwise: "This file is not a task (type: {actual_type})" and exit
    - `status: done` / `status: cancelled` → "This task is already completed/cancelled" and exit
-   - `status: draft` → "This task is a draft (an unapproved AI-generated task). Approve and run it?" via the harness's question primitive. Approved → Edit `status` to `open` and continue. Rejected → exit
+   - `status: draft` → "This task is a draft (an unapproved AI-generated task). Approve and run it?" via the harness's question primitive. Approved → Edit `status` to `open` and continue. Rejected → exit. **(Autonomous mode: do not ask — `[DECISION-QUEUE]` + skip; see §Autonomous Mode.)**
 4. Check whether `_task.md` already has a `## Current Position` section:
    - **Present**: this is a resume. Read its content, announce "Resuming from {Phase X Step Y}", and jump to the corresponding Phase
    - **Absent**: this is a fresh run. Add the section at the end of Phase 1
@@ -169,7 +221,7 @@ For each target repo, branch on five cases:
 |---|---|---|
 | 1 | WT exists, HEAD = BR | Reuse silently (log "worktree reused: {WT}") |
 | 2 | WT exists, HEAD ≠ BR (corrupted) | Halt and ask the user: "worktree {WT} is on unexpected branch {actual}. Investigate manually before re-running /solve" |
-| 3 | WT missing, BR on remote | `git -C $REPO fetch origin $BR && git -C $REPO worktree add $WT $BR` |
+| 3 | WT missing, BR on remote (no local `$BR` — a local one would be Case 4) | `git -C $REPO fetch origin "$BR:refs/remotes/origin/$BR" && git -C $REPO worktree add --track -b $BR $WT origin/$BR` (the explicit refspec guarantees `origin/$BR` exists as a remote-tracking ref — a bare `fetch origin $BR` only updates `FETCH_HEAD` — then create the local tracking branch from it. `-b` is safe here precisely because Case 3's precondition is "no local `$BR`") |
 | 4 | WT missing, BR local-only | `git -C $REPO worktree add $WT $BR` |
 | 5 | Neither WT nor BR (fresh) | Defer; Phase 4 Step 1 creates them via `git -C $REPO worktree add $WT -b $BR` |
 
@@ -296,16 +348,22 @@ awk '/^tokens used$/{exit} {print}' codex-exec-output.txt \
   | sort | uniq -c
 ```
 
+**Precondition — fail closed on no labels.** First check the total parsed label count (`PASS + WARN + FAIL`). If it is **zero**, the output is unparseable (broken/changed `codex` response) — do **not** read this as PASS. Interactive: surface to the user. Autonomous: `[DECISION-QUEUE]` + exit (the §"Autonomous Mode" fail-safe). The PASS branch below applies only when **at least one PASS label was parsed**; without that, a zero-label response would otherwise satisfy `FAIL == 0 and WARN <= 1` and silently auto-approve.
+
+Evaluate top to bottom; first match wins:
+
 | Decision | Condition |
 |---|---|
-| PASS — present Plan to user | `FAIL == 0` and `WARN <= 1` |
-| Auto-fix — replan + re-review (1 loop max) | `FAIL == 1` or `WARN >= 2` |
+| **Unparseable — never auto-approve** | total labels parsed `== 0` (fail closed: surface / queue) |
 | Material — surface to user for manual Plan rework | `FAIL >= 2`, *or* a single FAIL on a core invariant (slug-identity, two-channel write, PII guard) |
+| Auto-fix — replan + re-review (1 loop max) | `FAIL == 1` or `WARN >= 2` |
+| PASS — present Plan to user | `>= 1` PASS label **and** `FAIL == 0` **and** `WARN <= 1` |
+| **Anything else — fail closed** | e.g. a lone WARN with no PASS, or no actionable labels → surface / queue (never silently proceed) |
 
 Operational notes (see `rill-autonomous-execution.md` §4.1 for full details):
 
 - `</dev/null` prevents stdin hang
-- The codex output appears twice (streaming + final summary); de-dup before counting
+- The codex output appears twice (streaming body + final tail summary). Drop the duplicate by **truncating at the `tokens used` marker** (`awk '/^tokens used$/{exit}'`), as the §3.3 command does — **not** by `sort -u`, which would collapse genuinely repeated labels and undercount (a 2-FAIL Plan would read as 1, defeating the Material threshold). Counting must preserve repeated labels; in autonomous mode this count substitutes for the user gate, so undercounting silently downgrades a Material verdict
 - Label position relative to the evaluation point varies; use loose regex
 
 #### 3.4 User approval
@@ -323,6 +381,8 @@ May I proceed with this Plan?
 Approved → proceed to Phase 4. Revision requested → revise the draft, re-run §3.3 Codex review if the change is non-trivial, re-present.
 
 Do not move on to Phase 4 without approval. After approval, update Current Position to "Phase 4 Step 1 in progress".
+
+**Autonomous mode**: skip this user gate entirely. The project-level execution policy + Codex PASS substitute for per-task approval (see §Autonomous Mode → "Plan approval in autonomous mode"). A Material verdict, an out-of-policy Plan, or unparseable Codex output → `[DECISION-QUEUE]` + exit instead of asking.
 
 ### Phase 4: Execute (autonomous, lane-aware)
 
@@ -402,8 +462,8 @@ Save output as `tasks/{slug}/NNN-codex-review-{repo}.md` (via `rill mkfile` from
 | Decision | Condition | Action |
 |---|---|---|
 | PASS — proceed to push | `0` unique `[Pn]` lines | Continue to Phase 4.7 |
-| Trivial auto-fix + re-review | `[P2]` or `[P3]` only | Edit fixes in worktree → `git add -A && git commit --amend --no-edit` → `codex review --base main` again (one loop max). Save new output as a new artifact file. If still Trivial, halt for user |
-| Material | `[P1]` >= 1 | Halt and surface to user. They may approve continuation, request a Plan replan, or override |
+| Trivial auto-fix + re-review | `[P2]` or `[P3]` only | Edit fixes in worktree → `git add -A && git commit --amend --no-edit` → `codex review --base main` again (one loop max). Save new output as a new artifact file. If still Trivial after the loop: interactive → halt for user; **autonomous → `[DECISION-QUEUE]` + exit `status: open` (never synchronously wait), recording the residual `[Pn]` lines** |
+| Material | `[P1]` >= 1 | Halt and surface to user. They may approve continuation, request a Plan replan, or override. **(Autonomous mode: `[DECISION-QUEUE]` + exit `status: open` — do not halt-and-wait; see §Autonomous Mode.)** |
 
 Operational notes (see `rill-autonomous-execution.md` §4.2 for full details):
 
@@ -475,7 +535,7 @@ The qualitative test: **is the fact findable by grepping Rill or the filesystem?
    - Append to the parent task's `## History`: `- YYYY-MM-DD: knowledge-gap deferred: {what} → draft task [fix-knowledge-...](../fix-knowledge-{...}/_task.md)`
    - Exit Phase 4 with the parent task `status: open`
 
-**Human-input-required** (one of the three remaining `[User]` breakpoints):
+**Human-input-required** (one of the three remaining `[User]` breakpoints). **In autonomous mode this does not ask** — record `[DECISION-QUEUE]` (What = the missing fact, Why = lives outside Rill, Blocks = this step) and exit `status: open`; the steps below apply only to interactive mode:
 
 1. Ask the user via the harness's question primitive: "I need {what}. If you give it to me, I'll add it to {suggest-path} and continue. Provide it, or skip?"
 2. If the user provides the information:
@@ -567,7 +627,7 @@ For each Lane B target repo:
 git -C $REPO worktree remove $WT
 ```
 
-Skip this on Plan-gap exit, on Material halt, or any other interrupted exit — the worktree must persist for resume. The `--delete-branch` flag in `gh pr merge` already cleans up the remote and local branch on a successful merge; if a local branch remains (rare), remove it with `git branch -d feature/{slug}` (note: `-d`, not `-D`, since the merge is squashed and the branch is reachable from main).
+Skip this on Plan-gap exit, on Material halt, or any other interrupted exit — the worktree must persist for resume. The `--delete-branch` flag in `gh pr merge` cleans up the remote and local branch on a successful merge. Note that after a **squash** merge the feature-branch commits are **not** reachable from main, so `git branch -d feature/{slug}` will refuse (and `git branch -D` is a Tier 3 deny — never use it). If `gh pr merge --delete-branch` left a local branch behind (rare), do not force-delete it — surface to the user with the branch name so they can remove it deliberately.
 
 If any worktree removal fails (e.g. due to local untracked files), surface to the user — do not force-remove (`git worktree remove --force` is a Tier 2 confirmation operation).
 

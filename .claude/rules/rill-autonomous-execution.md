@@ -153,6 +153,7 @@ Enforcement is procedural (`solve.md` Phase 4 forbids Lane B Edit of forbidden p
 - Direct `status: cancelled` transition on `_task.md` (`done` is Tier 1)
 - Removal of a worktree the current task did not create
 - Non-squash merge commits to main
+- **Weakening a task's own verification** — editing a Plan's `## Verification` to drop / loosen a check, or deleting / hollowing out a test the Plan relies on (ADR-082 §10). Fixing the code under test is Tier 1; rewriting the gate to be trivially satisfiable is Tier 2
 
 ### Tier 3 — Deny (forbidden, enforced via settings.json)
 
@@ -178,9 +179,71 @@ PUBLIC repos (OSS core, demo vault) must clear all three BLOCKING scans before `
 
 Push only when all pass. PRIVATE repos do not require these scans.
 
-## 8. Cross-Reference
+## 8. Project-Level Policy Gate (ADR-082)
 
-- `solve.md` — procedural skill implementing this rule
+`/project {slug} run` lifts the per-task Plan gate (§2) to a **once-per-project execution policy**. The user approves an envelope once when the runner starts; thereafter each task's Plan is auto-approved when it stays inside that envelope and Codex Plan review returns PASS.
+
+The policy envelope declares:
+
+- **Allowed lanes** — A only / B allowed / mixed
+- **File & repository scope** — which paths and repos the runner may touch
+- **PUBLIC-push posture** — Plans that push to a PUBLIC repo: always require a human, or auto if in-scope
+- **Stop-condition trio** (§11) — max tasks/iterations, no-progress detection, time/budget ceiling
+- **Tier 2 posture** — queue and skip vs halt
+
+Auto-approval rule (in `/solve` autonomous mode):
+
+| Condition | Action |
+|---|---|
+| Codex PASS (**`>=1` parsed PASS label** and `FAIL==0` and `WARN<=1`) **and** Plan inside envelope | Auto-approve → Phase 4, no prompt |
+| Plan outside envelope (unauthorized repo/lane/PUBLIC push) | Human-decision queue (§9) + exit `status: open` |
+| Codex `WARN>=2` or `FAIL>=1` | Per §2 / §4.1: auto-fix loop, else queue |
+| **Codex output unparseable** (zero labels) **or any non-PASS verdict** (e.g. a lone WARN, no PASS) | **Do not auto-approve** — queue + exit (fail-safe) |
+
+The fail-safe (never silently auto-approve on an unreadable verdict) is load-bearing: it prevents a broken Codex CLI from becoming a rubber stamp. Auto-approval requires a **positively-parsed PASS label**, never merely the absence of FAIL — a zero-label or WARN-only output must not pass.
+
+## 9. Human-Decision Queue (ADR-082)
+
+In autonomous mode, every point that would synchronously ask the user instead writes a **`[DECISION-QUEUE]`** entry into the task's `## Current Position` and exits `status: open` (or skips, for Tier 2). No new file or schema — the queue is the set of open tasks carrying the marker.
+
+Enumerate it deterministically:
+
+```bash
+grep -rl '\[DECISION-QUEUE\]' tasks/*/_task.md
+```
+
+Each entry carries four fields so a human (or the digest) can act without re-deriving context:
+
+1. **What** — the decision to make
+2. **Why AI can't decide** — missing authority / fact / judgment
+3. **Options + recommendation** — the choices and which the AI leans toward, with reason
+4. **Blocks** — what stays stuck until it is resolved
+
+Points that route here (see `solve.md` §Autonomous Mode): draft-task approval, Codex Material (Plan or code), human-input-required knowledge gap, Tier 2 operations, out-of-envelope Plans. External messaging and physical actions **always** queue in autonomous mode regardless of policy.
+
+## 10. Verification Immutability (ADR-082)
+
+A long-running autonomous loop must not be able to pass by **weakening its own gate** (the reward-hacking failure mode). Editing a Plan's `## Verification` to remove / loosen a check, or deleting / hollowing out a test the Plan relies on, is **Tier 2** (§6) — user confirmation in interactive mode, queue-and-skip in autonomous mode. Fixing the code under test is always Tier 1; rewriting the check so it is trivially satisfiable is not.
+
+## 11. Runner Economics & Concurrency (ADR-082)
+
+**Execution paths** (the 2026-06-15 billing change moved `claude -p` / Agent SDK off the subscription pool into a separate monthly credit — Pro $20 / Max 5x $100 / Max 20x $200; interactive Claude Code is unchanged):
+
+| Path | Mechanism | Billing | Use |
+|---|---|---|---|
+| **Primary** | Interactive terminal session running `/project {slug} run` | Subscription pool | Daytime; 1 project = 1 terminal session |
+| **Secondary** (opt-in) | `claude -p "/project {slug} run --max-tasks 1"` via launchd / cron | Agent SDK credit | Overnight "once-a-night + small merges" |
+
+This supersedes the assumption in ADR-068 D68-3 that `claude -p` automation draws on the flat subscription. The CLI-companion model (D68-1) and Agent-SDK-not-adopted (D68-2) are unchanged.
+
+**Stop-condition trio** (required runner parameters): (1) max tasks / iterations; (2) no-progress detection — a task that returns to Plan-gap twice is isolated and the runner moves on; all-isolated → stop; (3) time / budget ceiling.
+
+**Concurrency**: Lane B is worktree-isolated, but Lane A work for *every* project shares the one main worktree, where `git add -A` (or `rill push`) can swallow another session's uncommitted changes. A per-project lock would not protect this — two runners on different projects still collide on the shared main worktree. So until `rill push` stages explicit paths, **run one runner total** — a single **global** lock (`.claude/state/project-run.lock`, no slug; `.claude/state/` must be git-ignored). Acquire atomically (`mkdir`), reclaim only when stale, release on every exit. Parallel runners — even across different projects — are a follow-up gated on explicit-path staging.
+
+## 12. Cross-Reference
+
+- `solve.md` — procedural skill implementing this rule (interactive + autonomous modes)
+- `project.md` (`skills/project/SKILL.md`) — the `run` mode that drives the §8 policy gate and §9 queue
 - `rill-tasks.md` — `## Plan` section format
 - `rill-claude-code-integration.md` — `rill push` behavior, hook semantics
 - vault's `personal-dev.md` (per-vault) — cross-repo routing + PII mapping
