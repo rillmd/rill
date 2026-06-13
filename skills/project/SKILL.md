@@ -1,6 +1,6 @@
 ---
 name: project
-description: Operate on a project execution hub via five modes — `status` (one-project overview), `continue` (next unblocked task → /solve), `review` (dependency-tree audit), `list` (cross-project), `new` (create). Each mode auto-runs `/refresh-project` first. Use when the user wants to check a project, pick the next task, or see what's actionable across projects.
+description: Operate on a project execution hub via six modes — `status` (one-project overview), `continue` (next unblocked task → /solve), `run` (policy-gated autonomous loop that solves tasks until a stop condition), `review` (dependency-tree audit), `list` (cross-project), `new` (create). Each mode auto-runs `/refresh-project` first. Use when the user wants to check a project, pick the next task, autonomously work a whole project, or see what's actionable across projects.
 gui:
   label: "/project"
   hint: "Open project status, continue, review, or list"
@@ -17,15 +17,18 @@ gui:
 
 > **Tool references in this skill** (`Read`, `Edit`, `Grep`, `Glob`, `AskUserQuestion`, `shell`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in tools as named; Codex CLI uses `apply_patch` / its own question primitive / shell as appropriate.
 
-Operates on a Rill project — the execution-hub unit that bundles multiple tasks (see ADR-080, `.claude/rules/rill-projects.md`). Five modes:
+Operates on a Rill project — the execution-hub unit that bundles multiple tasks (see ADR-080, `.claude/rules/rill-projects.md`). Six modes:
 
 | Mode | Purpose | Typical entry |
 |---|---|---|
 | `status` (default for `{slug}` alone) | One-screen overview of one project's current state | `/project rill` |
-| `continue` | Pick the next unblocked task and offer to chain into `/solve` | `/project rill continue` |
+| `continue` | Pick the next unblocked task and offer to chain into `/solve` (user-steered, 1-step) | `/project rill continue` |
+| `run` | **Policy-gated autonomous loop** — solve unblocked tasks one after another until a stop condition (ADR-082) | `/project rill run` |
 | `review` | Structural audit of dependency tree, broken links, cycles, stale tasks | `/project rill review` |
 | `list` (default when no arg) | Cross-project overview (every `status: active` project at once) | `/project` or `/project list` |
 | `new` | Create a new project under `projects/{slug}/_project.md` | `/project new acme-saas` |
+
+`continue` and `run` are siblings: `continue` is user-steered (asks before each task, recursion depth 1), `run` is policy-gated and autonomous (approve a policy once, then it loops). `run` is the project-level counterpart of `/solve`'s autonomous mode.
 
 `/project` (execution surface, convergent) is the counterpart of `/focus` (workspace surface, divergent). The bridge between them is `/promote`.
 
@@ -37,6 +40,7 @@ Operates on a Rill project — the execution-hub unit that bundles multiple task
 /project {slug}                       # → status mode
 /project {slug} status                # → status mode (explicit)
 /project {slug} continue              # → continue mode
+/project {slug} run [--max-tasks N] [--max-hours H] [--lane A|B|mixed]   # → run mode
 /project {slug} review                # → review mode
 /project new {slug}                   # → new mode
 ```
@@ -47,7 +51,8 @@ Operates on a Rill project — the execution-hub unit that bundles multiple task
 |---|---|
 | (empty) or `list` | `list` |
 | `{slug}` only | `status` |
-| `{slug} {mode-keyword}` | the named mode |
+| `{slug} {mode-keyword}` | the named mode (`status` / `continue` / `run` / `review`) |
+| `{slug} run [flags]` | `run` (flags parsed: `--max-tasks`, `--max-hours`, `--lane`) |
 | `new {slug}` | `new` |
 | `{slug}/_project.md` or a path ending in `_project.md` | extract `{slug}` from the path → `status` |
 
@@ -69,6 +74,7 @@ Operates on a Rill project — the execution-hub unit that bundles multiple task
 Invoke `/refresh-project` to bring auto-sections up to date before reading them:
 
 - Single-project modes (`status` / `continue` / `review`): invoke `/refresh-project {slug}`
+- `run` mode: refresh happens inside the loop (Step 2.1) before each task; the Phase 1 refresh is still run once up front so the policy proposal (Step 1) sees current task counts
 - Cross-project mode (`list`): invoke `/refresh-project --all`
 
 Use the harness's skill-invocation mechanism. Wait for completion (refresh writes synchronously into `_project.md` and the next steps read those sections).
@@ -333,6 +339,143 @@ Create a new `projects/{slug}/_project.md` interactively.
 
 Done. Do not auto-chain.
 
+## Mode 6 — `run` (policy-gated autonomous loop)
+
+### Goal
+
+Solve a project's unblocked tasks one after another, autonomously, under a policy the user approves **once** — the project-level lift of `/solve`'s per-task Plan gate (ADR-082 §8). The loop stops on a declared stop condition, then reports what was done and what needs the user's decision.
+
+This is the realization of "the human assigns tasks to a project; Claude works the project down." Governed by `.claude/rules/rill-autonomous-execution.md` §8–§11.
+
+### Procedure
+
+#### Step 0 — Acquire the GLOBAL runner lock (one runner total, not one per project)
+
+All Lane A work — every project's tasks — shares the **one** main worktree, where `rill push` can swallow a concurrent session's uncommitted changes (`rill-autonomous-execution.md` §11). A per-*project* lock would not protect this: two runners on *different* projects still race on the same main worktree. So until explicit-path staging lands, the first implementation allows **one runner across all projects** — a single global lock, not slug-scoped.
+
+Acquire it **atomically** — a separate "check then create" lets two near-simultaneous runs both observe no lock and both proceed. Use `mkdir` (atomic create-or-fail on POSIX), not existence-check + write:
+
+```bash
+LOCK=.claude/state/project-run.lock                   # GLOBAL — no slug; one runner across all projects
+mkdir -p "$(dirname "$LOCK")"                          # ensure .claude/state/ exists (the lock dir itself stays a bare mkdir)
+# Self-protect: ensure the lock is git-ignored so `rill push` (which stages with
+# `git add -A`) cannot commit it. Independent of the vault's own .gitignore.
+grep -qxF '*.lock' .claude/state/.gitignore 2>/dev/null || printf '%s\n' '*.lock' >> .claude/state/.gitignore
+acquire() { mkdir "$LOCK" 2>/dev/null; }              # atomic create-or-fail
+if ! acquire; then
+  # held — reclaim only if stale, then retry exactly once
+  if [ -d "$LOCK" ] && [ "$(( $(date +%s) - $(sed -n 1p "$LOCK/owner" 2>/dev/null || echo 0) ))" -gt "{stale-seconds}" ]; then
+    rm -f "$LOCK/owner"; rmdir "$LOCK" 2>/dev/null    # owner is a regular file → rm, not rmdir
+    acquire || { echo "Lock contended after stale reclaim — another runner just took it. Exit."; exit 0; }
+  else
+    echo "A project runner is already active (project {held-slug}, started {ts}). One runner at a time — refusing to start a second."; exit 0
+  fi
+fi
+# acquired — record holder (slug + start time + session) for the stale check + reporting
+printf '%s\n%s\n%s\n' "$(date +%s)" "project:{slug}" "session:{session-marker}" > "$LOCK/owner"
+```
+
+`.claude/state/` must be git-ignored (the lock is runtime state, never committed). Stale threshold: comfortably above `--max-hours` (e.g. max-hours + 1h). Release the lock on **every** exit path — normal stop, error, user abort — with `rm -f "$LOCK/owner"; rmdir "$LOCK"` (the owner metadata is a regular file, so `rmdir` alone cannot empty the directory). If the harness offers `flock`/`ln -s` that is equally atomic; the invariant is "create-or-fail in one step", never check-then-create.
+
+#### Step 1 — Approve the execution policy (once)
+
+Via the harness's question primitive, present a proposed policy and get one approval. Seed the proposal from the project's lane (most `rill` projects are Lane B; PKM projects Lane A) and the flags passed:
+
+```
+Execution policy for {name}:
+- Lanes allowed: {A | B | mixed}            (from --lane or inferred)
+- Scope: tasks mentioning projects/{slug}; repos {inferred from tasks' target repos}
+- PUBLIC-push: {require-human | auto-if-in-scope}   (default: require-human)
+- Stop conditions: max {N} tasks (--max-tasks, default 5), max {H} hours (--max-hours, default 3),
+  no-progress: a task that returns to Plan-gap twice is isolated
+- Tier 2 operations: queue and skip (do not perform)
+- Entry filter: skip tasks whose Completion criteria are not mechanically verifiable,
+  or whose Goal/Background is too thin to execute (rill-tasks.md substance) → human-decision queue
+
+Approve this policy, edit it, or cancel?
+```
+
+Approved → the policy is the standing authorization for this run; do not ask per task. Edited → apply edits, re-present. Cancel → release lock, exit.
+
+#### Step 2 — The loop
+
+Repeat until a stop condition fires:
+
+```
+  (maintain an in-memory `isolated` set of slugs across iterations — tasks that queued
+   a decision or exhausted their Plan-gap budget this run; they still appear in ### Unblocked
+   because isolation is a run-local decision, not a task-status change)
+1. /refresh-project {slug}                         (synchronous; recompute Unblocked)
+2. next = first task in ## Active Tasks → ### Unblocked WHOSE SLUG IS NOT IN `isolated`
+   - none such → STOP (reason: "no actionable unblocked tasks" — either none exist,
+     or every remaining unblocked task is isolated and awaiting a human decision)
+3. Entry filter on `next`:
+   - Completion criteria mechanically verifiable?  AND
+   - Goal + Background substantial enough to execute? (rill-tasks.md)
+   - either No → write [DECISION-QUEUE] to next's Current Position
+     (What: needs sharper Goal/criteria; Why: too thin to execute autonomously;
+      Options: user sharpens then re-queues / drop; Blocks: this task) → add slug to `isolated`,
+     continue loop (do NOT /solve it)
+4. Delegate to a sub-agent (one task = one fresh context — ADR-082 §8, context-rot guard):
+   - Sub-agent runs `/solve {next-slug}` in AUTONOMOUS mode
+   - Sub-agent returns ONLY a distilled result: { status, deliverable paths, [DECISION-QUEUE] additions, one-line outcome }
+   - The orchestrator does NOT inherit the sub-agent's full working context
+5. Interpret the distilled result:
+   - status: done            → record, continue loop
+   - status: open + queue     → record the queue entry, add slug to `isolated`, continue loop
+   - status: open + Plan-gap (no queue) → increment that task's gap counter;
+     if it has hit Plan-gap twice → add slug to `isolated`; else leave for a later pass
+     (a non-isolated Plan-gap task may become unblocked-and-actionable after another task lands)
+6. Stop-condition check (after each task):
+   - tasks solved >= max-tasks → STOP ("max-tasks reached")
+   - elapsed >= max-hours → STOP ("time ceiling")
+   - every task in ### Unblocked is in `isolated` → STOP ("all remaining tasks blocked on human decision")
+```
+
+Notes:
+- **Sub-agent delegation** keeps the orchestrator's context clean across many tasks. If the harness cannot spawn sub-agents, fall back to running `/solve` inline but `/clear`-equivalent between tasks is not available — in that case cap `--max-tasks` low (≤3) and note the degradation.
+- **Lane A `git add -A`**: the sub-agent's `/solve` does Lane A pushes via `rill push`. With one runner (Step 0) this is safe; do not start a second runner.
+- The runner never performs external messaging or physical actions — those always queue (`rill-autonomous-execution.md` §9).
+
+#### Step 3 — On stop: DoD evaluation + summary
+
+1. **DoD evaluation via a separate sub-agent** (evaluator ≠ executor, to avoid self-grading bias — ADR-082, Anthropic harness-design):
+   - Input: the project's `## Goal` (DoD) + the list of tasks solved this run + their deliverable paths
+   - Output: per-DoD-bullet met / not-met / partial, with a one-line justification each, and an overall "DoD satisfied? yes/no/partial"
+   - The runner does **not** set `status: done` on the project — that stays a human call (the digest surfaces the evaluation).
+2. **Run summary** (Phase 1 = markdown; the HTML digest is a separate skill, ADR-082 Phase 2):
+
+   ```markdown
+   # Run summary: {name} ({stop reason})
+
+   ## Did this run
+   - [{task title}](../../tasks/{slug}/_task.md) — done — {one-line outcome} — {deliverable / PR link}
+   - ...
+
+   ## Needs your decision ({K})         ← the human-decision queue, surfaced first
+   - [{task}](../../tasks/{slug}/_task.md): {What} — recommendation: {…} — blocks: {…}
+   - ...
+
+   ## DoD evaluation
+   - {Goal bullet 1}: met ✓ — {why}
+   - {Goal bullet 2}: partial — {why}
+   - Overall: {satisfied? yes/no/partial}
+
+   ## Still open / isolated
+   - [{task}](../../tasks/{slug}/_task.md) — {reason isolated}
+
+   _Resolve queued items via the linked tasks, then re-run `/project {slug} run`._
+   ```
+
+3. **Persist before releasing**: ensure every `_task.md` the orchestrator itself wrote a `[DECISION-QUEUE]` entry into (the entry-filter isolations of Step 3 — sub-agent `/solve` runs push their own via `rill push`) has been committed with `rill push` from the main worktree. Otherwise those queue entries live only in the local checkout and are invisible to the next run / `/briefing`. Then release the runner lock (`rm -f "$LOCK/owner"; rmdir "$LOCK"`) — on this normal exit and on every error / abort path.
+
+### Safety
+
+- One runner total across all projects (Step 0 global lock) — because all Lane A work shares the one main worktree. Parallel runners (even on different projects) are a follow-up gated on explicit-path `rill push` staging (`rill-autonomous-execution.md` §11).
+- The policy (Step 1) is the only synchronous user gate. Everything inside the loop that would otherwise ask the user is routed to the human-decision queue.
+- Stop conditions are mandatory (defaults applied if flags omitted). The loop cannot run unbounded.
+- `status: done` on the **project** is never set by the runner — DoD judgment stays with the user.
+
 ## Dependency Resolution Algorithm
 
 This algorithm is the canonical definition for both this skill and `/refresh-project` (which references it).
@@ -380,7 +523,9 @@ Called at the top of every mode except `new` (single-slug or `--all` depending o
 
 ### `/solve`
 
-`continue` mode chains into `/solve {top-slug}`. Recursion depth is 1 after `/solve` returns successfully — the loop is intentionally finite to keep the conversation steered by the user.
+`continue` mode chains into `/solve {top-slug}` interactively. Recursion depth is 1 after `/solve` returns successfully — the loop is intentionally finite to keep the conversation steered by the user.
+
+`run` mode delegates each task to `/solve` in **autonomous mode** (via a sub-agent, one task per fresh context). There, the per-task Plan gate is replaced by the run's approved policy + Codex PASS, and `/solve`'s interactive decision points route to the human-decision queue instead of asking. See `solve.md` §Autonomous Mode and `rill-autonomous-execution.md` §8–§11.
 
 ### `/promote`
 
@@ -404,6 +549,8 @@ Reads `knowledge/self/current-state.md` and may include project-level next-actio
 | All tasks are `done` | Display "All tasks complete." Offer `/project {slug} complete` (future) to generate `_summary.md` |
 | Cycle detected | `status` / `continue` mode skip cycle members; `review` mode surfaces them |
 | `/refresh-project` lock cannot be acquired (timeout) | Continue with the existing stale data — print a one-line warning so the user knows |
+| `run` mode: the global runner lock is already held | Refuse to start a second runner; report the holder (project + start time) and exit (one runner total, §11) |
+| `run` mode: sub-agent spawning unavailable in the harness | Fall back to inline `/solve`, cap `--max-tasks` ≤3, and warn that context isolation is degraded |
 | `new` mode collides with an existing slug | Reject and exit; do not overwrite |
 
 ## Rules
@@ -411,14 +558,16 @@ Reads `knowledge/self/current-state.md` and may include project-level next-actio
 - **Always invoke `/refresh-project` first** (except `new` mode). The auto-section trust contract depends on this
 - **Never modify** `## Goal` / `## Current Focus` / `## Watch` / `## Key Facts` / `## See Also` from this skill — those have separate owners (see `.claude/rules/rill-projects.md`)
 - Always use Markdown links `[display name](relative-path)` for in-body file references. Backtick-only ID references are forbidden
-- The recursion in `continue` mode is bounded at depth 1; do not auto-loop further
+- The recursion in `continue` mode is bounded at depth 1; do not auto-loop further. `run` mode is the autonomous loop, and it is bounded by the mandatory stop-condition trio, not by recursion depth
+- `run` mode: acquire the one-runner lock before the loop, release it on every exit; approve the policy once (the only synchronous gate); never set the **project** `status: done` (DoD stays a human call)
 - `new` mode requires a Goal (ADR-080 DoD-required policy); reject silent creation of empty projects
 
 ## See also
 
 - `.claude/rules/rill-projects.md` — body structure, section ownership, state values
 - `.claude/rules/rill-tasks.md` — `depends-on` / `blocks` schema
+- `.claude/rules/rill-autonomous-execution.md` — §8 policy gate, §9 human-decision queue, §10 verification immutability, §11 runner economics (the rules `run` mode implements)
 - `/refresh-project` skill — auto-section computation
 - `/promote` skill — workspace → project crystallisation
-- `/solve` skill — task execution (chain target of `continue` mode)
+- `/solve` skill — task execution (chain target of `continue`; autonomous-mode delegate of `run`)
 - `/focus` skill — workspace counterpart (divergent surface)
