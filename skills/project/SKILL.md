@@ -377,25 +377,42 @@ printf '%s\n%s\n%s\n' "$(date +%s)" "project:{slug}" "session:{session-marker}" 
 
 `.claude/state/` must be git-ignored (the lock is runtime state, never committed). Stale threshold: comfortably above `--max-hours` (e.g. max-hours + 1h). Release the lock on **every** exit path — normal stop, error, user abort — with `rm -f "$LOCK/owner"; rmdir "$LOCK"` (the owner metadata is a regular file, so `rmdir` alone cannot empty the directory). If the harness offers `flock`/`ln -s` that is equally atomic; the invariant is "create-or-fail in one step", never check-then-create.
 
-#### Step 1 — Approve the execution policy (once)
+#### Step 1 — Approve the run (once), in plain language
 
-Via the harness's question primitive, present a proposed policy and get one approval. Seed the proposal from the project's lane (most `rill` projects are Lane B; PKM projects Lane A) and the flags passed:
+This is the **only** synchronous human gate, so it has to be one the user can actually judge. **Write it by consequence, not by mechanism.** The reader has not read the ADR. Do **not** put internal labels in what the user sees — no "Lane A/B", "Tier 2", "entry filter", "stop-condition trio", "human-decision queue", "Codex PASS", "Completion criteria mechanically verifiable". Translate each into what will actually happen. Use the **user's language**. Fill in **concrete values** — the real task titles, the real repositories, the real numbers — never `{placeholder}` text.
+
+Cover exactly these four things, in this order:
+
+1. **What I'll work on** — the actual unblocked tasks I'll take, in order, by their real titles. Add one line: tasks too thin to run, or whose "done" I can't check, I'll set aside for you rather than guess at.
+2. **What I'll do without asking** — in plain terms, e.g. "write research and design notes; make code changes on a branch, run an automated review of them, and merge once it's clean." Name the **real repositories** involved.
+3. **What I'll always stop for** — and set aside in a list for you instead of doing: sending anything to another person (email/chat), anything that affects the real world, publishing to a public repository, a design fork I can't decide on my own, or needing a fact only you have.
+4. **When I'll stop** — after the real N tasks or H hours, whichever comes first. On stopping I hand you one summary: what I did / what needs your decision / what's left.
+
+End by offering concrete edits in the user's terms: "say the word to change the task count or time limit, or to have me stop before merging any code rather than merging on my own."
+
+Approved → this is the standing authorization for the whole run; do not ask again per task. Edited → apply and re-present. Declined → release the lock and exit.
+
+**Rendering example** (Japanese vault, project `rill-autonomous-execution`) — a model for the implementer, not a fixed template:
 
 ```
-Execution policy for {name}:
-- Lanes allowed: {A | B | mixed}            (from --lane or inferred)
-- Scope: tasks mentioning projects/{slug}; repos {inferred from tasks' target repos}
-- PUBLIC-push: {require-human | auto-if-in-scope}   (default: require-human)
-- Stop conditions: max {N} tasks (--max-tasks, default 5), max {H} hours (--max-hours, default 3),
-  no-progress: a task that returns to Plan-gap twice is isolated
-- Tier 2 operations: queue and skip (do not perform)
-- Entry filter: skip tasks whose Completion criteria are not mechanically verifiable,
-  or whose Goal/Background is too thin to execute (rill-tasks.md substance) → human-decision queue
+このプロジェクトを自分で進めます。いいですか?
 
-Approve this policy, edit it, or cancel?
+進める対象(今動かせるタスク、上から順に):
+  1. 毎朝の自動実行 (launchd) の失敗を直す
+  2. 無人実行モードの設計
+  3. 権限の事前配布
+  ※ 中身が薄くて「完了」を判定できないタスクは、勝手に進めずあなた用のリストに残します。
+
+聞かずにやること: 調査・設計メモを書く / コードをブランチに上げて自動レビューを通し、問題なければマージ(対象: Rill 本体と開発用リポジトリ)
+
+必ず手を止めてリストに残すこと(勝手にやらない): 人に何かを送る・実世界に影響すること・公開リポジトリへの反映・私が決められない設計の分かれ道・あなたにしか分からない情報が要るとき
+
+いつ止まるか: タスク 3 件、または 1 時間、早い方。止まったら「やったこと / 判断してほしいこと / 残り」を 1 枚で出します。
+
+タスク数・時間を変える、または「コードは勝手にマージせず止めて」など、希望があれば言ってください。
 ```
 
-Approved → the policy is the standing authorization for this run; do not ask per task. Edited → apply edits, re-present. Cancel → release lock, exit.
+The mechanism behind these choices — the lanes, the human-decision queue, the stop-condition trio, the entry filter — is defined in `rill-autonomous-execution.md` §8–§11. That is for you (the implementer) to apply; it does not belong on the approval screen.
 
 #### Step 2 — The loop
 
