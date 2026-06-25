@@ -119,7 +119,7 @@ Aggregation and verification rules on the parent side. Final line of defense for
 |----|------|---------------------|--------|
 | SC-01 | Equation must hold: enumerated = X + Y + Z + R + uncovered | Arithmetic check | ✅ |
 | SC-02 | If `uncovered > 0`, STOP before proceeding to Phase 6+ | Control flow | ✅ |
-| SC-03 | If `rejected > 0`, report to user and request judgment | User interaction | ✅ |
+| SC-03 | If `rejected > 0`: interactive mode reports and requests judgment; `--auto-approve` reports in the completion report and proceeds without blocking (ADR-083) | User interaction | ✅ |
 | SC-04 | Self-check results must always be displayed in the completion report | Output check | ✅ |
 | SC-05 | Evergreen race resolution: merge or delete one of new note pairs with slug edit-distance <= 3 | Duplicate detection | ✅ |
 
@@ -174,5 +174,5 @@ Required justification labels when skipping. Concretization of the vague-reason 
 | PL-03 | If artifact frontmatter lacks mentions/tags, assign them (Phase 6, parent) | Field confirmation | ✅ |
 | PL-04 | Record all artifact filenames in .processed (Phase 7, parent) | File confirmation | ✅ |
 | PL-05 | Backward compatibility: WSs with only `_session.md` / `_project.md` are processed normally | Design confirmation | ✅ |
-| PL-06 | Do not proceed to Phase 4 unless user checkpoint approval is granted in Phase 3 | Control flow | ✅ |
+| PL-06 | Phase 3 displays the analysis result, then proceeds to Phase 4 automatically — no user approval gate (ADR-083) | Control flow | ✅ |
 | PL-07 | Parent detects sub-agent timeout / abnormal termination and records as skipped + TIMEOUT | Error handling | ✅ |
