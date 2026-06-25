@@ -4460,20 +4460,24 @@ EOF
 # directory plus a timestamped file, and `rill log --help` wrote a journal
 # entry whose body was literally "--help".
 #
-# Only the known commands listed below are intercepted: the ones that would
-# otherwise consume the flag as a positional argument, or run a side effect
-# that ignores it. Commands with their own `-h|--help|help` handler (vault,
-# init, update, crypt, config, migrate-projects, guard, pages-pending-update)
-# and unknown / mistyped commands are deliberately NOT listed, so they fall
-# through to the dispatch below — which shows their own help, or reports
-# "Unknown command" and exits non-zero for a typo. Keep this list in sync with
-# the file-creating / side-effecting commands in the dispatch.
+# Only the known commands below are intercepted: the ones that would otherwise
+# consume the flag as a positional argument, or run a side effect that ignores
+# it. Commands with their own `-h|--help|help` handler (vault, init, update,
+# crypt, config, migrate-projects, guard, pages-pending-update) and unknown /
+# mistyped commands are deliberately NOT listed, so they fall through to the
+# dispatch below — which shows their own help, or reports "Unknown command"
+# and exits non-zero for a typo. Keep this list in sync with the file-creating
+# / side-effecting commands in the dispatch.
 if [ "$#" -ge 2 ]; then
-    case "$2" in
-        -h|--help)
-            case "$1" in
-                log|interactive|i|clip|push|status|edit|plugin|sync|index|task|open|activity-log|touch|mkfile|strip-entity-tags)
-                    cmd_help "$1"; exit 0 ;;
+    case "$1" in
+        # `open` uses -h as the short form of --highlight, so there only --help
+        # is a help request; -h must keep reaching cmd_open.
+        open)
+            [ "$2" = "--help" ] && { cmd_help open; exit 0; }
+            ;;
+        log|interactive|i|clip|push|status|edit|plugin|sync|index|task|activity-log|touch|mkfile|strip-entity-tags)
+            case "$2" in
+                -h|--help) cmd_help "$1"; exit 0 ;;
             esac
             ;;
     esac
