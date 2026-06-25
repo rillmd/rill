@@ -340,7 +340,7 @@ cmd_interactive() {
 
 cmd_clip() {
     if [ $# -eq 0 ]; then
-        echo "Usage: rill clip <URL>"
+        cmd_help clip >&2
         return 1
     fi
 
@@ -2980,16 +2980,7 @@ EOF
 
 cmd_mkfile() {
     if [ $# -lt 1 ]; then
-        echo "Usage: rill mkfile <directory> [--slug <slug>] [--type <type>] [--field key=value ...]" >&2
-        echo "" >&2
-        echo "Creates a file with correct timestamp filename + frontmatter scaffold." >&2
-        echo "Outputs the relative file path to stdout." >&2
-        echo "" >&2
-        echo "Examples:" >&2
-        echo "  rill mkfile reports/daily --type daily-note" >&2
-        echo "  rill mkfile reports/newsletter --type newsletter --field 'keywords=[Claude, AI]'" >&2
-        echo "  rill mkfile workspace/2026-03-23-topic --slug analysis --type research" >&2
-        echo "  rill mkfile knowledge/notes --slug saas-pricing --type insight --field 'source=inbox/journal/2026-03-23.md'" >&2
+        cmd_help mkfile >&2
         return 1
     fi
 
@@ -3350,15 +3341,7 @@ cmd_mkfile() {
 
 cmd_task() {
     if [ $# -lt 1 ]; then
-        echo "Usage: rill task \"title\" [--slug <slug>] [--project <id>] [--due <YYYY-MM-DD>] [--scheduled <YYYY-MM-DD>] [--status <status>] [--background <text>] [--context <text>]" >&2
-        echo "" >&2
-        echo "Creates a task ticket file in tasks/" >&2
-        echo "--slug is required (English kebab-case filename)" >&2
-        echo "" >&2
-        echo "Examples:" >&2
-        echo "  rill task \"Reply to Alex\" --slug alex-reply" >&2
-        echo "  rill task \"Contract follow-up\" --slug contract-followup --project acme-saas --due 2026-03-25" >&2
-        echo "  rill task \"Research E2E encryption\" --slug e2e-encryption-research --status someday" >&2
+        cmd_help task >&2
         return 1
     fi
 
@@ -4342,6 +4325,67 @@ PY
 }
 
 cmd_help() {
+    # Per-command usage. The help-flag guard in the main dispatch routes
+    # `rill <command> -h|--help` here as `cmd_help <command>`, so a help flag
+    # is never consumed as a positional argument. (Regression this prevents:
+    # `rill mkfile --help` used to create a stray `--help/` directory plus a
+    # timestamped file, and `rill log --help` wrote a journal entry whose body
+    # was literally "--help".) Commands not listed here fall through to the
+    # full command list below.
+    case "${1:-}" in
+        mkfile)
+            cat <<'EOF'
+Usage: rill mkfile <directory> [--slug <slug>] [--type <type>] [--field key=value ...]
+
+Creates a file with correct timestamp filename + frontmatter scaffold.
+Outputs the relative file path to stdout.
+
+Examples:
+  rill mkfile reports/daily --type daily-note
+  rill mkfile reports/newsletter --type newsletter --field 'keywords=[Claude, AI]'
+  rill mkfile workspace/2026-03-23-topic --slug analysis --type research
+  rill mkfile knowledge/notes --slug saas-pricing --type insight --field 'source=inbox/journal/2026-03-23.md'
+EOF
+            return 0 ;;
+        task)
+            cat <<'EOF'
+Usage: rill task "title" [--slug <slug>] [--project <id>] [--due <YYYY-MM-DD>] [--scheduled <YYYY-MM-DD>] [--status <status>] [--background <text>] [--context <text>]
+
+Creates a task ticket file in tasks/
+--slug is required (English kebab-case filename)
+
+Examples:
+  rill task "Reply to Alex" --slug alex-reply
+  rill task "Contract follow-up" --slug contract-followup --project acme-saas --due 2026-03-25
+  rill task "Research E2E encryption" --slug e2e-encryption-research --status someday
+EOF
+            return 0 ;;
+        log)
+            cat <<'EOF'
+Usage: rill log [text]
+
+Creates a journal entry in inbox/journal/. With text, saves it inline;
+with no arguments, opens $EDITOR for a longer entry.
+
+Examples:
+  rill log "Notes from today's meeting"
+  rill log
+EOF
+            return 0 ;;
+        clip)
+            cat <<'EOF'
+Usage: rill clip <URL>
+
+Saves a web page or tweet to inbox/ for later processing. Tweet URLs
+(x.com / twitter.com) are routed to inbox/tweets/.
+
+Examples:
+  rill clip https://example.com/article
+  rill clip https://x.com/user/status/1234567890
+EOF
+            return 0 ;;
+    esac
+
     cat <<'EOF'
 Rill — Personal voice journal + knowledge management
 
@@ -4409,6 +4453,35 @@ vault — *"give me today's briefing"*, *"pull in new entries and distill them"*
 *"install the google-meet plugin"* — and Claude will route it correctly.
 EOF
 }
+
+# Help-flag guard (must precede dispatch). A help flag in the slot right after
+# a command shows that command's help and exits 0 — it is never treated as a
+# positional argument. Without this, `rill mkfile --help` created a `--help/`
+# directory plus a timestamped file, and `rill log --help` wrote a journal
+# entry whose body was literally "--help".
+#
+# Only the known commands below are intercepted: the ones that would otherwise
+# consume the flag as a positional argument, or run a side effect that ignores
+# it. Commands with their own `-h|--help|help` handler (vault, init, update,
+# crypt, config, migrate-projects, guard, pages-pending-update) and unknown /
+# mistyped commands are deliberately NOT listed, so they fall through to the
+# dispatch below — which shows their own help, or reports "Unknown command"
+# and exits non-zero for a typo. Keep this list in sync with the file-creating
+# / side-effecting commands in the dispatch.
+if [ "$#" -ge 2 ]; then
+    case "$1" in
+        # `open` uses -h as the short form of --highlight, so there only --help
+        # is a help request; -h must keep reaching cmd_open.
+        open)
+            [ "$2" = "--help" ] && { cmd_help open; exit 0; }
+            ;;
+        log|interactive|i|clip|push|status|edit|plugin|sync|index|task|activity-log|touch|mkfile|strip-entity-tags)
+            case "$2" in
+                -h|--help) cmd_help "$1"; exit 0 ;;
+            esac
+            ;;
+    esac
+fi
 
 # Main dispatch
 case "${1:-help}" in
