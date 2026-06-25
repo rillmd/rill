@@ -18,13 +18,59 @@ fi
 
 echo "Searching for Gemini meeting notes..."
 
-# Search Google Drive for Gemini meeting notes
-# Note: The search query "Notes by Gemini" matches English-locale Google accounts.
-# For Japanese-locale accounts, change to "Gemini によるメモ".
-docs_json="$(gog --json drive search "Notes by Gemini" --max 100 2>/dev/null)" || {
+# Gemini titles meeting notes by the account locale, so a single query misses the
+# other locale's notes. Search the English and Japanese title suffixes and merge
+# the results, deduping by document id (a doc that matches both is kept once).
+#   English : "Notes by Gemini"
+#   Japanese: "Gemini " followed by 5 kana (= "notes by"). Written as UTF-8 octal
+#             escapes so this OSS file stays ASCII-only; the same literal is shown
+#             in commands/sync-google-meet.md.
+en_query="Notes by Gemini"
+ja_query=$'Gemini \343\201\253\343\202\210\343\202\213\343\203\241\343\203\242'
+
+_search_drive() {
+    # $1 = query string. Emits raw gog --json output; non-zero exit on gog error.
+    gog --json drive search "$1" --max 100 2>/dev/null
+}
+
+_emit_tsv() {
+    # $1 = raw gog --json output. Emits "id<TAB>name<TAB>modifiedTime" per file.
+    printf '%s' "$1" | python3 -c "
+import json, sys
+text = sys.stdin.read().strip()
+if not text:
+    sys.exit(0)
+data = json.loads(text)
+files = data if isinstance(data, list) else data.get('files', [])
+for f in files:
+    fid = f.get('id', '')
+    name = f.get('name', '')
+    modified = f.get('modifiedTime', '')
+    print(f'{fid}\t{name}\t{modified}')
+"
+}
+
+en_json="$(_search_drive "$en_query")" || {
     echo "Error: Failed to search Google Drive. Check authentication with 'gog auth list'."
     exit 1
 }
+ja_json="$(_search_drive "$ja_query")" || {
+    echo "Error: Failed to search Google Drive. Check authentication with 'gog auth list'."
+    exit 1
+}
+
+# Parse each result set separately so a parse failure in either surfaces (instead
+# of being masked by a command group's last-command status), then concatenate and
+# dedup by document id (first occurrence wins, input order preserved).
+en_tsv="$(_emit_tsv "$en_json")" || {
+    echo "Error: Failed to parse Drive search results (English query)."
+    exit 1
+}
+ja_tsv="$(_emit_tsv "$ja_json")" || {
+    echo "Error: Failed to parse Drive search results (Japanese query)."
+    exit 1
+}
+docs_tsv="$(printf '%s\n%s\n' "$en_tsv" "$ja_tsv" | awk -F'\t' 'length($1) && !seen[$1]++')"
 
 # Auto-rebuild meetings .index if missing (gitignored, may disappear after clone)
 _ensure_meetings_index() {
@@ -84,9 +130,10 @@ else:
     local_date = '_NONE_'
     created_ts = '_NONE_'
 
-# Generate slug: remove 'Notes by Gemini', date/time, 'meeting started at', 'JST'
+# Generate slug: remove the trailing Gemini-notes suffix (English 'Notes by
+# Gemini' or the localized 'Gemini ...' form), date/time, 'meeting started at'
 slug_text = name
-slug_text = re.sub(r'\s*-\s*Notes by Gemini\s*$', '', slug_text)
+slug_text = re.sub(r'\s*-\s*[^-]*Gemini[^-]*$', '', slug_text)
 slug_text = re.sub(r'\d{4}/\d{2}/\d{2}\s+\d{1,2}:\d{2}\s*JST', '', slug_text)
 slug_text = re.sub(r'meeting started at', '', slug_text, flags=re.IGNORECASE)
 slug_text = slug_text.strip(' -/')
@@ -133,16 +180,7 @@ google-doc-id: \"$doc_id\""
         ((count++))
     fi
 
-done < <(echo "$docs_json" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-files = data if isinstance(data, list) else data.get('files', [])
-for f in files:
-    fid = f.get('id', '')
-    name = f.get('name', '')
-    modified = f.get('modifiedTime', '')
-    print(f'{fid}\t{name}\t{modified}')
-" 2>/dev/null)
+done < <(printf '%s\n' "$docs_tsv")
 
 echo ""
 echo "Done: $count new, $skipped already synced"
