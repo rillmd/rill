@@ -21,7 +21,7 @@ $ARGUMENTS — one of the following:
 
 - workspace/ path or id (e.g., `workspace/2026-02-13-rill-development/` or `rill-development`) → Complete the specified workspace
 - Omitted → Auto-detect active workspaces
-- Add `--auto-approve` to skip the Phase 3 user checkpoint (used by integration tests running under `claude -p`). When this flag is present, treat the Analysis sub-agent's output as implicitly approved and proceed directly to Phase 4 without calling AskUserQuestion.
+- Add `--auto-approve` to suppress the skill's approval / confirmation prompts (used by integration tests running under `claude -p`). When present: the Phase 0.5 /promote predeclare is skipped, the Phase 5.3 rejected-candidate decision is reported instead of prompted and does not block (see Phase 5.3), and the Phase 8.2 related-task-sync confirmation is skipped (statuses left unchanged). Phase 3 is informational in every mode (no approval gate — see Phase 3). Pass an explicit workspace argument when running non-interactively, so Phase 0 has no multi-workspace selection to prompt for.
 
 ## Architecture (why this skill is structured the way it is)
 
@@ -162,16 +162,16 @@ Spawn the sub-agent via the Agent tool (`subagent_type: general-purpose`), passi
 
 Parse the YAML report and hold it in parent state.
 
-### Phase 3: User Checkpoint
+### Phase 3: Display Analysis Result
 
-Before spawning any Distillation sub-agent, present the Analysis result to the user for approval. This is the **first layer of defense against error propagation** — a human sanity-checks the narrative judgment before it fans out to parallel sub-agents.
+Display the Analysis result so it lands in the execution log, then proceed **directly to Phase 4**. There is no approval gate here.
 
-**Non-interactive mode**: If the `--auto-approve` flag was passed in $ARGUMENTS, skip the AskUserQuestion step entirely and treat the Analysis result as approved. Still display the summary table (it will appear in the execution log for later review), but proceed directly to Phase 4 without prompting. This mode exists for integration tests that run under `claude -p` and for automated `/close` execution.
+Earlier versions paused for a user Approve / Re-analyze / Abort decision — ADR-073's "first layer of defense against error propagation." In practice the candidate list (2N to 5N entries for N deliverables) is too large to verify item-by-item, and the parent gives the user no per-candidate evidence to judge from, so the gate degraded into a rubber stamp. A gate the user cannot act on meaningfully is worse than none, so it was removed (ADR-083). Distillation is reversible via git, and completeness is still defended downstream without a human in the loop: the Analysis sub-agent reads every deliverable in one fresh context (Phase 2), each Distillation sub-agent cross-verifies its claims against other deliverables before writing (Phase 4, CV-rules), and the parent runs a mandatory self-check that STOPs on any uncovered candidate (Phase 5).
 
-Display:
+Display (informational — for the log, not a prompt):
 
 ```markdown
-## /close Phase 2 complete — please review
+## /close Phase 2 complete — analysis result
 
 ### _summary.md
 Generated at `workspace/{workspace_id}/_summary.md`.
@@ -197,16 +197,11 @@ Layer 2 (from per-deliverable scan): {NL2}
 | IA-1 | ... | ... | ... |
 ```
 
-Then use AskUserQuestion to get approval:
-
-- **Approve** → proceed to Phase 4
-- **Approve with edits** → apply specified additions / removals / slug changes to the candidate list in parent state, then proceed
-- **Re-analyze** → re-spawn the Analysis sub-agent with supplementary instructions (e.g., "also enumerate reference-type units from 002"). When `inject_args` (from Phase 1.5) is non-empty, append it to the re-spawn prompt too — the language args must localize the re-analysis pass as well, otherwise the second run can overwrite a localized `_summary.md` with English output
-- **Abort** → keep `_summary.md` in place, exit without distillation (the workspace remains `status: active`)
+Then proceed directly to Phase 4 with the full candidate list from the Analysis report — do not call AskUserQuestion. If the result looks wrong, the user fixes it after the run by editing or `git`-reverting the generated `knowledge/notes/` (distillation is reversible). To re-run the analysis from scratch, reopen the workspace (set its metadata `status` from `completed` back to `active` — an allowed transition) and re-invoke `/close`.
 
 ### Phase 4: Spawn Distillation Sub-agents (parallel, up to 5)
 
-Read `.claude/commands/_close/distillation-agent.md` once. For each approved candidate, fill in the placeholders:
+Read `.claude/commands/_close/distillation-agent.md` once. For each candidate from the Analysis report, fill in the placeholders:
 
 - `{candidate_yaml}` — the candidate's full YAML block
 - `{workspace_id}` — workspace id
@@ -277,7 +272,9 @@ Not proceeding to Phase 6+. Please investigate.
 
 **If `rejected > 0`**: display the rejected candidates and their invalid justifications, ask the user whether to retry, skip them, or abort.
 
-Only when `uncovered == 0` AND `rejected == 0`, proceed to Phase 6.
+**Non-interactive mode** (`--auto-approve`): do not prompt and do not STOP. Leave the rejected candidates undistilled, keep them counted in the `rejected` bucket (the SC-01 equation still balances), surface them in the Phase 9 completion report, and proceed to Phase 6. Their content remains in the workspace deliverables and `_summary.md`, so nothing is lost — they are simply not auto-distilled into notes this run.
+
+`uncovered > 0` always STOPs (both modes). `rejected > 0` STOPs for a user decision in interactive mode; under `--auto-approve` it is reported and does not block. Otherwise (`uncovered == 0` and no blocking `rejected`), proceed to Phase 6.
 
 ### Phase 6: Deliverable Frontmatter Update (parent)
 
@@ -363,6 +360,7 @@ workspace/{id}/_summary.md
   - INTERMEDIATE_CONCLUSION: {count}
   - IMPLEMENTATION_DETAIL: {count}
   - MERGED_INTO_OTHER: {count}
+- Rejected (invalid justification, not distilled): {R}
 - Uncovered: 0 ✓
 
 ### Created notes
@@ -375,6 +373,10 @@ workspace/{id}/_summary.md
 
 ### Synced related tasks (if any)
 - tasks/xxx/_task.md: open → done
+- ...
+
+### Rejected candidates (not distilled, if any)
+- {candidate_id}: {slug} — {invalid justification} (content remains in the workspace deliverables and `_summary.md`)
 - ...
 
 ### Open issues (carried forward)
@@ -421,4 +423,5 @@ If the /pulse invocation fails, log a 1-line warning to stdout and treat the /cl
 - `.claude/commands/_distill/knowledge-agent.md` — referenced by distillation-agent.md for Evergreen check procedure
 - `.claude/commands/_distill/task-extraction.md` — referenced by Phase 8.1 for task extraction rules
 - `docs/decisions/2026-04-08-073-close-two-layer-subagent-delegation.md` — ADR-073 rationale
+- `docs/decisions/2026-06-25-083-close-remove-candidate-approval-gate.md` — ADR-083 (Phase 3 user checkpoint removed; downstream defenses retained)
 - `docs/skill-specs/close.md` — IAD (rule table for testing)
