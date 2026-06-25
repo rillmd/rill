@@ -4458,14 +4458,22 @@ EOF
 # a command shows that command's help and exits 0 — it is never treated as a
 # positional argument. Without this, `rill mkfile --help` created a `--help/`
 # directory plus a timestamped file, and `rill log --help` wrote a journal
-# entry whose body was literally "--help". Commands that implement their own
-# richer `-h|--help|help` handler are left to respond themselves.
+# entry whose body was literally "--help".
+#
+# Only the known commands listed below are intercepted: the ones that would
+# otherwise consume the flag as a positional argument, or run a side effect
+# that ignores it. Commands with their own `-h|--help|help` handler (vault,
+# init, update, crypt, config, migrate-projects, guard, pages-pending-update)
+# and unknown / mistyped commands are deliberately NOT listed, so they fall
+# through to the dispatch below — which shows their own help, or reports
+# "Unknown command" and exits non-zero for a typo. Keep this list in sync with
+# the file-creating / side-effecting commands in the dispatch.
 if [ "$#" -ge 2 ]; then
     case "$2" in
         -h|--help)
             case "$1" in
-                vault|init|update|crypt|config|migrate-projects|guard) ;;
-                *) cmd_help "$1"; exit 0 ;;
+                log|interactive|i|clip|push|status|edit|plugin|sync|index|task|open|activity-log|touch|mkfile|strip-entity-tags)
+                    cmd_help "$1"; exit 0 ;;
             esac
             ;;
     esac
