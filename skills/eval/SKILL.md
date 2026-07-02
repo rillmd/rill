@@ -139,7 +139,7 @@ Feel free to use Glob, Grep, and Read. No directory restrictions.
 ### Entity files
 - knowledge/people/{id}.md — Person entities. `aliases` field manages name variants (e.g., aliases: [Alex Chen, alex-chen, A. Chen]). `company` field references orgs/{id}
 - knowledge/orgs/{id}.md — Organization entities. Has `aliases` field
-- knowledge/projects/{id}.md — Project entities. `See Also` section contains navigation links to related workspaces and tasks
+- projects/{id}/_project.md — Project entities (ADR-080: moved from the old knowledge/projects/{id}.md flat layout). `See Also` section contains navigation links to related workspaces and tasks
 
 ### File naming conventions
 - knowledge/notes/ file names often use the entity ID as a prefix (e.g., acme-saas-pricing-model.md -> related to projects/acme-saas)

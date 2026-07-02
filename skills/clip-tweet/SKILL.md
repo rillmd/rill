@@ -5,6 +5,8 @@ description: Ingest a single Twitter/X tweet URL into inbox/tweets/, fetch its c
 
 # /clip-tweet — Tweet Ingestion
 
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
+
 > **Tool references in this skill** (`shell`, `WebFetch`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in tools as named; Codex CLI uses `apply_patch` / shell / `--search` etc. as appropriate.
 
 Ingests a Twitter/X tweet URL into `inbox/tweets/`, fetches the content via `fetch-tweet.sh`, and generates an organized version in `_organized/`. A skill that runs `rill clip` + `/distill` Phase 2 (tweet) in one shot.
@@ -72,7 +74,7 @@ Interpret `engagement-save-ratio` and `engagement-rate` from the script output a
 - Neither applies → omit `engagement-signal`
 
 #### Related Projects
-Match the tweet content against projects in `knowledge/projects/`, and if related project IDs exist, add `relevance-to: [id1, id2]` to the frontmatter (max 2). Use the file names (= IDs) in knowledge/projects/ and the name in _workspace.md as references. Omit if none apply.
+Match the tweet content against projects in `projects/*/_project.md` (ADR-080: projects moved from the old knowledge/projects/ flat layout), and if related project IDs exist, add `relevance-to: [id1, id2]` to the frontmatter (max 2). Use the directory names (= IDs) under projects/ and the name in _workspace.md as references. Omit if none apply.
 
 ### Step 4: Generate Organized Version in _organized/
 

@@ -197,7 +197,7 @@ Binary files with PII (scanned PDFs, photos) are gitignored by convention — th
 
 ## 5. Processing Pipeline
 
-Every skill is a single Markdown file in `.claude/commands/`. The file *is* the skill — reading it shows you exactly what it does, with no hidden logic.
+Every skill is a plain Markdown file, in one of two formats: `.claude/commands/{name}.md` or `skills/{name}/SKILL.md`. Five skills — `project`, `promote`, `pulse`, `refresh-project`, `retrospective` — ship only in the `SKILL.md` format. The file *is* the skill — reading it shows you exactly what it does, with no hidden logic.
 
 | Skill | Reads | Writes | Purpose |
 |-------|-------|--------|---------|
