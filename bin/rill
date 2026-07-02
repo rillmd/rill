@@ -3025,6 +3025,16 @@ cmd_mkfile() {
     now_iso="$(date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/')"
     now_date="${override_date:-$(date +%Y-%m-%d)}"
 
+    # ADR-080: knowledge/projects/ is retired — projects live at
+    # projects/{slug}/_project.md. Reject before the implicit mkdir below,
+    # so a stale caller cannot recreate the retired directory.
+    case "$directory" in
+        knowledge/projects|knowledge/projects/*)
+            echo "Error: knowledge/projects is retired (ADR-080). Use: rill mkfile projects --slug {slug} --field 'name=...' --field 'description=...'" >&2
+            return 1
+            ;;
+    esac
+
     # Resolve absolute directory path
     local abs_dir="$RILL_HOME/$directory"
     # ADR-076: for task artifacts (tasks/{slug}), the parent directory must pre-exist.
@@ -3124,7 +3134,7 @@ cmd_mkfile() {
             abs_dir="$task_dir"
             filename="_task.md"
             ;;
-        knowledge/notes|knowledge/people|knowledge/orgs|knowledge/projects|knowledge/self)
+        knowledge/notes|knowledge/people|knowledge/orgs|knowledge/self)
             if [ -z "$slug" ]; then
                 echo "Error: --slug required for $directory" >&2; return 1
             fi
@@ -3460,8 +3470,10 @@ cmd_strip_entity_tags() {
     for f in "$RILL_HOME/knowledge/orgs"/*.md; do
         [ -f "$f" ] || continue; orgs_eids+=("$(basename "$f" .md)")
     done
-    for f in "$RILL_HOME/knowledge/projects"/*.md; do
-        [ -f "$f" ] || continue; projects_eids+=("$(basename "$f" .md)")
+    # ADR-080: projects live at projects/{slug}/_project.md — the slug is the
+    # directory name, not the filename.
+    for f in "$RILL_HOME/projects"/*/_project.md; do
+        [ -f "$f" ] || continue; projects_eids+=("$(basename "$(dirname "$f")")")
     done
 
     local total=$(( ${#people_eids[@]} + ${#orgs_eids[@]} + ${#projects_eids[@]} ))
@@ -3490,10 +3502,14 @@ cmd_strip_entity_tags() {
         done < "$RILL_HOME/taxonomy.md"
     fi
 
+    # Empty-array note: bash 3.2 (macOS default) treats an empty array as
+    # unset, so "${arr[@]}" aborts under `set -u`. Every loop below over a
+    # possibly-empty array uses the "${arr[@]+"${arr[@]}"}" guard idiom.
+
     # Helper: check if a tag is in taxonomy
     _is_taxonomy_tag() {
         local tag="$1"
-        for tt in "${taxonomy_tags[@]}"; do
+        for tt in "${taxonomy_tags[@]+"${taxonomy_tags[@]}"}"; do
             [ "$tag" = "$tt" ] && return 0
         done
         return 1
@@ -3502,9 +3518,9 @@ cmd_strip_entity_tags() {
     # Helper: look up entity type for a given id (projects > orgs > people for collision)
     _lookup_entity_type() {
         local id="$1"
-        for pid in "${projects_eids[@]}"; do [ "$id" = "$pid" ] && echo "projects" && return 0; done
-        for oid in "${orgs_eids[@]}"; do [ "$id" = "$oid" ] && echo "orgs" && return 0; done
-        for hid in "${people_eids[@]}"; do [ "$id" = "$hid" ] && echo "people" && return 0; done
+        for pid in "${projects_eids[@]+"${projects_eids[@]}"}"; do [ "$id" = "$pid" ] && echo "projects" && return 0; done
+        for oid in "${orgs_eids[@]+"${orgs_eids[@]}"}"; do [ "$id" = "$oid" ] && echo "orgs" && return 0; done
+        for hid in "${people_eids[@]+"${people_eids[@]}"}"; do [ "$id" = "$hid" ] && echo "people" && return 0; done
         return 0
     }
 
@@ -3521,7 +3537,7 @@ cmd_strip_entity_tags() {
     local fixed=0
     local checked=0
 
-    for filepath in "${files[@]}"; do
+    for filepath in "${files[@]+"${files[@]}"}"; do
         [ -f "$filepath" ] || continue
         ((checked++))
 
