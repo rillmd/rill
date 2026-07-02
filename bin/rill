@@ -3081,6 +3081,37 @@ cmd_mkfile() {
             fi
             filename="$(printf '%03d' "$next_num")-${slug}.md"
             ;;
+        workspace)
+            # Workspace meta file lives at workspace/{id}/_workspace.md
+            # (one-file directory, same pattern as tasks/ and projects/).
+            # The slug is the directory name as-is: callers pass the full
+            # id (typically {YYYY-MM-DD}-{topic}) themselves, so no date
+            # is prepended here. Before this branch existed, bare
+            # `workspace` fell through to the timestamp fallback and
+            # produced a flat workspace/{date}-{slug}.md file — doubling
+            # the date for date-prefixed ids.
+            if [ -z "$slug" ]; then
+                echo "Error: --slug required for workspace" >&2; return 1
+            fi
+            case "$slug" in
+                */*) echo "Error: workspace --slug must be a bare id, not a path" >&2; return 1 ;;
+                _*)  echo "Error: workspace --slug cannot start with underscore" >&2; return 1 ;;
+            esac
+
+            local ws_dir="$abs_dir/$slug"
+            if [ -e "$ws_dir" ] && [ ! -d "$ws_dir" ]; then
+                echo "Error: workspace/$slug exists and is not a directory" >&2; return 1
+            fi
+            if [ -f "$ws_dir/_workspace.md" ]; then
+                echo "Error: workspace/$slug/_workspace.md already exists" >&2; return 1
+            fi
+            # The documented contract passes --type workspace; default it
+            # so the meta file never lands without its type discriminator.
+            type="${type:-workspace}"
+            mkdir -p "$ws_dir"
+            abs_dir="$ws_dir"
+            filename="_workspace.md"
+            ;;
         tasks/*/*)
             # ADR-076: sub-directories beneath tasks/{slug}/ are not allowed
             echo "Error: tasks sub-directory must be single level (tasks/{slug})" >&2
@@ -3254,6 +3285,21 @@ cmd_mkfile() {
         case "$directory" in
             reports/*)
                 echo "date: $now_date"
+                ;;
+            workspace)
+                # One-file-directory meta (workspace/{id}/_workspace.md).
+                # `id` mirrors the directory name. Status defaults to
+                # `active` when the caller does not pass one — a freshly
+                # created workspace is by definition being worked on.
+                # /focus fills name / origin / tags via Edit afterwards.
+                echo "id: $slug"
+                local has_ws_status=0
+                if [ -n "$extra_fields" ] && echo "$extra_fields" | grep -q '^status='; then
+                    has_ws_status=1
+                fi
+                if [ "$has_ws_status" -eq 0 ]; then
+                    echo "status: active"
+                fi
                 ;;
             workspace/*)
                 local topic
@@ -4359,6 +4405,7 @@ Outputs the relative file path to stdout.
 Examples:
   rill mkfile reports/daily --type daily-note
   rill mkfile reports/newsletter --type newsletter --field 'keywords=[Claude, AI]'
+  rill mkfile workspace --slug 2026-03-23-topic --type workspace
   rill mkfile workspace/2026-03-23-topic --slug analysis --type research
   rill mkfile knowledge/notes --slug saas-pricing --type insight --field 'source=inbox/journal/2026-03-23.md'
 EOF
