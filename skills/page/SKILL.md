@@ -13,6 +13,8 @@ gui:
 
 # /page — Conversational Pages
 
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
+
 > **Tool references in this skill** (`Read`, `Edit`, `Grep`, `Glob`, `shell`, `AskUserQuestion`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in tools as named; Codex CLI uses `apply_patch` / `--search` / shell / its own question primitive as appropriate.
 
 Have a conversation with your pages. Pages evolve through dialogue and incremental edits, not regeneration. The default action opens a conversational session centered on a page; updates happen as targeted edits with a diff preview, and can be undone on request.
@@ -37,7 +39,7 @@ When called with a page id or path, open a conversation centered on that page. T
 2. Read `pages/{id}.recipe.md` (mandatory)
 3. **Load contextual background** (this is the key — do not skip):
    - Read each file listed in `frontmatter.sources` as **context**, not just for change detection. Sources are known-relevant files; their content is the conversational backdrop
-   - If the page has `mentions`, read the referenced entity files (`knowledge/people/*.md`, `knowledge/orgs/*.md`, `knowledge/projects/*.md`) for entity-level context
+   - If the page has `mentions`, read the referenced entity files (`knowledge/people/*.md`, `knowledge/orgs/*.md`, `projects/*/_project.md`) for entity-level context
    - Do not perform wide exploratory search (e.g., Grep across workspace/tasks) at session start — that is reserved for the "full refresh" intent. Sources + mentions is the ceiling here
 4. Detect changes and new candidates that the user should notice:
    a. **Known sources changed (Layer 1)**: For each file in `frontmatter.sources`, check if it was modified after the page's `frontmatter.updated || frontmatter.created`. Use `git log --since={updated} --name-only -- {source}` or compare file mtime. Summarize only what's actually different from what the page already reflects

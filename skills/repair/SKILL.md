@@ -36,8 +36,8 @@ Build the following once (shared prefix for all agents):
 4. **Identify mega-tags (50+ uses)**: Bulk-extract tags from `knowledge/notes/*.md` frontmatter and tally usage counts (shell one-liner: `for f in knowledge/notes/*.md; do awk ... done | sort | uniq -c | sort -rn`). List tag names with 50+ uses. If none, note "No mega-tags"
 5. Read `knowledge/people/*.md` and compress into **one-line mapping format** (e.g., `alex-chen: Alex Chen (Alex, Chen)`)
 6. Read `knowledge/orgs/*.md` and compress into **one-line mapping format**
-7. Read `knowledge/projects/*.md` and compress into **one-line mapping format**
-8. Generate an **entity ID list** (comma-separated) from all filenames (without extension) in knowledge/{people,orgs,projects}/
+7. Read `projects/*/_project.md` and compress into **one-line mapping format** (ADR-080: projects moved from `knowledge/projects/*.md` flat layout to top-level `projects/{slug}/_project.md` per-directory layout)
+8. Generate an **entity ID list** (comma-separated) from all filenames (without extension) in knowledge/{people,orgs}/ plus directory names under projects/
 
 **Important: Do not read the full text of target files in the parent context. Pass only file paths to agents and let agents Read them internally**
 
