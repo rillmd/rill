@@ -33,7 +33,7 @@ $ARGUMENTS — one of the following:
 **3-Layer Context Collection** (execute in parallel):
 
 5. **Identity: Interest Profile** — Read `knowledge/self/profile.md` + `knowledge/self/interests.md` + `knowledge/self/direction.md` (the Identity layer is the static + medium-velocity combination)
-6. **Identity: Project Entities** — Read all `knowledge/projects/*.md` (get Competitors, Watch Keywords)
+6. **Identity: Project Entities** — Read all `projects/*/_project.md` (get Competitors, Watch Keywords). (ADR-080: projects moved from `knowledge/projects/*.md` flat layout to top-level `projects/{slug}/_project.md` per-directory layout)
 7. **Attention: Workspaces** — From all directories under `workspace/`, read `_workspace.md` (or `_session.md`) for **workspaces created within the past 2 weeks**, extracting (regardless of status — both active and completed):
    - `# heading` (workspace name)
    - Description text immediately after heading (1-2 lines)
@@ -60,7 +60,7 @@ Integrate the 3-layer context (Identity / Attention / Impulse) and generate sear
 
 #### Alert Category (2-3 items) — Focused on detecting changes
 
-**Source**: knowledge/projects/ Competitors + Watch Keywords + self/interests.md Career
+**Source**: projects/*/_project.md Competitors + Watch Keywords + self/interests.md Career
 **Purpose**: Detect competitor movements and changes directly affecting projects
 
 - Generate keywords from each Active Project's Watch Keywords and major competitor names

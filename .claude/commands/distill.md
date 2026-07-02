@@ -54,10 +54,10 @@ When a file or non-workspace directory is specified.
 
 - Read the "Topic Tags" table from `taxonomy.md` and generate **YAML list format (name + desc)** (exclude deprecated tags). Example: `- name: api-design\n    desc: API, interface, and protocol design`
   **Important: Tag vocabulary must always be passed in YAML list format**. Inline format like `tag(description)` is prohibited (ADR-046 D46-3)
-- Generate **entity ID list** from all filenames (without extension) in knowledge/{people,orgs,projects}/ (used for entity stripping in post-processing)
+- Generate **entity ID list** from all filenames (without extension) in knowledge/{people,orgs}/ plus directory names under projects/ (used for entity stripping in post-processing)
 - Read `knowledge/people/*.md` and compress into **extended one-line mapping format** (e.g., `people/jane-smith: Jane Smith | aliases: Jane,J. Smith | company: acme-corp`) — type prefix required (ADR-053). company is an orgs/ id. Aliases are comma-separated
 - Read `knowledge/orgs/*.md` and compress into **one-line mapping format** (e.g., `orgs/acme-corp: Acme Corporation (Acme, Acme Inc)`)
-- Read `knowledge/projects/*.md` and compress into **one-line mapping format** (e.g., `projects/phoenix: Project Phoenix (active, tags: infrastructure)`)
+- Read `projects/*/_project.md` and compress into **one-line mapping format** (e.g., `projects/phoenix: Project Phoenix (active, tags: infrastructure)`). (ADR-080: projects moved from `knowledge/projects/*.md` flat layout to top-level `projects/{slug}/_project.md` per-directory layout)
 - Read `.claude/commands/_distill/task-extraction.md` and store contents in `{task_extraction_rules}` variable (single definition of task extraction rules)
 - ※ Do not generate knowledge/notes/ filename list (each agent explores via Glob/Grep, D48-2)
 - ※ Task duplicate checking is done by parent context in batch (scan existing tickets in `tasks/`)
@@ -67,7 +67,7 @@ When a file or non-workspace directory is specified.
 
 After the entity-mapping reads above, compute the entity Tier dict by counting mentions across the vault. This dict is injected as shared context into `_distill/knowledge-agent.md` (artifact 013 §6.1), enabling Tier-aware processing without per-agent grep.
 
-Run the following Bash inline. Scope: `inbox/_organized/` + `workspace/` + `tasks/` + `knowledge/notes/` + `reports/daily/` + `reports/newsletter/` (6 dirs). `knowledge/{people,orgs,projects}/` and `knowledge/self/` are excluded (entity self-references / singleton, 013 §2.2).
+Run the following Bash inline. Scope: `inbox/_organized/` + `workspace/` + `tasks/` + `knowledge/notes/` + `reports/daily/` + `reports/newsletter/` (6 dirs). `knowledge/{people,orgs}/`, `projects/`, and `knowledge/self/` are excluded (entity self-references / singleton, 013 §2.2).
 
 ```bash
 # Tier dict (artifact 013 §5.3)
