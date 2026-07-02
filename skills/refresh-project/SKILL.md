@@ -68,10 +68,10 @@ $ARGUMENTS — one of the following:
    Grep(pattern="^mentions:.*projects/{slug}\b", path="workspace/", glob="**/_workspace.md", output_mode="files_with_matches")
    ```
 2. For each matched file, Read the frontmatter and extract `status`, `name`, `updated` (or `created` if `updated` is absent).
-3. Bucket by status:
+3. Bucket by the workspace's own `status` (the workspace enum `active | completed | on-hold | pilot | planning` — not the project status enum `planning | active | paused | done`):
    - **Active bucket**: `status: active`
    - **Completed bucket**: `status: completed` (these are the workspaces a `/close` has already produced a `_summary.md` for — typically the surface a `/promote` has already crystallised, so they retain provenance value)
-   - **Drop**: `status: on-hold`, `status: planning`, `status: pilot`, etc. (not live, not historical-of-record)
+   - **Drop**: any other status — the workspace enum's remaining values (`status: on-hold`, `status: planning`, `status: pilot`) and any stray project-vocabulary value (`status: paused`, `status: done`) that has leaked into a workspace file; not live, not historical-of-record
 4. Sort each bucket by `updated` descending (most recently touched first).
 5. Cap the Completed bucket at the 20 most-recently-touched entries (older history lives in `See Also`, plain Grep, or `/project review`).
 
