@@ -3094,7 +3094,7 @@ cmd_mkfile() {
                 echo "Error: --slug required for workspace" >&2; return 1
             fi
             case "$slug" in
-                */*) echo "Error: workspace --slug must be a bare id, not a path" >&2; return 1 ;;
+                */*|.|..) echo "Error: workspace --slug must be a bare id, not a path" >&2; return 1 ;;
                 _*)  echo "Error: workspace --slug cannot start with underscore" >&2; return 1 ;;
             esac
 
