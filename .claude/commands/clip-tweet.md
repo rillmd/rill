@@ -67,7 +67,7 @@ Interpret `engagement-save-ratio` and `engagement-rate` from the script output a
 - Neither applies → omit `engagement-signal`
 
 #### Related Projects
-Match the tweet content against projects in `projects/*/_project.md` (ADR-080: projects moved from the old knowledge/projects/ flat layout), and if related project IDs exist, add `relevance-to: [id1, id2]` to the frontmatter (max 2). Use the directory names (= IDs) under projects/ and the name in _workspace.md as references. Omit if none apply.
+Match the tweet content against projects in `projects/*/_project.md` (ADR-080: projects moved from the old knowledge/projects/ flat layout), and if related project IDs exist, add `relevance-to: [id1, id2]` to the frontmatter (max 2). Use the directory names (= IDs) under projects/ and the `name` field in each `projects/{slug}/_project.md` as references. Omit if none apply.
 
 ### Step 4: Generate Organized Version in _organized/
 
