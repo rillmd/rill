@@ -113,7 +113,7 @@ The app and CLI read the same vault. Start with either; they stay in sync throug
 
 <!-- AUTO-GENERATED:skills-end -->
 
-Every skill is a single Markdown file in `.claude/commands/`. Read the file to see exactly what it does — there is no hidden logic.
+Every skill is a single Markdown file — canonically `skills/{name}/SKILL.md` (deployed to your vault as `.claude/skills/{name}/SKILL.md`; `close` and `distill` still live in `.claude/commands/` pending migration). Read the file to see exactly what it does — there is no hidden logic.
 
 ## Quick Start
 
@@ -257,7 +257,7 @@ Rill's behavior lives in its source files. When you run `claude` inside a Rill v
 | Area | File(s) |
 |------|---------|
 | Information architecture | [docs/architecture.md](docs/architecture.md) |
-| Skill behavior | [`.claude/commands/*.md`](.claude/commands) |
+| Skill behavior | [`skills/*/SKILL.md`](skills) (plus [`.claude/commands/`](.claude/commands) for `close` / `distill` and internal templates) |
 | Directory conventions | [`.claude/rules/rill-*.md`](.claude/rules) |
 | File placement rules | [`inbox/<type>/CLAUDE.md`](inbox) |
 | Plugin authoring | [plugins/README.md](plugins/README.md) |

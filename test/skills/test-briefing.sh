@@ -37,6 +37,10 @@ if [[ -z "$VAULT_DIR" ]]; then
   cp -r "$FIXTURES_DIR"/* "$VAULT_DIR/"
   REPO_DIR="$(cd "$TEST_DIR/.." && pwd)"
   cp -r "$REPO_DIR/.claude" "$VAULT_DIR/.claude"
+  # Mirror the deploy layout: source skills/*/SKILL.md ships to the vault
+  # as .claude/skills/*/SKILL.md (canonical skill form; see bin/rill cmd_update).
+  mkdir -p "$VAULT_DIR/.claude/skills"
+  cp -r "$REPO_DIR/skills/"* "$VAULT_DIR/.claude/skills/"
   cp -r "$REPO_DIR/bin" "$VAULT_DIR/bin"
   [[ -d "$REPO_DIR/plugins" ]] && cp -r "$REPO_DIR/plugins" "$VAULT_DIR/plugins"
   [[ -f "$REPO_DIR/taxonomy.md" ]] && cp "$REPO_DIR/taxonomy.md" "$VAULT_DIR/taxonomy.md"
@@ -120,6 +124,9 @@ if [[ -f "$DAILY_NOTE" ]]; then
 
   # SC-02: Activity section (v3: 今日の流れ / v2 fallback: Yesterday's Activity)
   HAS_ACTIVITY=$({ grep -c '^## .*流れ\|^## .*Yesterday\|^## .*Activity' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
+  # v3 English rendering ("Today's Flow") — additive; the patterns above are unchanged
+  HAS_ACTIVITY_EN=$({ grep -c '^## .*Flow' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
+  HAS_ACTIVITY=$((HAS_ACTIVITY + HAS_ACTIVITY_EN))
   assert_gt "$HAS_ACTIVITY" 0 "SC-02: Has activity section"
 
   # SC-03: Focus section (v3: 今日の重点 / v2 fallback: Today's Focus)
@@ -128,6 +135,9 @@ if [[ -f "$DAILY_NOTE" ]]; then
 
   # SC-04: Cards section (v3: 並走 N 件 / v2 fallback: Situation Analysis)
   HAS_ANALYSIS=$({ grep -c '^## .*並走\|^## .*Situation\|^## .*Analysis' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
+  # v3 English rendering ("In Parallel (N)") — additive; the patterns above are unchanged
+  HAS_ANALYSIS_EN=$({ grep -c '^## .*Parallel' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
+  HAS_ANALYSIS=$((HAS_ANALYSIS + HAS_ANALYSIS_EN))
   assert_gt "$HAS_ANALYSIS" 0 "SC-04: Has cards section"
 
   # SC-05: Notes (optional — only check if content warrants it)

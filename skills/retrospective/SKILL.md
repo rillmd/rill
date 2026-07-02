@@ -13,7 +13,7 @@ gui:
 
 # /retrospective — Weekly Retrospective
 
-> **Registration convention**: skill metadata lives at `skills/retrospective/SKILL.md` and follows the `/pulse` precedent (`skills/pulse/SKILL.md`); there is **no** `.claude/commands/retrospective.md` and one is not required. The `rill update` propagation of `skills/*/SKILL.md` to consumer vaults is tracked as a separate follow-up.
+> **Registration convention**: `skills/{name}/SKILL.md` is the canonical skill form; there is **no** `.claude/commands/retrospective.md` and one is not required. `rill update` propagates `skills/*/SKILL.md` to consumer vaults as `.claude/skills/{name}/SKILL.md`.
 
 **Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
 

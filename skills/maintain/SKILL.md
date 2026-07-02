@@ -5,6 +5,8 @@ description: Run note quality maintenance — invoke /inspect to diagnose vault 
 
 # /maintain — Quality Maintenance
 
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
+
 > **Tool references in this skill** (`sub-agent`, "skill invocation") describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in Skill / Agent tools as named; Codex CLI uses its own skill invocation mechanism (mention / implicit / `/skills`) and sub-agent mechanism as appropriate.
 
 Runs note quality inspection and repair sequentially. Diagnoses issues with /inspect, then fixes them with /repair if any are found.
