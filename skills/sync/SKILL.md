@@ -36,10 +36,10 @@ Run the "Single Plugin Execution" procedure for the specified plugin only.
 
 A plugin's directory may live under either of:
 
-- `plugins/{name}/` — standard layout (distributed by `rill update`)
 - `plugins/local/{name}/` — vault-local plugin (track: local; e.g. UI-only sidebar plugins)
+- `plugins/{name}/` — standard layout (distributed by `rill update`)
 
-Check both in this order. If neither exists, treat the plugin as missing and report it (do not abort the overall run; continue with the remaining plugins).
+Check both in this order — local wins on a name conflict, matching the CLI's `_resolve_plugin_dir` (which warns and picks local when both exist). If neither exists, treat the plugin as missing and report it (do not abort the overall run; continue with the remaining plugins).
 
 ### Single Plugin Execution
 
