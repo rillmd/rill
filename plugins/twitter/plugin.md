@@ -26,7 +26,7 @@ Common:
 - **Source Adapter**: `adapter.sh` — Import tweet URLs from iCloud Drive
 - **Distill Handler**: `distill.md` — Tweet organization prompt for /distill Phase 2
 - **Skill**: `/sync-twitter` — Interactive sync (Claude Code)
-- **Skill**: `/clip-tweet` — Individual tweet import (separate `.claude/commands/clip-tweet.md`)
+- **Skill**: `/clip-tweet` — Individual tweet import (separate skill, `skills/clip-tweet/SKILL.md`)
 
 ## Setup (iPhone pipeline)
 

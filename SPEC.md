@@ -1093,14 +1093,16 @@ Implements data ingestion from external services as interchangeable "plugins."
 
 **Skill distribution model**:
 
+**The canonical form of a skill is `skills/{name}/SKILL.md`** in the source repository, deployed to each vault as `.claude/skills/{name}/SKILL.md`. `.claude/commands/` remains in use only for: (i) skills not yet migrated to the canonical form (`close`, `distill`), (ii) internal sub-agent templates in `_`-prefixed directories (`_close/`, `_distill/`, `_lib/`, `_retrospective/`, `_task/` — read by skills, not user-invocable), (iii) plugin command symlinks created by `rill plugin enable`, and (iv) user-created personal skills. A skill must not be maintained in both forms; `rill update` removes retired managed files from vaults (stale cleanup pass).
+
 Tier 1-2 skills are distributed from the source repository (`~/.rill/source/`) to vaults. Initial copy via `rill init`, sync to latest via `rill update`. Distribution targets are recorded in the vault's `.rill/managed-files.txt` (Category A: managed). User-created skills (`personal-*.md`, `my-*.md`) are unmanaged and untouched by `rill update`.
 
 **3 Tier classification**:
 
 | Tier | Description | Examples | Distribution Method |
 |------|-------------|---------|-------------------|
-| Tier 1: Core | System foundation skills | `/distill`, `/briefing`, `/plugin`, `/sync` | `managed-files.txt` (auto-sync via `rill update`) |
-| Tier 2: Built-in | Standard workflows | `/focus`, `/close` | `managed-files.txt` (auto-sync via `rill update`) |
+| Tier 1: Core | System foundation skills | `/distill`, `/briefing`, `/plugin`, `/sync` | `managed-files.txt` (auto-sync via `rill update`; canonical form `skills/{name}/SKILL.md` → vault `.claude/skills/{name}/SKILL.md`) |
+| Tier 2: Built-in | Standard workflows | `/focus`, `/close` | `managed-files.txt` (auto-sync via `rill update`; same canonical form — `close`/`distill` still ship as `.claude/commands/*.md` pending migration) |
 | Tier 3: External | Plugin-provided skills | `/sync-meetings` | `plugins/*/commands/` → symlink to `.claude/commands/` |
 
 **Directory structure**:

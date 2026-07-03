@@ -197,7 +197,7 @@ Binary files with PII (scanned PDFs, photos) are gitignored by convention — th
 
 ## 5. Processing Pipeline
 
-Every skill is a plain Markdown file, in one of two formats: `.claude/commands/{name}.md` or `skills/{name}/SKILL.md`. Five skills — `project`, `promote`, `pulse`, `refresh-project`, `retrospective` — ship only in the `SKILL.md` format. The file *is* the skill — reading it shows you exactly what it does, with no hidden logic.
+Every skill is a plain Markdown file. **The canonical form is `skills/{name}/SKILL.md`** (deployed into vaults as `.claude/skills/{name}/SKILL.md`); no skill is maintained in two forms. Two skills — `close` and `distill` — still ship in the legacy `.claude/commands/{name}.md` format pending migration, and `.claude/commands/` also holds the `_`-prefixed internal sub-agent templates, plugin command symlinks, and your personal skills. The file *is* the skill — reading it shows you exactly what it does, with no hidden logic.
 
 | Skill | Reads | Writes | Purpose |
 |-------|-------|--------|---------|
@@ -216,7 +216,7 @@ Every skill is a plain Markdown file, in one of two formats: `.claude/commands/{
 | `/clip-tweet` | tweet URL | `inbox/tweets/` | Single-tweet ingestion |
 | `/plugin` | `plugins/` | `plugins/.installed`, `plugins/.enabled` | Interactive plugin management |
 
-The authoritative description of each skill lives in its source file. Open [`.claude/commands/`](../.claude/commands) and read.
+The authoritative description of each skill lives in its source file. Open [`skills/`](../skills) (or [`.claude/commands/`](../.claude/commands) for `close` / `distill`) and read.
 
 ## 6. Extension Points
 
@@ -235,7 +235,7 @@ See [plugins/README.md](../plugins/README.md).
 
 ### 6.2 Custom skills (`.claude/commands/{your-skill}.md`)
 
-A skill is a Markdown file with a `gui:` frontmatter block and a structured body (`## Arguments`, `## Procedure`). Personal skills live alongside official ones; `rill update` preserves yours.
+A skill is a Markdown file with a `gui:` frontmatter block and a structured body (`## Arguments`, `## Procedure`). Personal skills live in `.claude/commands/` alongside the plugin symlinks and internal templates; `rill update` preserves yours (only files it distributed itself are managed — and cleaned up when retired upstream). The `.claude/skills/{name}/SKILL.md` layout also works for personal skills if you prefer the canonical form.
 
 See [docs/creating-skills.md](creating-skills.md) for the minimum template and how to use an existing skill as your scaffold.
 
@@ -288,7 +288,7 @@ Because reading a skill file must be the authoritative way to know what it does.
 This document is hand-maintained but guarded by `rill docs lint`, which verifies:
 
 - Every directory listed here (`inbox/journal`, `knowledge/notes`, etc.) exists in the project structure
-- Every skill mentioned (`/distill`, `/focus`, etc.) has a file in `.claude/commands/`
+- Every skill mentioned (`/distill`, `/focus`, etc.) has a source file — `skills/{name}/SKILL.md` (canonical) or `.claude/commands/{name}.md` (legacy: `close`, `distill`)
 - Every rule file in `.claude/rules/rill-{inbox,knowledge,workspace,tasks,outputs}.md` links back to this document
 
 Changes to the layer model or to any skill's data flow **must** be reflected here. The lint will fail the CI otherwise.

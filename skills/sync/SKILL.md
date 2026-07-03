@@ -20,7 +20,7 @@ $ARGUMENTS — plugin name (omit: run all plugins sequentially)
 ### When no argument is given (run all plugins at once)
 
 1. Read `plugins/.enabled` to get the list of enabled plugins. If the file does not exist or is empty, report "No plugins enabled. Run 'rill plugin install <name>' and 'rill plugin enable <name>' to set up plugins." and exit
-2. For each enabled plugin name, Read `plugins/{name}/plugin.md` frontmatter
+2. For each enabled plugin name, resolve its directory (see "Plugin Directory Resolution" below) and Read `plugin.md` frontmatter
 3. Run all enabled plugins sequentially (no selection prompt):
    - For each plugin, execute the "Single Plugin Execution" procedure below
    - Report the result for each plugin briefly
@@ -32,17 +32,23 @@ $ARGUMENTS — plugin name (omit: run all plugins sequentially)
 
 Run the "Single Plugin Execution" procedure for the specified plugin only.
 
+### Plugin Directory Resolution
+
+A plugin's directory may live under either of:
+
+- `plugins/local/{name}/` — vault-local plugin (track: local; e.g. UI-only sidebar plugins)
+- `plugins/{name}/` — standard layout (distributed by `rill update`)
+
+Check both in this order — local wins on a name conflict, matching the CLI's `_resolve_plugin_dir` (which warns and picks local when both exist). If neither exists, treat the plugin as missing and report it (do not abort the overall run; continue with the remaining plugins).
+
 ### Single Plugin Execution
 
-1. Verify that `plugins/{name}/` exists (error if it does not)
-2. Check whether `plugins/{name}/commands/` contains a `sync-{name}.md` skill
+1. Resolve the plugin directory per "Plugin Directory Resolution". If neither path exists, report "Plugin '{name}' is enabled but not installed" and skip
+2. Check whether `{plugin_dir}/commands/` contains a `sync-{name}.md` skill
 3. **If the skill exists**: Read its procedure and follow its instructions (AI-powered sync)
-4. **If no skill**: Fall back to the following:
-   a. Verify the existence of `plugins/{name}/adapter.sh`
-   b. Run `rill sync {name}` in a shell
-   c. Check the result:
-      - Success: Report the number of newly ingested files
-      - Failure: Analyze the error and propose remediation
+4. **If no skill**: Check whether `{plugin_dir}/adapter.sh` exists:
+   - **If adapter.sh exists**: Run `rill sync {name}` in a shell. Report newly ingested files on success, or analyze the error and propose remediation on failure
+   - **If neither sync skill nor adapter.sh exists**: The plugin is not a sync source (e.g. UI-only, capability provider, or passive distill handler). Skip silently and note it in the summary as "no sync source"
 
 ## Rules
 

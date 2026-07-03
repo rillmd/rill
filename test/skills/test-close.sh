@@ -41,6 +41,10 @@ if [[ -z "$VAULT_DIR" ]]; then
   # Copy rill CLI, skill files, and system files from the real repo
   REPO_DIR="$(cd "$TEST_DIR/.." && pwd)"
   cp -r "$REPO_DIR/.claude" "$VAULT_DIR/.claude"
+  # Mirror the deploy layout: source skills/*/SKILL.md ships to the vault
+  # as .claude/skills/*/SKILL.md (canonical skill form; see bin/rill cmd_update).
+  mkdir -p "$VAULT_DIR/.claude/skills"
+  cp -r "$REPO_DIR/skills/"* "$VAULT_DIR/.claude/skills/"
   cp -r "$REPO_DIR/bin" "$VAULT_DIR/bin"
   [[ -d "$REPO_DIR/plugins" ]] && cp -r "$REPO_DIR/plugins" "$VAULT_DIR/plugins"
   # Overlay system files from repo

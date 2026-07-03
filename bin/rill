@@ -2771,8 +2771,16 @@ EOF
             continue
         fi
 
-        # Rebuild managed-files.txt from source (picks up new files)
+        # Rebuild managed-files.txt from source (picks up new files).
+        # Snapshot the previous list first: after the rebuild, entries that
+        # were managed but are no longer produced by the source are retired
+        # upstream and get cleaned out of the vault (see cleanup pass below).
         local managed_file="$vpath/.rill/managed-files.txt"
+        local prev_managed=""
+        if [ -s "$managed_file" ]; then
+            prev_managed="$(mktemp)"
+            cp "$managed_file" "$prev_managed"
+        fi
         : > "$managed_file"  # clear
 
         local file_count=0
@@ -2885,6 +2893,69 @@ EOF
         if [ -f "$rill_source/plugins/.gitignore" ]; then
             mkdir -p "$vpath/plugins"
             cp "$rill_source/plugins/.gitignore" "$vpath/plugins/.gitignore"
+        fi
+
+        # Stale managed-file cleanup: a file managed by the previous update
+        # that the source no longer produces has been retired upstream (e.g.
+        # the .claude/commands/{name}.md duplicates removed when
+        # skills/{name}/SKILL.md became the canonical skill form). Without
+        # this pass, retired files linger in every existing vault — still
+        # loaded by the harness — so upstream deletions would never reach
+        # users.
+        #
+        # Safety: only entries from the previous managed list are candidates
+        # (user files are never listed there); entries must be relative
+        # paths without ".." components; deletion is restricted to the
+        # .claude/ and plugins/ namespaces; symlinks are skipped (plugin
+        # command symlinks are never managed — this is defense-in-depth).
+        # Anything else is reported and left in place.
+        if [ -n "$prev_managed" ] && [ -f "$prev_managed" ]; then
+            local stale stale_abs prune_dir
+            local removed_count=0
+            while IFS= read -r stale; do
+                [ -z "$stale" ] && continue
+                # Still managed this run? (exact line match)
+                if grep -Fxq "$stale" "$managed_file"; then
+                    continue
+                fi
+                # Path-normalization guard: never act on absolute paths or
+                # paths containing a ".." component (corrupted/tampered list).
+                case "$stale" in
+                    /*)
+                        echo "  ⚠ $vname: not removing '$stale' (absolute path in previous managed list)" >&2
+                        continue ;;
+                    ..|../*|*/..|*/../*)
+                        echo "  ⚠ $vname: not removing '$stale' (path traversal in previous managed list)" >&2
+                        continue ;;
+                esac
+                # Namespace restriction: managed cleanup only ever touches
+                # .claude/ and plugins/ (SPEC.md, subdir CLAUDE.md etc. are
+                # left in place and reported).
+                case "$stale" in
+                    .claude/*|plugins/*) ;;
+                    *)
+                        echo "  ℹ $vname: '$stale' is no longer managed (left in place)"
+                        continue ;;
+                esac
+                stale_abs="$vpath/$stale"
+                [ -L "$stale_abs" ] && continue   # never remove symlinks
+                [ -f "$stale_abs" ] || continue   # already gone
+                rm "$stale_abs"
+                removed_count=$((removed_count + 1))
+                # Best-effort: prune parent dirs emptied by the removal,
+                # stopping at the namespace roots.
+                prune_dir="$(dirname "$stale_abs")"
+                while [ "$prune_dir" != "$vpath/.claude" ] \
+                    && [ "$prune_dir" != "$vpath/plugins" ] \
+                    && [ "$prune_dir" != "$vpath" ]; do
+                    rmdir "$prune_dir" 2>/dev/null || break
+                    prune_dir="$(dirname "$prune_dir")"
+                done
+            done < "$prev_managed"
+            rm -f "$prev_managed"
+            if [ "$removed_count" -gt 0 ]; then
+                echo "  ✓ $vname: removed $removed_count retired managed file(s)"
+            fi
         fi
 
         # Regenerate .gitignore for this vault (D009-6)

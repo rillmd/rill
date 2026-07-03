@@ -19,7 +19,8 @@ Personal voice journal + knowledge management system. Core flow: **voice / text 
 ├── pages/          # Human-facing aggregated Materialized Views
 ├── taxonomy.md     # Tag vocabulary management
 └── .claude/
-    ├── commands/   # Claude Code skills
+    ├── skills/     # Claude Code skills (canonical form: {name}/SKILL.md)
+    ├── commands/   # Legacy skills (close, distill), internal templates, plugin symlinks, personal skills
     └── rules/      # Split rules (including this file)
 ```
 
