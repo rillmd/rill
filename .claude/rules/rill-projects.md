@@ -67,6 +67,9 @@ human readers. The GUI and classification flows do not parse it.
 ## Current Focus
 {Free-form 1-3 paragraphs}
 
+## Pending Decisions
+- (derived view of queued `[DECISION-QUEUE]` decisions; recomputed by `/refresh-decisions`, ADR-084)
+
 ## Active Tasks
 - [ ] [task title](../../tasks/{slug}/_task.md) — status / due / depends-on
 
@@ -85,6 +88,9 @@ human readers. The GUI and classification flows do not parse it.
 
 ## See Also
 - (manual links not captured by auto-generated sections)
+
+## Decision Log (optional, append-only)
+- (DONE audit lines from consumed project-scoped decisions, ADR-084)
 ```
 
 ## Section Ownership
@@ -93,12 +99,14 @@ human readers. The GUI and classification flows do not parse it.
 |---|---|---|
 | Goal | `/promote` | At creation and on scope changes |
 | Current Focus | `/distill` profile-agent | Weekly |
+| Pending Decisions | `/refresh-decisions` | After queue writes / resolutions (deterministic derived view, ADR-084) |
 | Active Tasks | `/refresh-project` | Before `/project` invocation |
 | Related Workspaces | `/refresh-project` | Same as above |
 | Watch | `/distill` knowledge-agent | Accumulated from research |
 | Key Facts | `/distill` knowledge-agent | Accumulated, moveOut at 20 cap |
 | Repository | bootstrap + manual | Rare |
 | See Also | Manual | As needed |
+| Decision Log | Consuming agents (append-only, ADR-084 D84-4) | On RESOLVED consumption |
 
 Concurrent writes are guarded by skill-level locks (`.claude/state/{skill-name}.lock`). Section-level locks not required.
 
