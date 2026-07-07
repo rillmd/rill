@@ -61,7 +61,7 @@ Singleton entity (`type: self`). **8 files**, each owned by a distinct velocity 
 - `history.md` — career / event history (manual)
 - `constraints.md` — constraints (family / financial / health, manual)
 
-Referenced by `/briefing`, `/newsletter`, `/pulse`, `/solve`, `/eval`, `/distill profile-agent`. **Guide, not constraint** — LLMs may suggest adjacent areas. `interests.md` / `direction.md` auto-update via `/distill profile-agent` (conservative rules). Design rationale: `workspace/2026-05-07-dream-system-rill-application/006-self-knowledge-layer-design.md`.
+Referenced by `/briefing`, `/newsletter`, `/pulse`, `/solve`, `/eval`, `/distill profile-agent`. **Guide, not constraint** — LLMs may suggest adjacent areas. `interests.md` / `direction.md` auto-update via `/distill profile-agent` (conservative rules). Design rationale: the self layer splits by **update velocity with one writer skill per file** — the high-velocity snapshot (`current-state.md`, overwritten by `/pulse`) is a file AI is expected to read, so it lives here rather than in AI-search-excluded `pages/`; slow identity files (`profile.md`) never get rewritten by snapshot churn.
 
 ## Contact Information (ADR-047)
 

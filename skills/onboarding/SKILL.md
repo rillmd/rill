@@ -76,20 +76,8 @@ Otherwise, create it now. This is the only place the preference is stored — do
 mkdir -p .claude/rules
 ```
 
-Write `.claude/rules/personal-language.md` in `DETECTED_LANG`. Generate the content yourself in the appropriate language. Examples:
+Write `.claude/rules/personal-language.md` in `DETECTED_LANG`. Generate the content yourself in the appropriate language. English (and fallback) example:
 
-**Japanese:**
-```
-# Language Preference
-
-- 本文: 日本語ベース
-- 技術用語: 英語のまま（Markdown, API, frontmatter 等）
-- ファイル名・ディレクトリ名: 英語 kebab-case
-- frontmatter のキー: 英語
-- コミットメッセージ: 英語
-```
-
-**English (and fallback):**
 ```
 # Language Preference
 
@@ -100,7 +88,7 @@ Write `.claude/rules/personal-language.md` in `DETECTED_LANG`. Generate the cont
 - Commit messages: English
 ```
 
-For other languages: generate equivalent content in that language. The body text line must name the language in its own native script. Technical terms that must stay English (Markdown, API, frontmatter, kebab-case) remain as English literals even within non-English lines.
+For other languages: generate the equivalent content in that language — the same five lines, with the body-text line naming the language in its own native script (this matches what `rill init --lang` seeds). Technical terms that must stay English (Markdown, API, frontmatter, kebab-case) remain as English literals even within non-English lines.
 
 **Notify, do not confirm.** The outcome is surfaced as the *first sentence* of the Phase 1 greeting — one line in `DETECTED_LANG` acknowledging which language will be used going forward. Never as a standalone question, yes/no prompt, or step-by-step file-creation walkthrough.
 
@@ -133,7 +121,7 @@ Interpret results:
 
 Greet the user warmly in `DETECTED_LANG`. Keep the tone conversational — this is "hello," not a setup wizard.
 
-**Opening sentence (always first):** Open the greeting with one short sentence — in `DETECTED_LANG` — telling the user which language you'll use from here on (e.g., 日本語の場合「ここからは日本語で進めます。」/ English の場合 "I'll continue in English from here."). Keep it to a single sentence; do not justify the choice or show any file path or reference `personal-language.md`. Then proceed to the framing below.
+**Opening sentence (always first):** Open the greeting with one short sentence — in `DETECTED_LANG` — telling the user which language you'll use from here on (e.g., "I'll continue in English from here.", rendered in `DETECTED_LANG`). Keep it to a single sentence; do not justify the choice or show any file path or reference `personal-language.md`. Then proceed to the framing below.
 
 If `--refresh` is set (returning user):
 > Acknowledge they've already onboarded, skip the "first time" framing, and offer a quick overview.
@@ -183,39 +171,39 @@ If `knowledge/self/profile.md` does not exist, ask for the user's name at the en
    # Interests
 
    ## Deep Interests
-   (常に追いたいテーマ。Newsletter では Deep Dive の主要候補とする)
+   (Themes to follow constantly. The newsletter treats these as the primary Deep Dive candidates.)
 
    ## Curiosity
-   (たまに知りたいテーマ。Newsletter では Discovery の候補とする)
+   (Themes to check in on occasionally. Newsletter Discovery candidates.)
 
    ## Obligations
-   (興味は薄いが対応が必要なテーマ。大きな変化があったときだけ Alert で通知する)
+   (Themes of low interest that still require attention. Alert only on major changes.)
 
    ## Career
-   (キャリア関心。求人動向や企業の動きを Alert で監視する)
+   (Career interests. The newsletter watches job-market and company movements for Alerts.)
    ```
 
-   (Localize the parenthetical hints into `DETECTED_LANG` if not Japanese.)
+   (Localize the parenthetical hints into `DETECTED_LANG`; keep the `## ` headings in English — they are structural keys.)
 
 4. Edit `knowledge/self/direction.md`, replacing the placeholder with:
 
    ```markdown
    # Direction
 
-   ## 現在のメインテーマ
+   ## Current Main Theme
 
    (4-6 lines of prose describing the user's current main theme, priority ordering, and what is intentionally excluded. Ask conversationally in Phase 1, or leave for the user to fill later.)
 
    ## Active Projects
 
-   (Linked list of projects. Each line: `[Project Name](../projects/{id}.md) — 1-line description`. Empty in a fresh vault.)
+   (Linked list of projects. Each line: `[Project Name](../../projects/{id}/_project.md) — 1-line description`. Empty in a fresh vault.)
 
    ## Career
 
    (Long-term career direction in 2-4 lines: job-seeking, switching, going independent, etc.)
    ```
 
-   (Localize headings into `DETECTED_LANG` if not Japanese.)
+   (**Keep the `## ` headings in English** — they are structural lookup keys: `/briefing`, `/pulse`, and the `/distill` profile-agent locate `## Current Main Theme` and `## Active Projects` by these exact names. Localize only the parenthetical hints and, later, the body content into `DETECTED_LANG`.)
 
 5. Leave `current-state.md` / `decisions.md` / `observations.md` / `history.md` / `constraints.md` as skeletons (frontmatter + `# Title` heading only). Each is populated by its responsible skill (`/pulse`, `/retrospective`) later.
 

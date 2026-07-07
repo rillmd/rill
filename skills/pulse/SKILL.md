@@ -1,6 +1,6 @@
 ---
 name: pulse
-description: Refresh knowledge/self/current-state.md — a triaged 80-line/6-section snapshot of the user's current state (direction / active workspaces / open tasks / recent decisions / open questions / known contradictions). Called manually, or auto-chained from /distill + /close, or on-demand by /briefing when the snapshot is stale. Use when the user asks for "今の状態" / "current state" / "what's going on across my workspaces", or when a higher-level skill needs a fresh self-snapshot.
+description: Refresh knowledge/self/current-state.md — a triaged 80-line/6-section snapshot of the user's current state (direction / active workspaces / open tasks / recent decisions / open questions / known contradictions). Called manually, or auto-chained from /distill + /close, or on-demand by /briefing when the snapshot is stale. Use when the user asks for "current state" (in any language) / "what's going on across my workspaces", or when a higher-level skill needs a fresh self-snapshot.
 gui:
   label: "/pulse"
   hint: "Refresh self/current-state.md snapshot"
@@ -19,10 +19,11 @@ gui:
 
 Aggregates active state from `workspace/`, `tasks/`, and `knowledge/self/` and writes a triaged snapshot to `knowledge/self/current-state.md`. The snapshot has a **hard cap of 80 lines / 2 screens** with each section limited to 7 entries (5 for known contradictions).
 
-Design references:
-- `workspace/2026-05-07-dream-system-rill-application/009-pulse-skill-detail-design.md` — full spec
-- `workspace/2026-05-07-dream-system-rill-application/010-pulse-token-cost-analysis.md` — Grep-first 4-stage pipeline (~30-42K tokens / run)
-- `workspace/2026-05-07-dream-system-rill-application/015-execution-wiring.md` — Auto-chain trigger paths
+Design essence:
+
+- The snapshot is a **triage, not an archive**: hard-capped volume, per-section entry caps, overflow dropped or signaled — never appended. Anything needing full detail is reached through the links, not inlined
+- Input collection is **Grep-first**: two bulk status Greps + frontmatter-only Reads. Full-body reads of every active workspace do not scale — at a few dozen active workspaces they cost roughly an order of magnitude more tokens per run than the Grep-first pipeline
+- /pulse is **auto-chained** from the tails of `/distill` and `/close` and invoked on-demand by `/briefing`; cooldown state lives in the `.claude/state/pulse.json` sidecar, never in knowledge frontmatter (frontmatter is a search anchor, not skill telemetry)
 
 ## Arguments
 
@@ -33,7 +34,7 @@ $ARGUMENTS — one of the following:
 
 ## Trigger Model
 
-Three trigger kinds (see 009 §1.1):
+Three trigger kinds:
 
 | Trigger | Source | Cooldown |
 |---|---|---|
@@ -45,7 +46,7 @@ The user does **not** see this distinction at invocation time — the cooldown l
 
 ## Cooldown / State Sidecar
 
-State lives in **`.claude/state/pulse.json`** (sidecar, not in frontmatter — 009 §1.2). Git-tracked so cooldown survives clone (009 §9 OQ5).
+State lives in **`.claude/state/pulse.json`** (sidecar, not in frontmatter). Git-tracked so cooldown survives clone.
 
 ```json
 {
@@ -64,7 +65,7 @@ Cooldown logic:
 
 ## Non-Recursive Contract with /distill
 
-/distill ↔ /pulse must not recurse (009 §1.5):
+/distill ↔ /pulse must not recurse:
 - `/distill` path scoping **excludes `knowledge/self/`** (and especially `current-state.md`). The only self/ file `/distill profile-agent` touches is `self/interests.md` + `self/direction.md` (and rarely `self/profile.md`)
 - `/pulse` does **not** invoke `/distill` (no back-chain)
 - Chain direction: `/distill → /pulse` only
@@ -80,7 +81,7 @@ Cooldown logic:
 
 ### Phase 1: Input collection (Grep-first pipeline)
 
-Two bulk Greps + targeted Reads (009 §2.3, 010 v2):
+Two bulk Greps + targeted Reads (the Grep-first pipeline — see Design essence):
 
 1. **Active workspace scan**:
    ```
@@ -99,11 +100,11 @@ Two bulk Greps + targeted Reads (009 §2.3, 010 v2):
 
 Each section caps at 7 entries (3 for execution gap, 5 for contradictions). All caps are hard — overflow is signaled, not displayed (see Phase 4).
 
-#### Section 1 — 今の方向性 (4-6 line prose, no triage)
+#### Section 1 — Current Direction (4-6 line prose, no triage)
 
-Transcribe the opening prose of `self/direction.md` (the heading-less paragraph at the top, plus the "現在のメインテーマ" bullet list if compact enough). If `direction.md` is >6 lines, take the first 4-6 lines verbatim and link to direction.md for the full version. No summarization — direction.md is the source of truth.
+Transcribe the opening prose of `self/direction.md` (the heading-less paragraph at the top, plus the bullet list of its `## Current Main Theme` section if compact enough — that heading is the canonical English structural key seeded by `/onboarding`; if absent, treat the first `## ` section as the main-theme section). If `direction.md` is >6 lines, take the first 4-6 lines verbatim and link to direction.md for the full version. No summarization — direction.md is the source of truth.
 
-#### Section 2 — 進行中のワークスペース (cap 7)
+#### Section 2 — Active Workspaces (cap 7)
 
 Score each active WS:
 
@@ -127,46 +128,46 @@ Stale penalty:
 Output (each entry 1-2 lines):
 
 ```markdown
-- [{WS name}](workspace/{id}/_workspace.md) — {1-line summary from `## 背景` or h1}
+- [{WS name}](workspace/{id}/_workspace.md) — {1-line summary from the workspace's background/opening section or h1}
 ```
 
-Always append `→ 全 active WS は workspace/ を参照` as a trailing pointer.
+Always append `→ see workspace/ for all active workspaces` as a trailing pointer.
 
-#### Section 3 — 進行中のタスク (cap 7 across 3 subsections)
+#### Section 3 — Active Tasks (cap 7 across 3 subsections)
 
 | Subsection | Filter |
 |---|---|
-| 急ぎ | `status=open` AND (`due ≤ today + 7d` OR `scheduled = today`) |
-| 待機 | `status=waiting` AND `last_modified ≤ 14d` |
+| Urgent | `status=open` AND (`due ≤ today + 7d` OR `scheduled = today`) |
+| Waiting | `status=waiting` AND `last_modified ≤ 14d` |
 | Scheduled | `status=open` AND `8d ≤ scheduled ≤ 30d` |
 
-Top-up priority: 急ぎ → 待機 → Scheduled. Sort within each by `due` / `last_modified` / `scheduled`. If total > 7, drop the lowest-priority overflow silently (do not add "+N more" line — see Phase 3 of 009 §3.3).
+Top-up priority: Urgent → Waiting → Scheduled. Sort within each by `due` / `last_modified` / `scheduled`. If total > 7, drop the lowest-priority overflow silently (do not add a "+N more" line).
 
-Omit empty subsection headings (`### 待機` absent if no waiting tasks).
+Omit empty subsection headings (`### Waiting` absent if no waiting tasks).
 
 ```markdown
-### 急ぎ
+### Urgent
 - {YYYY-MM-DD due} [{title}](tasks/{slug}/_task.md) — {1-line context}
 
-### 待機
-- [{title}](tasks/{slug}/_task.md) — 待機: {what/whom}
+### Waiting
+- [{title}](tasks/{slug}/_task.md) — waiting on: {what/whom}
 
 ### Scheduled
 - {YYYY-MM-DD} [{title}](tasks/{slug}/_task.md)
 ```
 
-#### Section 4 — 直近の意思決定 (cap 7, 14-day window)
+#### Section 4 — Recent Decisions (cap 7, 14-day window)
 
-- If `self/decisions.md` is **absent or empty** → single line: `(retrospective 未実装。Phase 2 で埋まる)`
+- If `self/decisions.md` is **absent or empty** → single line: `(not yet populated — /retrospective fills this in)`
 - Otherwise: extract entries from `decisions.md` whose date is within the 14-day window. Importance = `mentions count` + (1 if cited WS is active, 0 if completed). Top 7:
 
   ```markdown
-  - {YYYY-MM-DD}: {decision summary} (出典 [{WS name}](workspace/{id}/_workspace.md))
+  - {YYYY-MM-DD}: {decision summary} (source: [{WS name}](workspace/{id}/_workspace.md))
   ```
 
-#### Section 5 — 判断ゲート (cap 7, with overflow warning)
+#### Section 5 — Judgment Gates (cap 7, with overflow warning)
 
-**No keyword filter** (009 §3.5 contract). Extract every unchecked checkbox (`- [ ]`) from `## 考えるべき論点` / `## Issues to Consider` / `## Next Steps` headings in active WS `_workspace.md` files. Sort by WS score (Section 2's score) descending, then by `_workspace.md` `updated` descending. Top 7.
+**No keyword filter** (fixed contract). Extract every unchecked checkbox (`- [ ]`) from deliberation and next-action sections in active WS `_workspace.md` files — canonical headings `## Issues to Consider` and `## Next Steps`; workspace bodies are written in the vault's language, so also match the vault-language equivalents of these headings. Sort by WS score (Section 2's score) descending, then by `_workspace.md` `updated` descending. Top 7.
 
 ```markdown
 - [{checkbox text}](workspace/{id}/_workspace.md) — {WS name}
@@ -175,27 +176,27 @@ Omit empty subsection headings (`### 待機` absent if no waiting tasks).
 If total hits ≥ 8, append a warning line:
 
 ```markdown
-⚠ 判断ゲート過剰 ({total} 件、target ≤7)。/focus 過剰の可能性、/retrospective を検討
+⚠ Judgment-gate overload ({total} entries, target ≤7). Possible /focus overuse — consider /retrospective
 ```
 
 If total ≥ 14 (twice target), bold the warning.
 
-#### Section 6 — 執行ギャップ (cap 3, additive signal orthogonal to Section 2/5 scoring)
+#### Section 6 — Execution Gap (cap 3, additive signal orthogonal to Section 2/5 scoring)
 
 **Purpose**: Surface "decided but unexecuted, deadline-past" items that sink from Section 2 (WS score) and Section 5 (judgment gate) because `recency_factor = exp(-days_since_modified / 7)` halves the WS score at >7 days and zeroes at >14 days. This section inverts that decay — stale WSs with unchecked execution items rise to the top here.
 
 **Source set** (stricter than Section 5):
 - Active WS `_workspace.md` files only (no artifacts)
 - WS frontmatter `updated` (fallback `created`) is **> 7 days ago** (skip otherwise)
-- Inside such a WS, read the body and extract unchecked checkboxes (`- [ ]`) only from `## Next Steps` and `## 即時アクション` headings (decided-action sections; stop at the next `## ` heading). Do **not** include `## 考えるべき論点` / `## Issues to Consider` — those are deliberation-stage and stay in Section 5.
+- Inside such a WS, read the body and extract unchecked checkboxes (`- [ ]`) only from decided-action sections — canonical heading `## Next Steps`, plus vault-language equivalents of "next steps" / "immediate actions" headings (stop at the next `## ` heading). Do **not** include `## Issues to Consider` (or its vault-language equivalents) — those are deliberation-stage and stay in Section 5.
 
 **Date-parse failures are defensive** — if a WS's `updated` / `created` cannot be parsed to a date, exclude it from this section (do not crash).
 
 **Sort key**: `days_since_updated × unchecked_count_in_WS` descending. Tie-break: oldest `updated` first (older WS surfaces first within the same product score).
 
-**Cap**: 3 in the initial iteration (intentionally tight — relax later after a sample-size week of operation per 016 §6 schedule). Items beyond cap 3 are dropped silently — no "+N more" footer.
+**Cap**: 3 in the initial iteration (intentionally tight — relax after a sample-size week of operation). Items beyond cap 3 are dropped silently — no "+N more" footer.
 
-**Empty-case**: If no candidates, omit the entire section header (do not render an empty `## 執行ギャップ`).
+**Empty-case**: If no candidates, omit the entire section header (do not render an empty Execution Gap heading).
 
 **Output** (each entry 1 line):
 
@@ -207,54 +208,56 @@ Where `{N}d` = days since `updated` (integer days, e.g. `21d`). Keep `{checkbox 
 
 **Overlap with Section 5**: A given checkbox can in principle appear in both sections (Section 5 keeps `## Next Steps` in its source set). In practice, items that surface here (stale-WS bias) are unlikely to also surface in Section 5 (recent-WS bias). If a duplicate does occur, that is itself a signal — "this item is important AND stale" — and is acceptable for the first iteration. A future revision may refine the partition.
 
-**/briefing impact**: None directly. /briefing's Step C reads `self/current-state.md` whole; the new section is additive context. /briefing may choose to surface 執行ギャップ items in its `## Today's Focus` under P0 if appropriate, but that is a follow-up design decision (out of scope here).
+**/briefing impact**: None directly. /briefing's Step C reads `self/current-state.md` whole; the new section is additive context. /briefing surfaces Section 6 entries as 🟠 Urgent card candidates (see the /briefing composition table).
 
-#### Section 7 — 既知の前提矛盾 (cap 5)
+#### Section 7 — Known Contradictions (cap 5)
 
-- If `reports/retrospective/*.md` does not exist → single line: `(retrospective 未実装。Phase 2 で埋まる)`
+- If `reports/retrospective/*.md` does not exist → single line: `(not yet populated — /retrospective fills this in)`
 - Otherwise: Read the latest `reports/retrospective/{period}.md`, parse the `## Contradictions` section, top 5. Mark with `[aged]` if same item persisted for 4+ weeks across retrospectives.
 
   ```markdown
-  - {summary} (出典: [{WS A}](path), [{WS B}](path))
+  - {summary} (sources: [{WS A}](path), [{WS B}](path))
   ```
 
 ### Phase 3: Render full file
 
-Assemble the 7 sections under a `# Current State — {YYYY-MM-DD HH:MM JST}` heading. The frontmatter (`type: self`, etc.) is already on the existing skeleton — preserve it and overwrite only the body. Section 6 (執行ギャップ) is omitted entirely when empty (per Section 6 empty-case rule); the section numbering still reflects the canonical 7-section layout in this document for clarity.
+Assemble the 7 sections under a `# Current State — {YYYY-MM-DD HH:MM}` heading (local time; append the vault's local timezone abbreviation or UTC offset, e.g. from `date +'%Y-%m-%d %H:%M %Z'` — never hardcode a timezone). The frontmatter (`type: self`, etc.) is already on the existing skeleton — preserve it and overwrite only the body. Section 6 (Execution Gap) is omitted entirely when empty (per Section 6 empty-case rule); the section numbering still reflects the canonical 7-section layout in this document for clarity.
+
+**Output language**: The section headings and fixed strings in this document are the **canonical English** forms. Render the snapshot body in the language defined by `.claude/rules/personal-language.md` (English when absent), translating the canonical strings consistently (one rendering per concept). Two stability rules: (1) the `# Current State — ` H1 prefix stays verbatim in every language; (2) reuse the previous snapshot's heading renderings when its language matches the config, so day-to-day diffs stay quiet.
 
 Skeleton example for the body:
 
 ```markdown
-# Current State — {YYYY-MM-DD HH:MM JST}
+# Current State — {YYYY-MM-DD HH:MM (local timezone)}
 
-## 今の方向性
+## Current Direction
 {direction.md prose excerpt}
 
-## 進行中のワークスペース
+## Active Workspaces
 - [...](...) — ...
 - ...
-→ 全 active WS は workspace/ を参照
+→ see workspace/ for all active workspaces
 
-## 進行中のタスク
-### 急ぎ
+## Active Tasks
+### Urgent
 - ...
-### 待機
+### Waiting
 - ...
 ### Scheduled
 - ...
 
-## 直近の意思決定 (14 日)
+## Recent Decisions (14 days)
 {Phase 1: stub / Phase 2: real entries}
 
-## 判断ゲート
+## Judgment Gates
 - ...
-{8 件以上なら警告行}
+{warning line if 8+ entries}
 
-## 執行ギャップ
+## Execution Gap
 - {N}d [...](...) — ...
 {empty case: section header omitted entirely}
 
-## 既知の前提矛盾
+## Known Contradictions
 {Phase 1: stub / Phase 2: real entries}
 ```
 
@@ -262,7 +265,7 @@ Skeleton example for the body:
 
 1. Generate the body
 2. Count lines (`wc -l` equivalent on the rendered body, including frontmatter)
-3. If `lines > 80` → **per-section shrink retry** (009 §4):
+3. If `lines > 80` → **per-section shrink retry**:
    - Measure each section's actual line count
    - Pick the **single largest** section and reduce its cap by 2 (e.g. WS 7 → 5, or judgment-gate 7 → 5)
    - Regenerate
@@ -271,7 +274,7 @@ Skeleton example for the body:
    - Prepend an HTML comment to the file: `<!-- volume warning: {actual_lines} lines, target 80 -->`
    - Print one stdout warning line
 
-Do **not** add a "+N omitted" footer to any section — that is noise. Use the trailing `→ 全 active WS は workspace/ を参照` pointer (Section 2) for navigation.
+Do **not** add a "+N omitted" footer to any section — that is noise. Use the trailing `→ see workspace/ for all active workspaces` pointer (Section 2) for navigation.
 
 ### Phase 5: Write + state update
 

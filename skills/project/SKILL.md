@@ -392,24 +392,24 @@ End by offering concrete edits in the user's terms: "say the word to change the 
 
 Approved → this is the standing authorization for the whole run; do not ask again per task. Edited → apply and re-present. Declined → release the lock and exit.
 
-**Rendering example** (Japanese vault, project `rill-autonomous-execution`) — a model for the implementer, not a fixed template:
+**Rendering example** (project `rill-autonomous-execution`; render it in the user's language) — a model for the implementer, not a fixed template:
 
 ```
-このプロジェクトを自分で進めます。いいですか?
+I'll work through this project on my own. OK to start?
 
-進める対象(今動かせるタスク、上から順に):
-  1. 毎朝の自動実行 (launchd) の失敗を直す
-  2. 無人実行モードの設計
-  3. 権限の事前配布
-  ※ 中身が薄くて「完了」を判定できないタスクは、勝手に進めずあなた用のリストに残します。
+What I'll take on (tasks that can move now, in order):
+  1. Fix the failing every-morning automation (launchd)
+  2. Design the unattended-run mode
+  3. Pre-provision the permissions
+  Note: tasks too thin for me to judge "done" I'll set aside in a list for you instead of guessing.
 
-聞かずにやること: 調査・設計メモを書く / コードをブランチに上げて自動レビューを通し、問題なければマージ(対象: Rill 本体と開発用リポジトリ)
+What I'll do without asking: write research and design notes / put code changes on a branch, run an automated review, and merge once it's clean (repositories: the Rill core repo and the dev repo)
 
-必ず手を止めてリストに残すこと(勝手にやらない): 人に何かを送る・実世界に影響すること・公開リポジトリへの反映・私が決められない設計の分かれ道・あなたにしか分からない情報が要るとき
+What I'll always stop for and set aside in a list (never do on my own): sending anything to another person, anything that affects the real world, publishing to a public repository, a design fork I can't decide myself, or needing a fact only you have
 
-いつ止まるか: タスク 3 件、または 1 時間、早い方。止まったら「やったこと / 判断してほしいこと / 残り」を 1 枚で出します。
+When I'll stop: after 3 tasks or 1 hour, whichever comes first. On stopping I'll hand you one page: what I did / what needs your decision / what's left.
 
-タスク数・時間を変える、または「コードは勝手にマージせず止めて」など、希望があれば言ってください。
+Say the word to change the task count or time limit, or to have me stop before merging any code instead of merging on my own.
 ```
 
 The mechanism behind these choices — the lanes, the human-decision queue, the stop-condition trio, the entry filter — is defined in `rill-autonomous-execution.md` §8–§11. That is for you (the implementer) to apply; it does not belong on the approval screen.

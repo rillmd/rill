@@ -442,7 +442,7 @@ EOF
   - **Plugin path**: `plugins/{plugin-name}/`
   - **Failures are non-fatal**: Log and skip errors during hook execution
 
-### Step 9: Pages Pending Update (Phase 2 of the pages-wiki-redesign — "new candidates" push)
+### Step 9: Pages Pending Update (the "new candidates" push)
 
 After all Phases complete, before the final summary:
 
@@ -462,7 +462,7 @@ After all Phases complete, before the final summary:
 5. The CLI matches each new file's `mentions` (Layer 2) or `tags` (Layer 3 fallback, only for pages without mentions) against all `pages/*.md` and upserts entries into `pages/.pending`
 6. **Do NOT pass `--force` blindly.** If the CLI prints `⚠ bulk update detected`, the aggregated list is likely contaminated with Evergreen updates or a migration slipped in — investigate rather than override
 
-Design reference: `workspace/2026-04-15-pages-wiki-redesign/006-matching-strategy-revision.md`
+Design essence: pages carried no `mentions` at all when matching was first designed, so the matcher is layered — `mentions` intersection first, `tags` fallback only for pages without mentions — and a bulk-update threshold keeps migrations / mass refreshes from flooding `pages/.pending` with noise a human would have to ack away.
 
 ### Step 10: Summary + Task Approval
 

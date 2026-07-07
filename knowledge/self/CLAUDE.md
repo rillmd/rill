@@ -62,4 +62,4 @@ When adding a new watch target, append a `## {name}` section. A single file can 
 
 ## Update Mechanism
 
-Each file's update owner is documented in `workspace/2026-05-07-dream-system-rill-application/006-self-knowledge-layer-design.md` §3.
+Each file is owned by a distinct update velocity and a single writer: high-velocity `current-state.md` is overwritten only by `/pulse`; `decisions.md` / `observations.md` are appended only by `/retrospective`; `interests.md` / `direction.md` are updated conservatively by the `/distill` profile-agent; `profile.md` / `history.md` / `constraints.md` are manual. One writer per file means snapshot churn never rewrites slow identity files, and each skill has exactly one write target.

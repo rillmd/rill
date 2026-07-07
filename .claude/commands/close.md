@@ -328,7 +328,7 @@ For each numbered deliverable (`NNN-*.md`):
 - Run `rill strip-entity-tags` on created `knowledge/notes/` files
 - Append new tags (if any) to `taxonomy.md`
 - Entity detection: detect new entities from `mentions` in created notes → auto-create entity files if missing
-- **Pages pending update** (Phase 2 of pages-wiki-redesign — "new candidates" push):
+- **Pages pending update** (the "new candidates" push into `pages/.pending`):
   1. Build a sources list containing:
      - The workspace metadata file path: `workspace/{workspace_id}/_workspace.md` (or `_session.md` / `_project.md` for legacy workspaces)
      - Every newly-created `knowledge/notes/*.md` path from Phase 4 (paths where Distillation sub-agent status == `created`). Exclude `updated` notes — those are Evergreen updates already covered by /page Session Start Layer 1
@@ -339,7 +339,7 @@ For each numbered deliverable (`NNN-*.md`):
   3. The CLI matches each source's `mentions` (Layer 2) or `tags` (Layer 3 fallback, pages without mentions only) against `pages/*.md` and upserts entries into `pages/.pending`
   4. Do NOT pass `--force` if the CLI prints `⚠ bulk update detected` — investigate first (Phase 4 likely produced an unusually large batch; decide manually whether to push all into pending)
 
-Design reference: `workspace/2026-04-15-pages-wiki-redesign/006-matching-strategy-revision.md`
+Design essence: pages carried no `mentions` at all when matching was first designed, so the matcher is layered — `mentions` intersection first, `tags` fallback only for pages without mentions — and a bulk-update threshold keeps migrations / mass refreshes from flooding `pages/.pending` with noise a human would have to ack away.
 
 #### 9.2 Completion summary display
 
@@ -395,7 +395,7 @@ If Phase 0.5 stored `no` (or was skipped), continue directly to Phase 10 without
 
 ### Phase 10: /pulse refresh (NEW)
 
-After Phase 9 (Post-processing and Completion Report) completes, invoke `/pulse` via the harness's Skill tool to refresh `knowledge/self/current-state.md`. The just-closed workspace will drop out of the "進行中" section in the new snapshot (015 §2.2):
+After Phase 9 (Post-processing and Completion Report) completes, invoke `/pulse` via the harness's Skill tool to refresh `knowledge/self/current-state.md`. The just-closed workspace will drop out of the Active Workspaces section in the new snapshot:
 
 ```
 Skill(name: "pulse", args: "")

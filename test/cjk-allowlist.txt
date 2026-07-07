@@ -1,0 +1,18 @@
+# CJK allowlist — the only places where CJK characters are deliberate in this repo.
+#
+# Contract: a tracked text line containing CJK (Hiragana / Katakana / Han) is allowed
+# iff some entry below has (1) a path matching the file AND (2) a regex matching the
+# line. Any other CJK occurrence is a violation. Binary files (e.g. assets/*.png) are
+# excluded from the scan.
+#
+# Reference scan (the CI gate wires this file in; see task rill-ci-guards):
+#   git ls-files -z | xargs -0 rg -n --no-messages '[\p{Hiragana}\p{Katakana}\p{Han}]'
+#   ... then drop hits whose (path, line) match an entry here; remaining hits fail.
+#
+# Format: <path><TAB><line-regex (rg -e compatible)><TAB><reason>
+# Entries are line-scoped, not file-scoped: new CJK in these files outside the
+# matching lines still fails the gate.
+bin/rill	^- (本文|技術用語|ファイル名・ディレクトリ名|frontmatter のキー|コミットメッセージ):	`rill init --lang ja` seed template for personal-language.md (deliberate Japanese for ja-locale vaults)
+bin/rill	sub\(/\^## (ゴール|現在のフォーカス|キーファクト|リポジトリ)\$/	legacy ja->en heading migration awk in the _project.md normalizer (reads old Japanese headings to translate them)
+plugins/google-meet/commands/sync-google-meet.md	Gemini によるメモ	Japanese-locale Gemini Notes search string (Google product string, quoted verbatim)
+test/cjk-allowlist.txt	.	this allowlist itself quotes the allowed Japanese strings
