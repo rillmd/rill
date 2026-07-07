@@ -96,7 +96,16 @@ for ws_dir in "$RILL_HOME"/workspace/*/; do
                 days_old=-1
             fi
             # Last modified (most recent file in workspace)
-            last_mod=$(find "$ws_dir" -name '*.md' -maxdepth 1 -exec stat -f '%m %N' {} + 2>/dev/null | sort -rn | head -1 | awk '{print $1}')
+            # stat flavor differs: BSD wants -f '%m %N', GNU wants -c '%Y %n'.
+            # Probe like the dual-mode date calls above; with the wrong flavor
+            # stat exits nonzero and pipefail would abort the whole collector.
+            if stat -f '%m' . >/dev/null 2>&1; then
+                # BSD/macOS stat
+                last_mod=$(find "$ws_dir" -name '*.md' -maxdepth 1 -exec stat -f '%m %N' {} + 2>/dev/null | sort -rn | head -1 | awk '{print $1}')
+            else
+                # GNU stat
+                last_mod=$(find "$ws_dir" -name '*.md' -maxdepth 1 -exec stat -c '%Y %n' {} + 2>/dev/null | sort -rn | head -1 | awk '{print $1}')
+            fi
             if [ -n "$last_mod" ]; then
                 if date -v-1d +%Y 2>/dev/null >&2; then
                     last_mod_date=$(date -j -f '%s' "$last_mod" +%Y-%m-%d 2>/dev/null || echo "unknown")
