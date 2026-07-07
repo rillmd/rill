@@ -210,18 +210,23 @@ The policy approval is the one synchronous human gate, so it must be one the use
 
 In autonomous mode, every point that would synchronously ask the user instead writes a **`[DECISION-QUEUE]`** entry into the task's `## Current Position` and exits `status: open` (or skips, for Tier 2). No new file or schema — the queue is the set of open tasks carrying the marker.
 
-Enumerate it deterministically:
+Enumerate it deterministically (markers count at line start only; contract v1.1 extends the scope to project files — ADR-084):
 
 ```bash
-grep -rl '\[DECISION-QUEUE\]' tasks/*/_task.md
+grep -rlE '^(- )?\[DECISION-QUEUE' tasks/*/_task.md projects/*/_project.md
 ```
 
-Each entry carries four fields so a human (or the digest) can act without re-deriving context:
+Each entry carries an `id=dN` (numbered per file; legacy id-less entries stay visible but cannot be consumed until an id is added) and five fields so a human (or the digest) can act without re-deriving context:
 
 1. **What** — the decision to make
 2. **Why AI can't decide** — missing authority / fact / judgment
 3. **Options + recommendation** — the choices and which the AI leans toward, with reason
-4. **Blocks** — what stays stuck until it is resolved
+4. **Default** — what happens while it stays unanswered (descriptive, not executive — ADR-084 D84-3)
+5. **Blocks** — what stays stuck until it is resolved
+
+Resolution and consumption follow the three-state contract `[DECISION-QUEUE]` → `[DECISION-RESOLVED]` → `[DECISION-DONE]` (ADR-084): the RESOLVED transition is written by the human or the app only — an agent never originates it. The next resume consumes RESOLVED without re-asking and logs DONE to `## History`. The `## Pending Decisions` digest in project files is a deterministic derived view recomputed by `refresh-decisions` (ADR-084 D84-5).
+
+**Every queue writer emits this v1.1 format** — `/solve`, `/project run`, and any future runner — and refreshes the affected projects' digests via `refresh-decisions` before exiting. Project-scoped RESOLVED blocks are consumed by the next agent operating under that project (a `/solve` of a task mentioning it, or a `/project` invocation); their DONE audit lines append to the project file's `## Decision Log` section (append-only, created on first use — ADR-084 D84-4).
 
 Points that route here (see `solve.md` §Autonomous Mode): draft-task approval, Codex Material (Plan or code), human-input-required knowledge gap, Tier 2 operations, out-of-envelope Plans. External messaging and physical actions **always** queue in autonomous mode regardless of policy.
 

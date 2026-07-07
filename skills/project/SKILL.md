@@ -423,16 +423,23 @@ Repeat until a stop condition fires:
    a decision or exhausted their Plan-gap budget this run; they still appear in ### Unblocked
    because isolation is a run-local decision, not a task-status change)
 1. /refresh-project {slug}                         (synchronous; recompute Unblocked)
+1b. Consume project-scoped decisions (ADR-084 D84-4): scan projects/{slug}/_project.md
+    for line-start [DECISION-RESOLVED] blocks; apply each per the solve SKILL.md
+    decision-marker scan (append DONE audit line to ## Decision Log, delete block).
+    Never rewrite QUEUE -> RESOLVED (human-only transition)
 2. next = first task in ## Active Tasks → ### Unblocked WHOSE SLUG IS NOT IN `isolated`
    - none such → STOP (reason: "no actionable unblocked tasks" — either none exist,
      or every remaining unblocked task is isolated and awaiting a human decision)
 3. Entry filter on `next`:
    - Completion criteria mechanically verifiable?  AND
    - Goal + Background substantial enough to execute? (rill-tasks.md)
-   - either No → write [DECISION-QUEUE] to next's Current Position
+   - either No → write a contract-v1.1 [DECISION-QUEUE id=dN] entry (line-start, 5 fields --
+     ADR-084; format in solve SKILL.md) to next's Current Position
      (What: needs sharper Goal/criteria; Why: too thin to execute autonomously;
-      Options: user sharpens then re-queues / drop; Blocks: this task) → add slug to `isolated`,
-     continue loop (do NOT /solve it)
+      Options: user sharpens then re-queues / drop; Default: task stays open, skipped
+      as isolated on every runner pass; Blocks: this task) → add slug to `isolated`,
+     run /refresh-decisions for each project in next's mentions (at minimum {slug};
+     best-effort digest refresh), continue loop (do NOT /solve it)
 4. Delegate to a sub-agent (one task = one fresh context — ADR-082 §8, context-rot guard):
    - Sub-agent runs `/solve {next-slug}` in AUTONOMOUS mode
    - Sub-agent returns ONLY a distilled result: { status, deliverable paths, [DECISION-QUEUE] additions, one-line outcome }

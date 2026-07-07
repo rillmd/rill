@@ -97,22 +97,42 @@ The per-task user approval gate (Phase 3.4) is **replaced** by the project-level
 - Plan falls **outside** the policy envelope (touches a repo / lane / PUBLIC-push the policy did not authorize) → `[DECISION-QUEUE]` + exit.
 - Codex output is **unparseable** (zero labels parsed) **or any non-PASS verdict** (a lone WARN with no PASS, etc.) → **do not auto-approve**; `[DECISION-QUEUE]` + exit (fail-safe, ADR-082 D82-1). Auto-approval requires a positively-parsed PASS, never merely the absence of FAIL.
 
-### `[DECISION-QUEUE]` entry format
+### `[DECISION-QUEUE]` entry format (contract v1.1, ADR-084)
 
-Written into `## Current Position` (it persists because the task exits `status: open`):
+Written into `## Current Position` (it persists because the task exits `status: open`). Markers count only at the start of a line (a leading `- ` list marker is tolerated for legacy entries); prose mentions are not entries. Assign `id=dN` as the max existing decision id in the file + 1:
 
 ```markdown
 ## Current Position
 
-- [DECISION-QUEUE] {one-line what-needs-deciding}
-  - What: {the decision}
-  - Why AI can't decide: {missing authority / fact / judgment}
-  - Options + recommendation: {A / B; AI leans A because …}
-  - Blocks: {what stays stuck until this is decided}
-- Next action: user resolves via the digest, then re-runs /solve {slug} (interactive) or /project {slug} run
+[DECISION-QUEUE id=d1]
+- What: {the decision}
+- Why AI can't decide: {missing authority / fact / judgment}
+- Options:
+  1. {option A}
+  2. {option B}  <- recommended: {reason}
+- Default: {what happens while this stays unanswered -- e.g. "task stays open; the runner skips it on each pass"}
+- Blocks: {what stays stuck until this is decided}
+
+- Next action: user resolves via the digest or by editing this file directly, then re-runs /solve {slug} (interactive) or /project {slug} run
 ```
 
-Any `grep -rl '\[DECISION-QUEUE\]' tasks/*/_task.md` enumerates the queue. See `rill-autonomous-execution.md` §9.
+`Default` (5th field, new in v1.1) is descriptive, not executive: it tells the answerer the cost of deferring, and does not authorize the agent to act on the default. Project-scoped decisions that belong to no single task may live as first-class entries in `projects/{slug}/_project.md` (ADR-084 D84-4).
+
+The human (or the app) resolves by rewriting the tag line in place -- keep `What` **and** `Options` for audit (without the options, `Chosen: 2` loses its meaning), add the resolution:
+
+```markdown
+[DECISION-RESOLVED id=d1 by=human at=2026-07-07T09:30+09:00]
+- What: {kept from the QUEUE block}
+- Options: {kept from the QUEUE block}
+- Chosen: 2          # or "other"
+- Note: {free-text instruction, optional}
+```
+
+**An agent never originates a QUEUE -> RESOLVED transition** (the load-bearing human gate, ADR-084 D84-1). After consuming a RESOLVED block on resume, the agent logs it to `## History` as `[DECISION-DONE id=dN] chosen=... -- {one-line summary} (resolved by {by})` and deletes it from `## Current Position`.
+
+Enumerate the queue: `grep -rnE '^(- )?\[DECISION-QUEUE' tasks/*/_task.md projects/*/_project.md`. Legacy id-less entries stay visible but cannot be consumed until an id is added. See `rill-autonomous-execution.md` §9 and ADR-084.
+
+Autonomous mode: immediately after writing a QUEUE entry, run `refresh-decisions` for each project in the task's `mentions` (best-effort; skip silently when the task mentions no project) so the `## Pending Decisions` digest surfaces the entry before the exit.
 
 ### Verification immutability (ADR-082 D82-5)
 
@@ -167,8 +187,13 @@ Even when the Plan declares Lane B and the task has an active worktree, **`_task
    - `status: done` / `status: cancelled` → "This task is already completed/cancelled" and exit
    - `status: draft` → "This task is a draft (an unapproved AI-generated task). Approve and run it?" via the harness's question primitive. Approved → Edit `status` to `open` and continue. Rejected → exit. **(Autonomous mode: do not ask — `[DECISION-QUEUE]` + skip; see §Autonomous Mode.)**
 4. Check whether `_task.md` already has a `## Current Position` section:
-   - **Present**: this is a resume. Read its content, announce "Resuming from {Phase X Step Y}", and jump to the corresponding Phase
+   - **Present**: this is a resume. Run the decision-marker scan (step 5), then read its content, announce "Resuming from {Phase X Step Y}", and jump to the corresponding Phase
    - **Absent**: this is a fresh run. Add the section at the end of Phase 1
+5. **Decision-marker scan (contract v1.1, ADR-084 D84-6)** -- before any other work, scan `## Current Position` for line-start markers:
+   - Every `[DECISION-RESOLVED id=dN]` block: consume it as authoritative human input. Apply `Chosen` + `Note` **without re-asking**, append `- YYYY-MM-DD: [DECISION-DONE id=dN] chosen=... -- {one-line summary} (resolved by {by})` to `## History`, and delete the block from `## Current Position`. Consume all RESOLVED blocks before proceeding.
+   - A `[DECISION-QUEUE id=dN]` still unresolved after that: the task is human-blocked. Interactive: present the queued fields and ask now via the harness's question primitive; on an in-session answer, apply it and log `[DECISION-DONE id=dN] ... (resolved by human, in-session)` to `## History` (no RESOLVED marker is fabricated). Autonomous: exit `status: open` without asking (the entry re-surfaces via the digest).
+   - The same scan covers `projects/{slug}/_project.md` for every project in the task's frontmatter `mentions` (project-scoped decisions, ADR-084 D84-4), excluding the `## Pending Decisions` section (derived view -- task-origin copies there are not consumable; their source of truth is the task file): consume line-start `[DECISION-RESOLVED]` blocks found elsewhere in the file the same way, except the DONE audit line is appended to that project file's `## Decision Log` section (append-only; create it at the end of the file if missing) instead of the task's History.
+   - The agent **never** rewrites QUEUE -> RESOLVED itself (ADR-084 D84-1); that transition belongs to the human or the app.
 
 #### 1.2 Read related files
 
@@ -638,9 +663,12 @@ If any worktree removal fails (e.g. due to local untracked files), surface to th
 If `/solve {slug}` is invoked after a `/clear`:
 
 1. Phase 1.1 validation detects the existing `## Current Position`
-2. Read its content and announce "Resuming from {Phase X Step Y}"
-3. Jump to that Phase / Step. Phase 1.5 (worktree resume) re-runs in case the worktree state needs reconciliation
-4. Tolerate at most one step of rework (real SLA)
+2. **Decision markers first** (Phase 1.1 step 5, ADR-084 D84-6): consume every line-start `[DECISION-RESOLVED]` block -- apply `Chosen` + `Note`, log `[DECISION-DONE id=...]` to `## History`, delete from `## Current Position`, never re-ask. If an unresolved `[DECISION-QUEUE]` remains, the task is human-blocked: interactive asks now, autonomous exits `status: open`
+3. Read its content and announce "Resuming from {Phase X Step Y}"
+4. Jump to that Phase / Step. Phase 1.5 (worktree resume) re-runs in case the worktree state needs reconciliation
+5. Tolerate at most one step of rework (real SLA)
+
+Idempotency: the `id` plus the done state make a second resume a no-op -- a consumed decision exists only in `## History` (ADR-084 D84-6).
 
 ## Decomposition
 
