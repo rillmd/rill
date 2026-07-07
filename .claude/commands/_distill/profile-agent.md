@@ -64,7 +64,7 @@ Detect the following changes and route each to the appropriate self/ file.
 
 ### 5. Core Identity / Direction Prose
 
-- New cross-project direction or shift in primary theme → Update the prose at the top of `knowledge/self/direction.md` "現在のメインテーマ"
+- New cross-project direction or shift in primary theme → Update the prose of the `## Current Main Theme` section of `knowledge/self/direction.md` (canonical English structural key; if absent in an older vault, the first `## ` section is the main-theme section)
 - Year-scale role / employer / company change → Update `knowledge/self/profile.md` "Core Identity"
 
 These are rare. Apply only when the distillation surfaces an unmistakable signal.

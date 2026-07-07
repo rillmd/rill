@@ -3887,7 +3887,9 @@ EOF
 
 cmd_pages_pending_update() {
     # Update pages/.pending based on source files' mentions/tags cross with pages
-    # Design: workspace/2026-04-15-pages-wiki-redesign/006-matching-strategy-revision.md
+    # Design: mentions intersection first, tags fallback only for pages without
+    # mentions (pages often lack mentions in practice), guarded by a bulk-update
+    # threshold so migrations don't flood .pending.
     #
     # Usage:
     #   rill pages-pending-update --source PATH --origin {distill|close} [--force] [--dry-run]
@@ -4130,7 +4132,7 @@ EOF
         return 0
     fi
 
-    # Batch threshold check (design 006 — 揮発的キューの暴発を自動検知)
+    # Batch threshold check — auto-detect runaway growth of the volatile queue.
     # Override via RILL_PAGES_PENDING_THRESHOLD for testing.
     local threshold="${RILL_PAGES_PENDING_THRESHOLD:-100}"
     if [ "$new_count" -gt "$threshold" ] && [ "$force" -eq 0 ]; then

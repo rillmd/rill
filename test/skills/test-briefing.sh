@@ -122,22 +122,20 @@ if [[ -f "$DAILY_NOTE" ]]; then
   TITLE_LINE=$(grep '^# ' "$DAILY_NOTE" | head -1)
   assert_true "[[ -n '$TITLE_LINE' ]]" "SC-01: Has H1 title"
 
-  # SC-02: Activity section (v3: 今日の流れ / v2 fallback: Yesterday's Activity)
-  HAS_ACTIVITY=$({ grep -c '^## .*流れ\|^## .*Yesterday\|^## .*Activity' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
-  # v3 English rendering ("Today's Flow") — additive; the patterns above are unchanged
-  HAS_ACTIVITY_EN=$({ grep -c '^## .*Flow' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
-  HAS_ACTIVITY=$((HAS_ACTIVITY + HAS_ACTIVITY_EN))
+  # Language note: the fixture vault ships no .claude/rules/personal-language.md,
+  # so /briefing renders the canonical English v3 headings (localized vaults are
+  # out of this fixture's scope — the skill translates headings at runtime).
+
+  # SC-02: Activity section (v3 canonical: "Today's Flow" / v2 fallback: Yesterday's Activity)
+  HAS_ACTIVITY=$({ grep -c '^## .*Flow\|^## .*Yesterday\|^## .*Activity' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
   assert_gt "$HAS_ACTIVITY" 0 "SC-02: Has activity section"
 
-  # SC-03: Focus section (v3: 今日の重点 / v2 fallback: Today's Focus)
-  HAS_FOCUS=$({ grep -c '^## .*重点\|^## .*Today\|^## .*Focus' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
+  # SC-03: Focus section (v3 canonical: "Today's Focus" / v2 fallback: Today's Focus)
+  HAS_FOCUS=$({ grep -c '^## .*Today\|^## .*Focus' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
   assert_gt "$HAS_FOCUS" 0 "SC-03: Has focus section"
 
-  # SC-04: Cards section (v3: 並走 N 件 / v2 fallback: Situation Analysis)
-  HAS_ANALYSIS=$({ grep -c '^## .*並走\|^## .*Situation\|^## .*Analysis' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
-  # v3 English rendering ("In Parallel (N)") — additive; the patterns above are unchanged
-  HAS_ANALYSIS_EN=$({ grep -c '^## .*Parallel' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
-  HAS_ANALYSIS=$((HAS_ANALYSIS + HAS_ANALYSIS_EN))
+  # SC-04: Cards section (v3 canonical: "In Parallel (N)" / v2 fallback: Situation Analysis)
+  HAS_ANALYSIS=$({ grep -c '^## .*Parallel\|^## .*Situation\|^## .*Analysis' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
   assert_gt "$HAS_ANALYSIS" 0 "SC-04: Has cards section"
 
   # SC-05: Notes (optional — only check if content warrants it)
@@ -153,17 +151,18 @@ if [[ -f "$DAILY_NOTE" ]]; then
   REF_LINKS=$({ grep -c '../../tasks/\|../../workspace/' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
   assert_gt "$REF_LINKS" 0 "TK-03: Has task or workspace reference links (v3-relaxed)"
 
-  # TK-04: waiting tasks marker — optional in v3 (waiting tasks may collapse into the discard count summary `待機 タスク N 件` without surfacing the literal `waiting` token)
-  HAS_WAITING=$({ grep -c '`waiting`\|waiting\|待機' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
-  echo "  INFO: Waiting marker present: $HAS_WAITING (optional in v3, may be summarized in 絞り込みから外したもの)"
+  # TK-04: waiting tasks marker — optional in v3 (waiting tasks may collapse into the
+  # "Narrowed out" count summary without surfacing the literal `waiting` token)
+  HAS_WAITING=$({ grep -c '`waiting`\|waiting' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
+  echo "  INFO: Waiting marker present: $HAS_WAITING (optional in v3, may be summarized in the Narrowed out section)"
 
   # TK-01: open tasks are referenced — v3 relaxation
   # In v2 the fixture's `oauth-provider-investigation` task was always cited;
   # in v3 the 5-card narrowing legitimately produces all-workspace briefings
   # where no specific tasks/ slug surfaces as a card. The integration contract
   # is now: at least one open task slug from the fixture must appear OR the
-  # 絞り込みから外したもの section must surface task counts.
-  HAS_OPEN_TASK=$({ grep -c 'oauth-provider-investigation\|OAuth\|タスク\|tasks/' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
+  # "Narrowed out" section must surface task counts.
+  HAS_OPEN_TASK=$({ grep -c 'oauth-provider-investigation\|OAuth\|[Tt]ask' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
   assert_gt "$HAS_OPEN_TASK" 0 "TK-01: References open tasks (slug, prose, or count summary — v3-relaxed)"
 
   # TK-05: Overdue task detection (review-auth0-contract has due: 2026-01-13, target is 2026-01-15)

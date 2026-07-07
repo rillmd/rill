@@ -63,14 +63,14 @@ Changes since last update:
 🌱 New related candidates since last update:
 - {source_path} ({origin_skill}, {detected_at})
 - {source_path} ({origin_skill}, {detected_at})
-→ Review together ("全部取り込んで" activates batch mode), cherry-pick, or dismiss individually
+→ Review together (broad approval such as "apply them all" activates batch mode), cherry-pick, or dismiss individually
 
 What would you like to discuss? You can:
 - Update information ("I changed X to Y")
 - Ask a question ("What's my current X?")
 - Revise structure ("Add a section about X")
 - Request a full refresh ("Update with the latest")
-- Work through the candidates ("これ全部見て", "dismiss {source_path}")
+- Work through the candidates ("go through all of these", "dismiss {source_path}")
 ```
 
 Omit blocks whose condition did not fire.
@@ -108,7 +108,7 @@ Triggered by structural requests ("Add a section about X", "Merge these two sect
 
 #### Intent 4: Full Refresh
 
-Triggered by explicit refresh requests ("Update with the latest", "Bring this up to date", "最新にして").
+Triggered by explicit refresh requests ("Update with the latest", "Bring this up to date", or equivalents in the vault's language).
 
 1. Read `recipe.md` Source Hints as exploration guidance
 2. Search exploratively:
@@ -134,14 +134,14 @@ How would you like to proceed? All / Select / Cancel
 Triggered when the user responds to the "New related candidates" block, either to take the candidates in (batch or cherry-pick) or to dismiss them.
 
 **Review / take in**:
-1. If the user says "全部取り込んで" / "apply all" / "see all" / similar broad approval, switch to **Batch Progression Mode** and process each candidate in sequence. For each:
+1. If the user says "apply all" / "take them all in" / "see all" / similar broad approval (in any language), switch to **Batch Progression Mode** and process each candidate in sequence. For each:
    - Read the candidate source file
    - Propose a diff-preview showing what should be reflected in the page (a summary, a table row, a new paragraph — judge based on the candidate's content and the page's structure)
    - Apply via Edit Application Protocol (which also adds the source to `frontmatter.sources` and runs implicit ack on the pending row via `--ack`)
 2. If the user cherry-picks ("this one only", "just the squat one"), process that single candidate the same way
 
 **Dismiss**:
-1. If the user says "関係ない" / "dismiss" / "not relevant" for a candidate, remove the pending row without editing the page:
+1. If the user says "dismiss" / "not relevant" (or an equivalent) for a candidate, remove the pending row without editing the page:
    ```bash
    rill pages-pending-update --ack --page {id} --source {source_path}
    ```
@@ -152,7 +152,7 @@ This intent is distinct from Intent 4 (Full Refresh). Intent 4 performs explorat
 
 #### Intent 6: Undo
 
-Triggered by undo requests ("戻して", "取り消して", "undo", "revert that").
+Triggered by undo requests ("undo", "revert that", or equivalents in the vault's language).
 
 1. Locate the most recent edit applied in this session (tracked in conversation context)
 2. Apply Edit with `old_string` and `new_string` swapped to revert
@@ -188,10 +188,9 @@ Apply?
 
 When the user signals that multiple edits should be applied as a set, switch into **batch mode** and run them continuously without awaiting intervening confirmations. This exists because in practice, LLMs tend to end their turn after 2–3 tool calls even when the user has already approved a larger batch — leaving the page in a half-updated state that the user may or may not notice.
 
-**Activation signals** (examples — interpret liberally, not exhaustively):
+**Activation signals** (examples — interpret liberally, not exhaustively, in whatever language the user writes):
 
-- Japanese: 「全部やって」「この方向で進めてください」「5日分お願い」「続けて」「一括で」「まとめて」「全部適用」
-- English: "apply all", "go ahead with the whole batch", "do the set", "continue through them", "all of them"
+- "apply all", "go ahead with the whole batch", "do the set", "continue through them", "all of them", "do the whole week", "keep going" — and their equivalents in the vault's language
 
 When you have presented a plan (e.g., "I'll update Monday through Friday's menus as follows…") and the user responds with broad approval for the plan itself, batch mode is active for the scope of that plan.
 
@@ -205,7 +204,7 @@ When you have presented a plan (e.g., "I'll update Monday through Friday's menus
 **What deactivates batch mode**:
 
 - All items applied (normal completion) — emit the summary
-- Explicit pause from the user ("止めて", "wait", "hold on", "戻って") — write the interruption marker (below) before returning control
+- Explicit pause from the user ("wait", "hold on", "stop", or equivalents) — write the interruption marker (below) before returning control
 - A blocker that requires new information the batch didn't anticipate — ask for the information, but first write the interruption marker so the remaining scope isn't lost
 
 **Interruption marker**:
@@ -374,7 +373,7 @@ Skill-level learnings accumulate in the harness's feedback memory over time. Whe
 - **recipe.md is required reading for all operations** (conversational session, create, rebuild, quick update). Understand the page's purpose before writing
 - A recipe communicates purpose and exploration hints. It does not prescribe structure
 - **In conversational sessions, always show a diff before applying an edit.** Silent application breaks the trust model. Track each applied edit in conversation context for potential undo
-- **Support the undo request** ("戻して", "revert", "undo") by reversing the last tracked edit. Phase 1 supports only one-step undo; deeper history is recovered via Git
+- **Support the undo request** ("revert", "undo", or equivalents) by reversing the last tracked edit. Phase 1 supports only one-step undo; deeper history is recovered via Git
 - **Do not auto-commit.** The user commits via their normal git workflow
 - Record files that substantively contributed to the content in `frontmatter.sources`. Update on each session that applied edits, creation, rebuild, or quick update. Do not include daily journals (explore them dynamically via recipe hints)
 - Not an AI search target: /distill, /briefing, /eval do not reference pages/

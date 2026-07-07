@@ -21,11 +21,12 @@ gui:
 
 Aggregates the prior ISO week across `workspace/`, `tasks/`, `inbox/journal/`, and decision artifacts into a 5-section retrospective. Auto-flushes the Decision Digest into `knowledge/self/decisions.md` (3-month window). Self Observation candidates are surfaced for explicit user approval via `--finalize`. Stale Workspace detection runs deterministically (no agent fanout).
 
-Design references:
+Design essence:
 
-- `workspace/2026-05-07-dream-system-rill-application/012-retrospective-skill-detail-design.md` — full spec including user-flow §0, trigger §1, period §2, input pipeline §3, section algorithms §4, self/ flush §6, sidecar §7.3
-- `workspace/2026-05-07-dream-system-rill-application/008-tightening-pass-retrospective-volume-rollout.md` §1 — 5-section output schema (dependency contract)
-- `workspace/2026-05-07-dream-system-rill-application/015-execution-wiring.md` §3 — Thursday nudge wiring inside `/briefing`
+- The user's job-to-be-done is a **weekly high-altitude view**: "look down on last week's self, build this week's strategy" — a different time axis from `/briefing` (today) and `/pulse` (this instant). Hence contradictions across workspaces, stale-workspace triage, a curated decision digest, and self-observation patterns, not another activity summary
+- The **5-section output schema is a dependency contract**: `/pulse` Section 7 parses the `## Contradictions` section of the latest retrospective, so section names and order are fixed
+- **Thursday is the primary trigger**, wired as a nudge inside `/briefing` Step E (with a 3-strike auto-skip) rather than a scheduler — the weekly usage-budget reset acts as a psychological deadline
+- Self Observations only ever enter `self/observations.md` through explicit user approval (`--finalize`); decisions flush automatically, observations never do
 
 ## Arguments
 
@@ -42,7 +43,7 @@ $ARGUMENTS — one of the following:
 
 ## Trigger Model
 
-Four trigger kinds (012 §1.1):
+Four trigger kinds:
 
 | Trigger | Source | Action |
 |---|---|---|
@@ -55,7 +56,7 @@ No launchd / cron. Primary path is manual + Thursday nudge.
 
 ## State Sidecar
 
-State lives in `.claude/state/retrospective.json` (012 §7.3). Git-tracked so weekly cadence survives clone.
+State lives in `.claude/state/retrospective.json`. Git-tracked so weekly cadence survives clone.
 
 ```json
 {
@@ -89,7 +90,7 @@ If the file does not exist, initialize lazily on first successful run. Treat mis
 ## Period Strategy
 
 - `weekly` is primary: period = ISO week (Monday..Sunday). Format: `weekly-{YYYY-MM-DD}` where the date is the Monday
-- `monthly` is deferred (012 §10 OQ1)
+- `monthly` is deferred (open question, not yet designed)
 - `daily` is not supported — `reports/daily/` already covers that role
 
 ## Procedure
@@ -103,7 +104,7 @@ If the file does not exist, initialize lazily on first successful run. Treat mis
 5. If `--view` → print the path and exit
 6. If the file exists and neither `--rerun` nor `--view` is set → display the existing-file message and exit
 
-### Phase 1: Input collection (Grep-first, artifact 012 §3)
+### Phase 1: Input collection (Grep-first)
 
 Collect period-bounded inputs:
 
@@ -191,7 +192,7 @@ fi
 
 When `inject_args` is non-empty, append it as additional YAML lines to each sub-agent invocation's prompt, alongside the existing `entity_mapping`, `period_start`, etc. arguments. The `style_guide` string is hardcoded in English on purpose: the public `rillmd/rill` repo stays ASCII-only, and the string is itself an English instruction. The `output_language` value is the only locale-dependent runtime input; broader-locale support (`ko`, `zh`, `fr`, `de`, `es`, `pt`, `it`) extends the detection branch above (and requires a corresponding bin/rill change to mark `personal-language.md` with the chosen locale) without touching the sub-agent prompts or the `style_guide` content.
 
-Launch **2 batches of 5 parallel agents** (artifact 012 §3.3, hard ceiling ~175K tokens / run):
+Launch **2 batches of 5 parallel agents** (hard ceiling ~175K tokens / run):
 
 **Batch A — theme-extraction-agent** (5 agents, partitioned over active + period-completed workspaces, with `model: "sonnet"`):
 
@@ -212,7 +213,7 @@ If the input set is empty (no active workspaces / no decisions / no journal in p
 
 ### Phase 3: In-skill deterministic sections
 
-**Stale Workspaces** (012 §4.3):
+**Stale Workspaces**:
 
 ```bash
 # All active workspaces, then filter by updated-age
@@ -226,7 +227,7 @@ for each match:
       otherwise → "on-hold candidate"
 ```
 
-**Decision Digest** (012 §4.4):
+**Decision Digest**:
 
 1. Collect from two input sources (Phase 1 already gathered both, so the digest matches the declared inputs and weeks captured primarily as task completions are not dropped):
    - **Workspace decisions**: Glob `workspace/*/[0-9]*-*.md`; filter to `type: decision` AND `created` in period
@@ -237,7 +238,7 @@ for each match:
 3. Score:
    - Workspace decisions: `(WS status weight 1.0 active / 0.8 completed-in-period) × (count of mentions in decision body)`
    - Completed tasks: `(0.9) × (count of mentions in _task.md body)` — slightly below active-WS decisions but above completed-WS decisions, reflecting that finished tasks usually represent settled, lower-volatility outcomes
-4. Merge both source lists, sort by score, take top 7 (012 §4.4 limit). Tag each entry with its source kind (`decision` / `task`) so the rendered digest can hint at provenance for the reader
+4. Merge both source lists, sort by score, take top 7. Tag each entry with its source kind (`decision` / `task`) so the rendered digest can hint at provenance for the reader
 
 ### Phase 4: Render the retrospective file
 
@@ -266,7 +267,7 @@ else
 fi
 ```
 
-Then Edit the body to fill the 5 sections in this exact order (008 §1 dependency contract — do not reorder):
+Then Edit the body to fill the 5 sections in this exact order (dependency contract — do not reorder; `/pulse` parses `## Contradictions` by name):
 
 ```markdown
 # Retrospective — {period}
@@ -320,7 +321,7 @@ Each candidate carries the **full** sources list returned by the observation-age
 
 ### Phase 5: Auto-flush to self/decisions.md
 
-After the file is written, append the Decision Digest entries to `knowledge/self/decisions.md` (artifact 012 §6.1):
+After the file is written, append the Decision Digest entries to `knowledge/self/decisions.md`:
 
 - Format: `- {YYYY-MM-DD}: {decision} (source [{name}]({path})) [retrospective: {period_id}]`
 - 3-month (90-day) window: before appending, drop any existing entries whose date is older than 90 days
@@ -379,7 +380,7 @@ Print to stdout:
 
 Do **not** invoke `rill open`. The user opens files via the GUI header search box (`Cmd+P`).
 
-## Token budget (artifact 012 §3.3)
+## Token budget
 
 | Step | Tokens |
 |---|---|
@@ -410,8 +411,5 @@ Weekly cadence makes this affordable. If active workspaces exceed 60, raise agen
 
 ## See also
 
-- `workspace/2026-05-07-dream-system-rill-application/012-retrospective-skill-detail-design.md` — full design
-- `workspace/2026-05-07-dream-system-rill-application/008-tightening-pass-retrospective-volume-rollout.md` — section dependency contract
-- `workspace/2026-05-07-dream-system-rill-application/015-execution-wiring.md` — briefing nudge wiring
-- `skills/pulse/SKILL.md` — sister skill (Self Snapshot Refresh)
-- `skills/briefing/SKILL.md` — Step E nudge consumer
+- `skills/pulse/SKILL.md` — sister skill (Self Snapshot Refresh); its Section 7 parses this skill's `## Contradictions` output
+- `skills/briefing/SKILL.md` — Step E hosts the Thursday nudge that triggers this skill

@@ -157,7 +157,7 @@ Write the report body in the language defined by `.claude/rules/personal-languag
 When a term has no obvious rendering in the target language, decide in this order:
 
 1. Use the established translation — a word actually used in documents written by native speakers of the target language.
-2. If none exists but a loanword form is in common use, use the loanword (e.g., ja: chunk → チャンク).
+2. If none exists but a loanword form is in common use, use the loanword (e.g., Japanese renders "chunk" as its established katakana loanword).
 3. Otherwise keep the English term inside backticks and add a short parenthetical gloss on first use.
 
 Never invent literal calques that do not exist in the target language, and use one consistent rendering per concept within the document.

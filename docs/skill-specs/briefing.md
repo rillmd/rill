@@ -42,13 +42,15 @@ Behavioral specification for /briefing. A fully automated (no interaction) skill
 
 | ID | Rule | Verification Method | Status |
 |----|------|---------------------|--------|
-| SC-01 | Title is `# YYYY-MM-DD Daily Briefing` (weekday goes in the main-axis line, not the H1) | grep `^# ` | ✅ |
-| SC-02 | Activity section exists: `## 今日の流れ` (v3) or `## Yesterday's Activity` (v2 fallback) | grep `^## .*流れ\|^## .*Yesterday\|^## .*Activity` | ✅ |
-| SC-03 | Focus section exists: `## ⚠️ 今日の重点` or `## ★ 今日の重点` (v3) or `## Today's Focus` (v2 fallback) | grep `^## .*重点\|^## .*Focus\|^## .*Today` | ✅ |
-| SC-04 | Cards section exists: `## 並走 N 件` (v3) or `## Situation Analysis` (v2 fallback) | grep `^## .*並走\|^## .*Situation\|^## .*Analysis` | ✅ |
+| SC-01 | Title is `# YYYY-MM-DD Daily Briefing` (weekday goes in the main-theme line, not the H1; the H1 stays verbatim in every output language) | grep `^# ` | ✅ |
+| SC-02 | Activity section exists: `## Today's Flow` (v3 canonical) or `## Yesterday's Activity` (v2 fallback) | grep `^## .*Flow\|^## .*Yesterday\|^## .*Activity` | ✅ |
+| SC-03 | Focus section exists: `## ⚠️ Today's Focus` or `## ★ Today's Focus` (v3) or `## Today's Focus` (v2 fallback) | grep `^## .*Focus\|^## .*Today` | ✅ |
+| SC-04 | Cards section exists: `## In Parallel (N)` (v3 canonical) or `## Situation Analysis` (v2 fallback) | grep `^## .*Parallel\|^## .*Situation\|^## .*Analysis` | ✅ |
 | SC-05 | `## Notes` section exists (may be omitted if no information) | grep (optional) | ✅ |
-| SC-06 | Discards section exists: `## 絞り込みから外したもの` (v3) or `## Related` (v2 fallback, conditional) | grep `^## .*絞り込み\|^## .*Related` | ✅ |
-| SC-07 | Each section is prose-based (not bullet-point lists) — exception: 並走 4 件 cards use the fixed 4-element schema (停滞 / 次の一手 / 再開 / 出典) as bulleted | ⚠️ LLM judgment | ✅ |
+| SC-06 | Discards section exists: `## Narrowed out` (v3 canonical) or `## Related` (v2 fallback, conditional) | grep `^## .*Narrowed\|^## .*Related` | ✅ |
+| SC-07 | Each section is prose-based (not bullet-point lists) — exception: the In Parallel cards use the fixed 4-element schema (Stuck / Next step / Resume / Source) as bulleted | ⚠️ LLM judgment | ✅ |
+
+Section-name rows above state the **canonical English** headings. The skill renders headings in the vault's configured language (`.claude/rules/personal-language.md`; English when absent) — the grep patterns verify the English-default fixture vault; localized vaults render translated equivalents.
 
 ---
 
@@ -59,7 +61,7 @@ Behavioral specification for /briefing. A fully automated (no interaction) skill
 | TK-01 | Tasks are collected from ticket files (tasks/*/_task.md) | Source confirmation | ✅ |
 | TK-02 | Focus targets: due within 7 days / waiting / matching projects of active WSs | ⚠️ LLM judgment | ✅ |
 | TK-03 | Reference links use relative path format — `[Title](../../tasks/{slug}/_task.md)` or `[Title](../../workspace/{id}/_workspace.md)` (v3: 5-item narrowing may produce all-workspace briefings; at least one link of either kind must be present) | regex | ✅ |
-| TK-04 | Waiting tickets display `waiting` in backticks **when surfaced as a card**. In v3, waiting tickets may collapse into the discard-count summary `待機 タスク N 件` without surfacing as a card, in which case the literal `waiting` token may not appear — TK-04 is informational only in this case | grep (optional) | ✅ |
+| TK-04 | Waiting tickets display `waiting` in backticks **when surfaced as a card**. In v3, waiting tickets may collapse into the "Narrowed out" count summary without surfacing as a card, in which case the literal `waiting` token may not appear — TK-04 is informational only in this case | grep (optional) | ✅ |
 | TK-05 | Overdue tasks are detected and displayed | ⚠️ LLM judgment | ✅ |
 | TK-06 | done, draft, cancelled, someday statuses are not Read | Log confirmation | ✅ |
 
