@@ -112,6 +112,31 @@ PLUGINS_DIR="$RILL_HOME/plugins"
 COMMANDS_DIR="$RILL_HOME/.claude/commands"
 EDITOR="${EDITOR:-vim}"
 
+# Portable in-place sed (BSD vs GNU).
+# BSD/macOS sed requires an explicit backup-suffix argument after -i (empty
+# string for no backup: sed -i ''), while GNU sed takes the suffix attached
+# to the flag and would treat a separate '' as the sed script (so the BSD
+# form errors out on Linux, and set -e aborts the command mid-run).
+# Probe the flavor once (GNU sed supports --version; BSD sed does not),
+# cache it, and route the call accordingly. The sed scripts passed in stay
+# portable: the append form "a\" + newline + text works on both flavors.
+# Usage: sed_inplace <sed-script-args...> <file...>
+RILL_SED_FLAVOR=""
+sed_inplace() {
+    if [ -z "$RILL_SED_FLAVOR" ]; then
+        if sed --version >/dev/null 2>&1; then
+            RILL_SED_FLAVOR="gnu"
+        else
+            RILL_SED_FLAVOR="bsd"
+        fi
+    fi
+    if [ "$RILL_SED_FLAVOR" = "gnu" ]; then
+        sed -i "$@"
+    else
+        sed -i '' "$@"
+    fi
+}
+
 # Generate timestamp-based filename, handling collisions
 generate_filename() {
     local base
@@ -1422,10 +1447,10 @@ cmd_touch() {
 
     # Update or insert `updated` field in frontmatter
     if grep -q '^updated:' "$file_path"; then
-        sed -i '' "s/^updated:.*$/updated: ${ts}/" "$file_path"
+        sed_inplace "s/^updated:.*$/updated: ${ts}/" "$file_path"
     else
         # Insert after created: line
-        sed -i '' "/^created:/a\\
+        sed_inplace "/^created:/a\\
 updated: ${ts}
 " "$file_path"
     fi
@@ -2493,8 +2518,7 @@ EOF
     if [ ! -f "$vault_dir/taxonomy.md" ]; then
         if [ -f "$rill_source/templates/seed/taxonomy.md" ]; then
             cp "$rill_source/templates/seed/taxonomy.md" "$vault_dir/taxonomy.md"
-            # macOS sed requires -i '' (no backup extension)
-            sed -i '' "s|__INIT_DATE__|$now|g" "$vault_dir/taxonomy.md"
+            sed_inplace "s|__INIT_DATE__|$now|g" "$vault_dir/taxonomy.md"
             echo "  ✓ Seeded taxonomy.md"
         else
             echo "  ⚠ templates/seed/taxonomy.md not found in source, skipping" >&2
@@ -2521,7 +2545,7 @@ EOF
         fi
         mkdir -p "$target_dir"
         cp "$rill_source/$src_rel" "$dst"
-        sed -i '' "s|__INIT_DATE__|$now|g; s|__INIT_DAY__|$today|g" "$dst"
+        sed_inplace "s|__INIT_DATE__|$now|g; s|__INIT_DAY__|$today|g" "$dst"
         echo "  ✓ Seeded $(echo "$dst" | sed "s|$vault_dir/||")"
     }
 
@@ -3789,14 +3813,14 @@ cmd_strip_entity_tags() {
         local relpath="${filepath#$RILL_HOME/}"
 
         # Replace tags line
-        sed -i '' "${tags_linenum}s|.*|${new_tags_str}|" "$filepath"
+        sed_inplace "${tags_linenum}s|.*|${new_tags_str}|" "$filepath"
 
         if [ -n "$mentions_line" ]; then
             # Replace existing mentions line
-            sed -i '' "${mentions_linenum}s|.*|${new_mentions_str}|" "$filepath"
+            sed_inplace "${mentions_linenum}s|.*|${new_mentions_str}|" "$filepath"
         else
             # Insert mentions after tags line
-            sed -i '' "${tags_linenum}a\\
+            sed_inplace "${tags_linenum}a\\
 ${new_mentions_str}
 " "$filepath"
         fi
