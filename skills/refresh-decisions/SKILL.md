@@ -48,7 +48,7 @@ $ARGUMENTS -- one of:
    ```
    The closing character class (comma, bracket, whitespace) prevents prefix collisions -- a word boundary alone would let `projects/rill` match `projects/rill-dev`. For each matched file, scan for line-start markers: `grep -nE '^(- )?\[DECISION-QUEUE' {file}`.
 2. Project-scoped entries: scan `projects/{slug}/_project.md` itself with the same line-start pattern, **excluding the `## Pending Decisions` section** (self-reference guard; the rendered digest never uses line-start marker syntax, but the exclusion keeps the recompute well-defined even if a future renderer changes).
-3. For each hit, parse the block that follows the marker line (until the first blank line or the next line-start marker): `What`, `Why AI can't decide`, `Options` (with the recommended one), `Default`, `Blocks`, and the `id`.
+3. For each hit, parse the block that follows the marker line (until the first blank line or the next line-start marker): the human-facing fields `Decision`, `Background`, `Choices` (with the recommended one), `Default`, `Blocks`, `More`, and the `id` (ADR-084 D84-7). Parse each field by its label; a field that is absent (commonly `More` on a self-contained decision) is simply omitted from the render — do not fail or emit a placeholder. Backward compatibility: an entry still using the pre-2026-07-08 labels is read by mapping `What`→`Decision` and `Options`→`Choices` (and ignoring `Why AI can't decide`), so any decision queued before the D84-7 field revision still renders.
    - Legacy entries without `id=` are included, labeled `id=?`, with a note that they cannot be consumed until an id is added (ADR-084 D84-2).
    - `[DECISION-RESOLVED]` blocks are **not** listed (they are awaiting agent consumption, not human attention). `[DECISION-DONE]` lines live in History / Decision Log and are ignored.
 4. Sort deterministically: by source file path (lexicographic), then by numeric id.
@@ -64,11 +64,15 @@ Replace the entire `## Pending Decisions` section body. Manual edits inside it d
 
 _Derived view -- recomputed by `/refresh-decisions`; do not edit here. To resolve, rewrite the `[DECISION-QUEUE id=...]` block in the source file to `[DECISION-RESOLVED ...]` (ADR-084), then re-run the task._
 
-- **{What}** -- [{source title}](../../tasks/{task-slug}/_task.md), `id={dN}`
-  - Options: {compact one-line options; mark the recommended one}
+- **{Decision}** -- [{source title}](../../tasks/{task-slug}/_task.md), `id={dN}`
+  - {Background, rendered verbatim from the marker}
+  - {Choices, rendered verbatim; keep the recommended marker}
   - If left unanswered: {Default}
-  - Blocked until decided: {Blocks}
+  - Blocked: {Blocks}
+  - {More links, verbatim, when the entry has them}
 ```
+
+Render every field **verbatim** from the source marker -- no summarizing, condensing, or rewording (the skill is deterministic; condensation would be LLM judgment and break idempotency). Keeping `Background` short is the writer's job at queue time (D84-7), not the digest's. Labels (`If left unanswered`, `Blocked`) render in the user's language, consequence-framed. Lead with `Decision` (the question) so the list scans as questions.
 
 - Write entries consequence-framed (ADR-082 D82-8): user-language wording, no internal labels beyond the `id` needed for addressing.
 - For project-scoped entries, the source link points to the project file itself.
