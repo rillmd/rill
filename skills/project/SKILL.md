@@ -433,11 +433,13 @@ Repeat until a stop condition fires:
 3. Entry filter on `next`:
    - Completion criteria mechanically verifiable?  AND
    - Goal + Background substantial enough to execute? (rill-tasks.md)
-   - either No → write a contract-v1.1 [DECISION-QUEUE id=dN] entry (line-start, 5 fields --
-     ADR-084; format in solve SKILL.md) to next's Current Position
-     (What: needs sharper Goal/criteria; Why: too thin to execute autonomously;
-      Options: user sharpens then re-queues / drop; Default: task stays open, skipped
-      as isolated on every runner pass; Blocks: this task) → add slug to `isolated`,
+   - either No → write a contract-v1.1 [DECISION-QUEUE id=dN] entry (line-start, human-facing
+     fields -- ADR-084 D84-7; format in solve SKILL.md) to next's Current Position
+     (Decision: sharpen this task and retry, or drop it?;
+      Background: {project} is being worked through automatically and reached this task, but its
+      goal / completion criteria are too thin to run unattended -- it needs a human to sharpen or drop it;
+      Choices: sharpen then re-queue / drop; Default: task stays open, skipped on every runner pass;
+      Blocks: this task; More: link to this task's own _task.md, to sharpen its Goal/criteria or drop it) → add slug to `isolated`,
      run /refresh-decisions for each project in next's mentions (at minimum {slug};
      best-effort digest refresh), continue loop (do NOT /solve it)
 4. Delegate to a sub-agent (one task = one fresh context — ADR-082 §8, context-rot guard):
@@ -477,7 +479,7 @@ Notes:
    - ...
 
    ## Needs your decision ({K})         ← the human-decision queue, surfaced first
-   - [{task}](../../tasks/{slug}/_task.md): {What} — recommendation: {…} — blocks: {…}
+   - [{task}](../../tasks/{slug}/_task.md): {Decision} — recommendation: {…} — blocks: {Blocks}
    - ...
 
    ## DoD evaluation

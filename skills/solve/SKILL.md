@@ -105,25 +105,31 @@ Written into `## Current Position` (it persists because the task exits `status: 
 ## Current Position
 
 [DECISION-QUEUE id=d1]
-- What: {the decision}
-- Why AI can't decide: {missing authority / fact / judgment}
-- Options:
-  1. {option A}
-  2. {option B}  <- recommended: {reason}
+- Decision: {the one question to the human -- yes/no or a pick, plain language}
+- Background: {zero-context orientation (rules below). Top-down: (1) what effort this is part of, in one plain sentence; (2) why this decision is needed now; (3) what answering advances}
+- Choices:
+  1. {option A} -- {what choosing it leads to, plain language}
+  2. {option B} -- {consequence}  <- recommended: {reason}
 - Default: {what happens while this stays unanswered -- e.g. "task stays open; the runner skips it on each pass"}
 - Blocks: {what stays stuck until this is decided}
+- More: {links to full sources -- parent task, ADR, prior context -- include when Background leans on them}
 
 - Next action: user resolves via the digest or by editing this file directly, then re-runs /solve {slug} (interactive) or /project {slug} run
 ```
 
-`Default` (5th field, new in v1.1) is descriptive, not executive: it tells the answerer the cost of deferring, and does not authorize the agent to act on the default. Project-scoped decisions that belong to no single task may live as first-class entries in `projects/{slug}/_project.md` (ADR-084 D84-4).
+The fields are written **for the human reader, not for the AI** (ADR-084 D84-7). Two absolute rules:
 
-The human (or the app) resolves by rewriting the tag line in place -- keep `What` **and** `Options` for audit (without the options, `Chosen: 2` loses its meaning), add the resolution:
+1. **No internal labels.** Never put `Tier 2`, a rule section number, a status-enum token, or a file path as jargon into a human-facing field. Translate to consequence: not "Tier 2 confirmation" but "this is hard to undo, so it needs your OK."
+2. **The reader has zero context.** Write as if the reader has never heard of this project and is seeing this decision cold. `Background` therefore starts from the top-level effort (one plain sentence), never straight into the task's internals; the escape hatch to full sources lives in `More` (links), not inline, so `Background` stays short enough to still isolate one decision. Scale the orientation depth to the decision's weight.
+
+Field labels are English (stable parse tokens); the content is written in the user's language, and the app card localizes the labels. `Default` is descriptive, not executive: it states the cost of deferring and does not authorize the agent to act on it. Project-scoped decisions that belong to no single task may live as first-class entries in `projects/{slug}/_project.md` (ADR-084 D84-4).
+
+The human (or the app) resolves by rewriting the tag line in place -- keep `Decision` **and** `Choices` for audit (without the choices, `Chosen: 2` loses its meaning), add the resolution:
 
 ```markdown
 [DECISION-RESOLVED id=d1 by=human at=2026-07-07T09:30+09:00]
-- What: {kept from the QUEUE block}
-- Options: {kept from the QUEUE block}
+- Decision: {kept from the QUEUE block}
+- Choices: {kept from the QUEUE block}
 - Chosen: 2          # or "other"
 - Note: {free-text instruction, optional}
 ```
@@ -562,7 +568,7 @@ The qualitative test: **is the fact findable by grepping Rill or the filesystem?
    - Append to the parent task's `## History`: `- YYYY-MM-DD: knowledge-gap deferred: {what} → draft task [fix-knowledge-...](../fix-knowledge-{...}/_task.md)`
    - Exit Phase 4 with the parent task `status: open`
 
-**Human-input-required** (one of the three remaining `[User]` breakpoints). **In autonomous mode this does not ask** — record `[DECISION-QUEUE]` (What = the missing fact, Why = lives outside Rill, Blocks = this step) and exit `status: open`; the steps below apply only to interactive mode:
+**Human-input-required** (one of the three remaining `[User]` breakpoints). **In autonomous mode this does not ask** — record a `[DECISION-QUEUE]` entry in the human-facing format (ADR-084 D84-7: `Decision` = provide {the missing fact}, or skip this task?; `Background` = zero-context, what this task is doing and why the fact is needed; `Blocks` = this step) and exit `status: open`; the steps below apply only to interactive mode:
 
 1. Ask the user via the harness's question primitive: "I need {what}. If you give it to me, I'll add it to {suggest-path} and continue. Provide it, or skip?"
 2. If the user provides the information:

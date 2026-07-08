@@ -216,13 +216,16 @@ Enumerate it deterministically (markers count at line start only; contract v1.1 
 grep -rlE '^(- )?\[DECISION-QUEUE' tasks/*/_task.md projects/*/_project.md
 ```
 
-Each entry carries an `id=dN` (numbered per file; legacy id-less entries stay visible but cannot be consumed until an id is added) and five fields so a human (or the digest) can act without re-deriving context:
+Each entry carries an `id=dN` (numbered per file; legacy id-less entries stay visible but cannot be consumed until an id is added) and these **human-facing fields**, written for the reader and not the AI (ADR-084 D84-7):
 
-1. **What** — the decision to make
-2. **Why AI can't decide** — missing authority / fact / judgment
-3. **Options + recommendation** — the choices and which the AI leans toward, with reason
+1. **Decision** — the one question to the human, plain language
+2. **Background** — zero-context orientation: what effort this is part of (one sentence), why this decision is needed now, what answering advances
+3. **Choices** — the options, each with its plain-language consequence; the AI's recommendation marked
 4. **Default** — what happens while it stays unanswered (descriptive, not executive — ADR-084 D84-3)
 5. **Blocks** — what stays stuck until it is resolved
+6. **More** — links to full sources; include whenever Background leans on them (the reader's verification escape hatch)
+
+Two absolute rules on the content (ADR-084 D84-7): **no internal labels** in any field (translate `Tier 2` and the like to its consequence), and **the reader is assumed to have zero context** (Background starts from the top-level effort; deep sources go in `More`, not inline). Field labels are English (stable parse tokens); content is in the user's language; the app card localizes the labels. This is the D82-8 "consequence-framed" rule made concrete for the queue.
 
 Resolution and consumption follow the three-state contract `[DECISION-QUEUE]` → `[DECISION-RESOLVED]` → `[DECISION-DONE]` (ADR-084): the RESOLVED transition is written by the human or the app only — an agent never originates it. The next resume consumes RESOLVED without re-asking and logs DONE to `## History`. The `## Pending Decisions` digest in project files is a deterministic derived view recomputed by `refresh-decisions` (ADR-084 D84-5).
 
