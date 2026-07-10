@@ -124,17 +124,19 @@ The fields are written **for the human reader, not for the AI** (ADR-084 D84-7).
 
 Field labels are English (stable parse tokens); the content is written in the user's language, and the app card localizes the labels. `Default` is descriptive, not executive: it states the cost of deferring and does not authorize the agent to act on it. Project-scoped decisions that belong to no single task may live as first-class entries in `projects/{slug}/_project.md` (ADR-084 D84-4).
 
-The human (or the app) resolves by rewriting the tag line in place -- keep `Decision` **and** `Choices` for audit (without the choices, `Chosen: 2` loses its meaning), add the resolution:
+The human (or the app) resolves by rewriting the tag line in place -- keep `Decision` **and** `Choices` for audit (without the choices, `Chosen: 2` loses its meaning), add the resolution. Resolution is **non-destructive** (ADR-084 D84-8): the human's act *rewrites* the QUEUE marker into a RESOLVED one (it is not removed), and when a resume consumes it, its outcome is **moved** into a permanent `[DECISION-DONE]` line in `## History` — that audit record is never deleted (git history is the trail). Clearing the consumed marker from `## Current Position` after the DONE line is written is the move's second half, not a loss. A RESOLVED block carries exactly one of two outcomes:
 
 ```markdown
 [DECISION-RESOLVED id=d1 by=human at=2026-07-07T09:30+09:00]
 - Decision: {kept from the QUEUE block}
 - Choices: {kept from the QUEUE block}
-- Chosen: 2          # or "other"
+- Chosen: 2          # the human accepted option 2
 - Note: {free-text instruction, optional}
 ```
 
-**An agent never originates a QUEUE -> RESOLVED transition** (the load-bearing human gate, ADR-084 D84-1). After consuming a RESOLVED block on resume, the agent logs it to `## History` as `[DECISION-DONE id=dN] chosen=... -- {one-line summary} (resolved by {by})` and deletes it from `## Current Position`.
+`Chosen: N` means the human accepted option N. To deliberately choose none (an explicit "no"), the human writes `- Declined: true` instead of `Chosen` -- an answer distinct from an unanswered QUEUE (which is silence). The agent consumes `declined` and proceeds doing no option (ADR-084 D84-8, mirroring MCP's accept/decline split).
+
+**An agent never originates a QUEUE -> RESOLVED transition** (the load-bearing human gate, ADR-084 D84-1). After consuming a RESOLVED block on resume, the agent logs it to `## History` as `[DECISION-DONE id=dN] {chosen=N | declined} -- {one-line summary} (resolved by {by})` and clears it from `## Current Position` (moved into the History audit, not deleted — D84-8).
 
 Enumerate the queue: `grep -rnE '^(- )?\[DECISION-QUEUE' tasks/*/_task.md projects/*/_project.md`. Legacy id-less entries stay visible but cannot be consumed until an id is added. See `rill-autonomous-execution.md` §9 and ADR-084.
 
@@ -195,8 +197,8 @@ Even when the Plan declares Lane B and the task has an active worktree, **`_task
 4. Check whether `_task.md` already has a `## Current Position` section:
    - **Present**: this is a resume. Run the decision-marker scan (step 5), then read its content, announce "Resuming from {Phase X Step Y}", and jump to the corresponding Phase
    - **Absent**: this is a fresh run. Add the section at the end of Phase 1
-5. **Decision-marker scan (contract v1.1, ADR-084 D84-6)** -- before any other work, scan `## Current Position` for line-start markers:
-   - Every `[DECISION-RESOLVED id=dN]` block: consume it as authoritative human input. Apply `Chosen` + `Note` **without re-asking**, append `- YYYY-MM-DD: [DECISION-DONE id=dN] chosen=... -- {one-line summary} (resolved by {by})` to `## History`, and delete the block from `## Current Position`. Consume all RESOLVED blocks before proceeding.
+5. **Decision-marker scan (contract v1.1, ADR-084 D84-6 / D84-8)** -- before any other work, scan `## Current Position` for line-start markers:
+   - Every `[DECISION-RESOLVED id=dN]` block: consume it as authoritative human input **without re-asking**. Read its outcome -- `Chosen: N` (the human accepted option N) or `Declined: true` (the human deliberately chose none: proceed doing no option). Apply it + `Note`, then **move** it into the audit: append `- YYYY-MM-DD: [DECISION-DONE id=dN] {chosen=N | declined} -- {one-line summary} (resolved by {by})` to `## History` and clear the consumed block from `## Current Position`. This is a move, not a loss: the decision's record persists forever in `## History` (non-destructive -- the audit is never deleted; only the transient `## Current Position` marker is cleared once consumed, ADR-084 D84-8). Consume all RESOLVED blocks before proceeding.
    - A `[DECISION-QUEUE id=dN]` still unresolved after that: the task is human-blocked. Interactive: present the queued fields and ask now via the harness's question primitive; on an in-session answer, apply it and log `[DECISION-DONE id=dN] ... (resolved by human, in-session)` to `## History` (no RESOLVED marker is fabricated). Autonomous: exit `status: open` without asking (the entry re-surfaces via the digest).
    - The same scan covers `projects/{slug}/_project.md` for every project in the task's frontmatter `mentions` (project-scoped decisions, ADR-084 D84-4), excluding the `## Pending Decisions` section (derived view -- task-origin copies there are not consumable; their source of truth is the task file): consume line-start `[DECISION-RESOLVED]` blocks found elsewhere in the file the same way, except the DONE audit line is appended to that project file's `## Decision Log` section (append-only; create it at the end of the file if missing) instead of the task's History.
    - The agent **never** rewrites QUEUE -> RESOLVED itself (ADR-084 D84-1); that transition belongs to the human or the app.
@@ -669,7 +671,7 @@ If any worktree removal fails (e.g. due to local untracked files), surface to th
 If `/solve {slug}` is invoked after a `/clear`:
 
 1. Phase 1.1 validation detects the existing `## Current Position`
-2. **Decision markers first** (Phase 1.1 step 5, ADR-084 D84-6): consume every line-start `[DECISION-RESOLVED]` block -- apply `Chosen` + `Note`, log `[DECISION-DONE id=...]` to `## History`, delete from `## Current Position`, never re-ask. If an unresolved `[DECISION-QUEUE]` remains, the task is human-blocked: interactive asks now, autonomous exits `status: open`
+2. **Decision markers first** (Phase 1.1 step 5, ADR-084 D84-6): consume every line-start `[DECISION-RESOLVED]` block -- apply its outcome (`Chosen: N` or `Declined: true`) + `Note`, log `[DECISION-DONE id=dN] {chosen=N | declined} -- {summary}` to `## History` (canonical shape: outcome after the bracket, per the entry format above), clear it from `## Current Position` (moved to the History audit, not deleted — D84-8), never re-ask. If an unresolved `[DECISION-QUEUE]` remains, the task is human-blocked: interactive asks now, autonomous exits `status: open`
 3. Read its content and announce "Resuming from {Phase X Step Y}"
 4. Jump to that Phase / Step. Phase 1.5 (worktree resume) re-runs in case the worktree state needs reconciliation
 5. Tolerate at most one step of rework (real SLA)
