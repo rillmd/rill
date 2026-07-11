@@ -213,10 +213,11 @@ cmd_log() {
 cmd_push() {
     cd "$RILL_HOME"
 
-    # git-crypt lock safety check (ADR-047)
+    # git-crypt lock safety check (ADR-047). Probes both people/ and orgs/:
+    # a vault with only orgs/ encrypted files must not skip this check.
     if [ -d "$RILL_HOME/.git/git-crypt" ]; then
         local test_file
-        test_file=$(ls knowledge/people/*.md 2>/dev/null | head -1 || true)
+        test_file=$(ls knowledge/people/*.md knowledge/orgs/*.md 2>/dev/null | head -1 || true)
         if [ -n "$test_file" ] && head -c 9 "$test_file" | grep -q "GITCRYPT"; then
             echo "⚠️  git-crypt is locked. Run: git-crypt unlock <key>"
             return 1
@@ -1759,10 +1760,11 @@ _crypt_doctor() {
     orgs_count=$(ls knowledge/orgs/*.md 2>/dev/null | wc -l | tr -d ' ' || true)
     echo "  Encrypted files: people=$people_count, orgs=$orgs_count"
 
-    # 3. Lock status
+    # 3. Lock status. Probes both people/ and orgs/: a vault with only
+    # orgs/ encrypted files must not skip this check.
     if [ -d ".git/git-crypt" ]; then
         local test_file
-        test_file=$(ls knowledge/people/*.md 2>/dev/null | head -1 || true)
+        test_file=$(ls knowledge/people/*.md knowledge/orgs/*.md 2>/dev/null | head -1 || true)
         if [ -n "$test_file" ]; then
             if head -c 9 "$test_file" | grep -q "GITCRYPT"; then
                 echo "✗ git-crypt is LOCKED (run: git-crypt unlock <key>)"

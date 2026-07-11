@@ -8,6 +8,8 @@
 #   - rill status on a fresh vault (workspace/thinks missing, empty journal)
 #   - rill edit with an empty journal (guidance message, rc=0)
 #   - rill push with a git-crypt marker + empty knowledge/people/
+#   - rill push refuses when only knowledge/orgs/ (not people/) holds a
+#     locked git-crypt file (ADR-047 lock-probe coverage gap)
 #   - rill plugin status keeps listing past a plugin whose requires.sh fails
 #   - rill plugin install completes (rc=0) when requires.sh fails
 #   - rill mkfile path-safety guard (absolute / `..` directory, `/` in
@@ -137,7 +139,23 @@ rc=0; out="$("$RILL" push 2>&1)" || rc=$?
 assert_eq "$rc" "0" "rill push exits 0 with git-crypt marker + empty knowledge/people/"
 assert_out_contains "$out" "Pushed." "second push reports success"
 
-# --- 6. rill status with entries (regular path still works) -----------------
+# --- 6. rill push refuses an orgs-only locked git-crypt vault ---------------
+# Regression (Codex review [P1], 2026-07-11): the lock probe only globbed
+# knowledge/people/*.md, so a vault with people/ empty but a locked file in
+# knowledge/orgs/ silently skipped the check and pushed anyway (ADR-047
+# protection gap: files added while locked could be committed as
+# plaintext-looking-but-actually-encrypted content). people/ is still empty
+# from section 5. rill init also seeds knowledge/orgs/CLAUDE.md, so clear
+# orgs/*.md first (mirrors section 5's people/ cleanup) - otherwise `ls | head
+# -1` would alphabetically pick CLAUDE.md over the fixture and prove nothing.
+rm -f "$VAULT/knowledge/orgs"/*.md
+printf 'GITCRYPT' > "$VAULT/knowledge/orgs/locked-org.md"
+rc=0; out="$("$RILL" push 2>&1)" || rc=$?
+assert_true "[ $rc -ne 0 ]" "rill push refuses when only knowledge/orgs/ holds a locked git-crypt file"
+assert_out_contains "$out" "git-crypt is locked" "push prints the lock warning for an orgs-only locked vault"
+rm -f "$VAULT/knowledge/orgs/locked-org.md"
+
+# --- 7. rill status with entries (regular path still works) -----------------
 rc=0; out="$("$RILL" status 2>&1)" || rc=$?
 assert_eq "$rc" "0" "rill status exits 0 with journal entries"
 assert_out_contains "$out" "journal: 1" "status counts the new entry"
@@ -154,13 +172,13 @@ printf '#!/bin/bash\necho "missing dependency: nosuchtool"\nexit 1\n' \
   > "$VAULT/plugins/aaa-broken/requires.sh"
 printf 'name: zzz-ok\n' > "$VAULT/plugins/zzz-ok/plugin.md"
 
-# --- 7. rill plugin status keeps listing past a failing requires.sh ---------
+# --- 8. rill plugin status keeps listing past a failing requires.sh ---------
 rc=0; out="$("$RILL" plugin status 2>&1)" || rc=$?
 assert_eq "$rc" "0" "rill plugin status exits 0 with a failing requires.sh"
 assert_out_contains "$out" "aaa-broken" "status lists the broken plugin"
 assert_out_contains "$out" "zzz-ok" "status continues past the failing dependency check"
 
-# --- 8. rill plugin install completes despite failing requires.sh -----------
+# --- 9. rill plugin install completes despite failing requires.sh -----------
 rc=0; out="$("$RILL" plugin install aaa-broken 2>&1)" || rc=$?
 assert_eq "$rc" "0" "rill plugin install exits 0 when requires.sh fails"
 assert_out_contains "$out" "Resolve the above dependencies" "install prints follow-up guidance"
@@ -168,26 +186,26 @@ assert_out_contains "$out" "Resolve the above dependencies" "install prints foll
 echo ""
 echo "=== CLI smoke: mkfile path-safety guard ==="
 
-# --- 9. slug escape rejected -------------------------------------------------
+# --- 10. slug escape rejected -------------------------------------------------
 rc=0; "$RILL" mkfile knowledge/notes --slug '../escape-note' --type insight >/dev/null 2>&1 || rc=$?
 assert_true "[ $rc -ne 0 ]" "mkfile rejects --slug containing '/'"
 assert_file_not_exists "$VAULT/knowledge/escape-note.md" "no file escaped knowledge/notes/"
 
-# --- 10. directory .. escape rejected ----------------------------------------
+# --- 11. directory .. escape rejected ----------------------------------------
 rc=0; "$RILL" mkfile ../outside --slug x >/dev/null 2>&1 || rc=$?
 assert_true "[ $rc -ne 0 ]" "mkfile rejects directory with '..' segment"
 assert_true "[ ! -e '$WORK/outside' ]" "no directory created outside the vault"
 
-# --- 11. absolute directory rejected -----------------------------------------
+# --- 12. absolute directory rejected -----------------------------------------
 rc=0; "$RILL" mkfile "$WORK/absdir" --slug x >/dev/null 2>&1 || rc=$?
 assert_true "[ $rc -ne 0 ]" "mkfile rejects an absolute directory"
 assert_true "[ ! -e '$WORK/absdir' ]" "no absolute directory created"
 
-# --- 12. --date traversal rejected -------------------------------------------
+# --- 13. --date traversal rejected -------------------------------------------
 rc=0; "$RILL" mkfile inbox/meetings --slug ok --date '../esc' >/dev/null 2>&1 || rc=$?
 assert_true "[ $rc -ne 0 ]" "mkfile rejects --date containing '/'"
 
-# --- 13. normal creation still works -----------------------------------------
+# --- 14. normal creation still works -----------------------------------------
 rc=0; out="$("$RILL" mkfile knowledge/notes --slug smoke-note --type insight 2>&1)" || rc=$?
 assert_eq "$rc" "0" "mkfile creates a normal knowledge note"
 assert_file_exists "$VAULT/knowledge/notes/smoke-note.md" "note file exists"
