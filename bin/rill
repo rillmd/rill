@@ -1792,9 +1792,7 @@ _crypt_doctor() {
         # LLM verification to reduce false positives
         local candidates
         candidates=$(echo "$phone_hits" | head -20)
-        if command -v claude &>/dev/null; then
-            local llm_result
-            llm_result=$(claude -p --model haiku "You are a PII detection assistant. Analyze these lines from Markdown files. Determine if any contain real phone numbers (personal/business contact numbers).
+        local pii_prompt="You are a PII detection assistant. Analyze these lines from Markdown files. Determine if any contain real phone numbers (personal/business contact numbers).
 
 NOT phone numbers: dates (2026-03-16), timestamps, file IDs (001-initial-review), version numbers, port numbers, ZIP codes, example numbers.
 
@@ -1803,7 +1801,15 @@ $candidates
 
 Reply ONLY with:
 - \"FOUND\" followed by the lines with real phone numbers
-- \"NONE\" if no real phone numbers" 2>/dev/null || echo "ERROR")
+- \"NONE\" if no real phone numbers"
+
+        # Prefer claude; fall back to codex when claude is absent; else show
+        # unverified candidates. Both LLM paths share the same prompt and
+        # the same output contract (plain text reply starting with FOUND or
+        # NONE).
+        if command -v claude &>/dev/null; then
+            local llm_result
+            llm_result=$(claude -p --model haiku "$pii_prompt" 2>/dev/null || echo "ERROR")
 
             if echo "$llm_result" | grep -q "^FOUND"; then
                 echo "⚠️  Phone number patterns found (LLM verified):"
@@ -1811,6 +1817,37 @@ Reply ONLY with:
                 pii_found=1
             else
                 echo "✓ Phone patterns found but LLM judged as non-PII"
+            fi
+        elif command -v codex &>/dev/null; then
+            local llm_result codex_last_msg
+            codex_last_msg="$(mktemp)"
+            if codex exec --skip-git-repo-check --sandbox read-only --color never \
+                --output-last-message "$codex_last_msg" \
+                "$pii_prompt" </dev/null >/dev/null 2>&1; then
+                llm_result="$(cat "$codex_last_msg" 2>/dev/null)"
+            else
+                llm_result="ERROR"
+            fi
+            rm -f "$codex_last_msg"
+            if [ -z "$llm_result" ]; then
+                llm_result="ERROR"
+            fi
+
+            if echo "$llm_result" | grep -q "^FOUND"; then
+                echo "⚠️  Phone number patterns found (LLM verified via Codex):"
+                echo "$llm_result" | tail -n +2 | head -5 | sed 's/^/  /'
+                pii_found=1
+            elif echo "$llm_result" | grep -q "^NONE"; then
+                echo "✓ Phone patterns found but LLM judged as non-PII"
+            else
+                # codex exec failed (unauthenticated, offline, execution
+                # error, ...), produced no output, or returned something
+                # that isn't a recognized FOUND/NONE reply. Do not treat
+                # that as "no PII" — fall back to the same unverified-
+                # candidates warning used when no LLM is available at all.
+                echo "⚠️  Possible phone number patterns (Codex verification failed or gave an unexpected response):"
+                echo "$candidates" | head -5
+                pii_found=1
             fi
         else
             echo "⚠️  Possible phone number patterns (LLM unavailable):"
@@ -2034,6 +2071,32 @@ _ensure_codex_hooks() {
             )
         )
     ' "$hooks_file" > "$tmp" && mv "$tmp" "$hooks_file"
+}
+
+# Install the Codex execpolicy deny-rules file (Tier 3 destructive-op port,
+# see templates/codex-deny.rules and .claude/rules/rill-autonomous-execution.md
+# §6). Unlike _ensure_codex_hooks, there is no user content to merge here —
+# this is a Rill-authored policy file, fully overwritten on every
+# init/update like the rill-*.md rules, so a plain copy + managed-files
+# registration is enough. Note the source and installed basenames differ
+# (codex-deny.rules -> rill-deny.rules) to match the rill-*.md naming
+# convention users already know from .claude/rules/.
+_ensure_codex_deny_rules() {
+    local vault="$1"
+    local managed_file="$2"
+    local rill_source manifest rules_file
+    rill_source="$(_resolve_rill_source)"
+    manifest="$rill_source/templates/codex-deny.rules"
+    rules_file="$vault/.codex/rules/rill-deny.rules"
+
+    [ -f "$manifest" ] || {
+        echo "  ⚠ Codex deny-rules template not found: $manifest" >&2
+        return 1
+    }
+
+    mkdir -p "$vault/.codex/rules"
+    cp "$manifest" "$rules_file"
+    echo ".codex/rules/rill-deny.rules" >> "$managed_file"
 }
 
 _install_codex_skill_file() {
@@ -2315,6 +2378,27 @@ cmd_doctor() {
 
     [ -f "$vault/AGENTS.md" ] || { echo "  ✗ missing AGENTS.md"; issues=$((issues + 1)); }
     [ -f "$vault/.codex/hooks.json" ] || { echo "  ✗ missing .codex/hooks.json"; issues=$((issues + 1)); }
+    [ -f "$vault/.codex/rules/rill-deny.rules" ] || {
+        echo "  ✗ missing .codex/rules/rill-deny.rules"
+        issues=$((issues + 1))
+    }
+
+    # Functional spot-check: only when the codex binary is present (never
+    # required — CI and many dev machines won't have it). Assert on the
+    # JSON `"decision":"forbidden"` field, not the process exit code: `codex
+    # execpolicy check` exits 0 whether or not the command matched a rule.
+    if [ -f "$vault/.codex/rules/rill-deny.rules" ] && command -v codex &>/dev/null; then
+        local spot_check
+        spot_check="$(codex execpolicy check --rules "$vault/.codex/rules/rill-deny.rules" \
+            -- git push --force origin main 2>/dev/null || true)"
+        case "$spot_check" in
+            *'"decision":"forbidden"'*) ;;
+            *)
+                echo "  ✗ execpolicy spot-check: 'git push --force origin main' was not reported forbidden"
+                issues=$((issues + 1))
+                ;;
+        esac
+    fi
 
     local claude_file agents_file
     while IFS= read -r claude_file; do
@@ -2955,6 +3039,13 @@ LANG
     fi
     echo "  ✓ Plugins copied"
 
+    # ── Phase 6.7: Codex deny rules ────────────────────────────────────
+    # Registers a new managed-files.txt entry, so this must run before
+    # Phase 7 generates .gitignore from that list — otherwise the newly
+    # installed rules file isn't recognized as managed and shows up as an
+    # untracked file in the user's vault.
+    _ensure_codex_deny_rules "$vault_dir" "$vault_dir/.rill/managed-files.txt"
+
     # ── Phase 7: .gitignore for managed files (D009-6) ────────────────
     _generate_vault_gitignore "$vault_dir"
     echo "  ✓ .gitignore updated (managed files excluded from git)"
@@ -2964,7 +3055,7 @@ LANG
     _ensure_codex_hooks "$vault_dir"
     _ensure_permissions "$vault_dir"
     _ensure_codex_command_skills "$vault_dir"
-    echo "  ✓ Hooks and permissions installed in .claude/settings.json"
+    echo "  ✓ Hooks, permissions, and Codex deny rules installed"
 
     # ── Summary ──────────────────────────────────────────────────────
     local managed_count
@@ -3285,6 +3376,11 @@ EOF
                 echo "  ✓ $vname: removed $removed_count retired managed file(s)"
             fi
         fi
+
+        # Codex deny rules: registers a new managed-files.txt entry, so
+        # this must run before .gitignore is regenerated from that list
+        # below — otherwise the rules file isn't recognized as managed.
+        _ensure_codex_deny_rules "$vpath" "$managed_file"
 
         # Regenerate .gitignore for this vault (D009-6)
         _generate_vault_gitignore "$vpath"

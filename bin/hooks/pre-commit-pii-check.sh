@@ -64,9 +64,7 @@ done <<< "$CHECK_FILES"
 if [ -n "$PHONE_CANDIDATES" ]; then
   PHONE_CANDIDATES="${PHONE_CANDIDATES%$'\n'}"  # trim trailing newline
 
-  # Check if claude CLI is available
-  if command -v claude &>/dev/null; then
-    LLM_RESULT=$(claude -p --model haiku "You are a PII detection assistant. Analyze the following lines from Markdown files and determine if any contain real phone numbers (personal or business contact numbers that identify a specific person or organization).
+  PII_PROMPT="You are a PII detection assistant. Analyze the following lines from Markdown files and determine if any contain real phone numbers (personal or business contact numbers that identify a specific person or organization).
 
 NOT phone numbers: dates (2026-03-16), timestamps (094504), file IDs (001-initial-review), version numbers, port numbers, ZIP codes, generic example numbers.
 
@@ -77,7 +75,13 @@ Reply ONLY with either:
 - \"FOUND\" followed by the specific lines that contain real phone numbers
 - \"NONE\" if no real phone numbers are found
 
-Be strict: only flag actual contact phone numbers." 2>/dev/null || echo "ERROR")
+Be strict: only flag actual contact phone numbers."
+
+  # Prefer claude; fall back to codex when claude is absent; else show
+  # unverified candidates. Both LLM paths share the same prompt and the
+  # same output contract (plain text reply starting with FOUND or NONE).
+  if command -v claude &>/dev/null; then
+    LLM_RESULT=$(claude -p --model haiku "$PII_PROMPT" 2>/dev/null || echo "ERROR")
 
     if echo "$LLM_RESULT" | grep -q "^FOUND"; then
       echo "⚠️  Phone number detected (LLM verified):"
@@ -85,8 +89,37 @@ Be strict: only flag actual contact phone numbers." 2>/dev/null || echo "ERROR")
       FOUND=1
     fi
     # NONE or ERROR → no block
+  elif command -v codex &>/dev/null; then
+    CODEX_LAST_MSG=$(mktemp)
+    if codex exec --skip-git-repo-check --sandbox read-only --color never \
+        --output-last-message "$CODEX_LAST_MSG" \
+        "$PII_PROMPT" </dev/null >/dev/null 2>&1; then
+      LLM_RESULT=$(cat "$CODEX_LAST_MSG" 2>/dev/null || true)
+    else
+      LLM_RESULT="ERROR"
+    fi
+    rm -f "$CODEX_LAST_MSG"
+    if [ -z "$LLM_RESULT" ]; then
+      LLM_RESULT="ERROR"
+    fi
+
+    if echo "$LLM_RESULT" | grep -q "^FOUND"; then
+      echo "⚠️  Phone number detected (LLM verified via Codex):"
+      echo "$LLM_RESULT" | tail -n +2 | sed 's/^/    /'
+      FOUND=1
+    elif echo "$LLM_RESULT" | grep -q "^NONE"; then
+      : # LLM ran and judged clean → no block
+    else
+      # codex exec failed, produced no output, or returned something that
+      # isn't a recognized FOUND/NONE reply. Do not treat that as "no
+      # PII" — fall back to the same unverified-candidates warning used
+      # when no LLM is available at all.
+      echo "⚠️  Possible phone number patterns (Codex verification failed or gave an unexpected response):"
+      echo "$PHONE_CANDIDATES" | sed 's/^/    /'
+      FOUND=1
+    fi
   else
-    # No claude CLI: fall back to showing candidates as warnings
+    # No claude or codex CLI: fall back to showing candidates as warnings
     echo "⚠️  Possible phone number patterns (LLM unavailable for verification):"
     echo "$PHONE_CANDIDATES" | sed 's/^/    /'
     FOUND=1

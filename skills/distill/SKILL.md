@@ -14,6 +14,8 @@ gui:
 
 **Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
 
+> **Tool references in this skill** (`Read`, `Grep`, `Glob`, the `Agent` tool, `model: "sonnet"`, `run_in_background`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent. On Codex CLI: sub-agent fan-out (the parallel `Agent` launches below) maps to Codex's own sub-agent mechanism where one is available, or runs sequentially in the current session when it isn't; `run_in_background` likewise degrades to sequential execution when no background/async primitive exists; a named `model` is a preference for an equivalent lighter/faster model, falling back to the session default. If a step asks the user a question, treat it as a plain free-text question in an interactive session; in an unattended run it must not block — write a `[DECISION-QUEUE]` entry instead, per the decision-loop contract (ADR-084, `.claude/rules/rill-autonomous-execution.md` §9).
+
 Batch-processes unprocessed inbox/journal/ and inbox/*/ files. Uses flat orchestrator pattern with external templates + parallel agent spawning (D48). Workspace distillation is handled by /close in the parent context (ADR-072).
 
 ## Arguments
