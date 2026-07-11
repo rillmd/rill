@@ -1,0 +1,68 @@
+# rill-deny.rules — Codex execpolicy port of the Rill Tier 3 destructive-op
+# denies (see .claude/rules/rill-autonomous-execution.md §6). Installed to
+# $vault/.codex/rules/rill-deny.rules by `rill init` / `rill update`.
+#
+# Syntax: Starlark, evaluated by `codex execpolicy`. The only rule
+# constructor is `prefix_rule(pattern=[...], decision=...)`. `decision` is
+# "allow" or "forbidden" ("deny" is not a valid keyword). A pattern element
+# is either a literal string (exact token match) or a list of strings
+# (matches any one of them at that position — used below for remote-name /
+# branch-name alternatives). Matching is a **prefix** match over the
+# command's argv tokens: a rule matches if argv starts with the pattern,
+# regardless of what follows. There is no wildcard token (`*`, `None`, and
+# `[]` are all rejected by the parser) — an unlisted token position can only
+# be covered by enumerating it. When rules from multiple loaded files
+# conflict on the same command, "forbidden" always wins over "allow",
+# regardless of file order or which pattern is more specific (verified
+# empirically on this machine, codex-cli 0.144.1).
+#
+# Known residual gaps (inherent to argv-prefix matching, not oversights):
+#   - No wildcard for "any remote name": `git push <remote> main/master` is
+#     approximated by enumerating the two conventional remote names (origin,
+#     upstream). A push to a differently-named remote (e.g. a custom
+#     mirror) is not covered.
+#   - Position-sensitive: a flag is only matched where the pattern places
+#     it. `git push --force origin main` matches; `git push origin main
+#     --force` (force reordered to the end) does not, because the pattern
+#     requires the exact prefix `git push --force`.
+#   - Exact token equality, not substring/glob: `git push --force` does not
+#     match `git push --force-with-lease` (different literal token). The
+#     analogous Claude-side Bash(...) deny list uses a glob over the whole
+#     command string, so it incidentally catches such variants; this
+#     execpolicy port, being argv-structured, does not.
+#   - Refspec / implicit-branch forms (`git push origin HEAD:main`, or a
+#     bare `git push` relying on `push.default=current` while on main) are
+#     not covered — the destination branch isn't a standalone token to
+#     match against. (The Claude-side glob has the same gap.)
+#   - Shell indirection bypasses argv-prefix matching entirely: if the
+#     command actually executed is `bash -c "git push --force"`, the first
+#     argv token is `bash`, not `git`, so none of these rules see the
+#     embedded git invocation. This is a structural limit of any
+#     argv-prefix allow/deny mechanism, not specific to this rule set.
+#
+# The `rill push` CLI wrapper is unaffected by design: these rules only
+# match when the agent's own shell command begins with the literal tokens
+# `git ...` / `gh ...`; `rill push` has a different argv[0] and never
+# matches.
+
+# --- git push --force / -f (overwrites remote history) ---
+prefix_rule(pattern=["git", "push", "--force"], decision="forbidden")
+prefix_rule(pattern=["git", "push", "-f"], decision="forbidden")
+
+# --- git push <remote> main/master (direct main push; use a PR) ---
+prefix_rule(
+    pattern=["git", "push", ["origin", "upstream"], ["main", "master"]],
+    decision="forbidden",
+)
+
+# --- git reset --hard (discards working tree) ---
+prefix_rule(pattern=["git", "reset", "--hard"], decision="forbidden")
+
+# --- git clean -f (removes untracked files unrecoverably) ---
+prefix_rule(pattern=["git", "clean", "-f"], decision="forbidden")
+
+# --- git branch -D (removes unmerged branch state) ---
+prefix_rule(pattern=["git", "branch", "-D"], decision="forbidden")
+
+# --- gh pr merge --admin (bypasses branch protection) ---
+prefix_rule(pattern=["gh", "pr", "merge", "--admin"], decision="forbidden")
