@@ -843,7 +843,8 @@ _plugin_enable() {
         fi
     fi
 
-    # Create command symlinks
+    # Create Claude command links and Codex skill links. Codex links stay
+    # inside the vault, so they remain portable across machines.
     local count=0
     if [ -d "$plugin_dir/commands" ]; then
         for cmd in "$plugin_dir"/commands/*.md; do
@@ -861,6 +862,16 @@ _plugin_enable() {
                 ln -s "$rel_commands/$cmd_basename" "$target"
                 echo "  linked: $cmd_basename"
                 count=$((count + 1))
+            fi
+
+            local skill_name="${cmd_basename%.md}"
+            local codex_skill_dir="$RILL_HOME/.agents/skills/$skill_name"
+            local codex_skill="$codex_skill_dir/SKILL.md"
+            local plugin_rel="${cmd#"$RILL_HOME"/}"
+            if [ ! -e "$codex_skill" ] && [ ! -L "$codex_skill" ]; then
+                mkdir -p "$codex_skill_dir"
+                ln -s "../../../$plugin_rel" "$codex_skill"
+                echo "  codex: $skill_name"
             fi
         done
     fi
@@ -907,6 +918,19 @@ _plugin_disable() {
         rm "$link"
         echo "  unlinked: $(basename "$link")"
         count=$((count + 1))
+    done
+
+
+    local codex_link
+    for codex_link in "$RILL_HOME/.agents/skills"/*/SKILL.md; do
+        [ -L "$codex_link" ] || continue
+        local codex_target
+        codex_target="$(readlink "$codex_link")"
+        if [[ "$codex_target" == *"plugins/local/$name/commands/"* ]] \
+          || [[ "$codex_target" == *"plugins/$name/commands/"* ]]; then
+            rm "$codex_link"
+            rmdir "$(dirname "$codex_link")" 2>/dev/null || true
+        fi
     done
 
     _state_remove "$PLUGINS_DIR/.enabled" "$name"
@@ -1966,6 +1990,95 @@ _ensure_all_hooks() {
     done
 }
 
+# Install Codex project hooks. Codex uses the same event envelope as Claude
+# Code, but reads project hooks from .codex/hooks.json. Commands call the
+# adapter below so hook payload differences stay out of the manifests.
+_ensure_codex_hooks() {
+    local vault="$1"
+    local hooks_file="$vault/.codex/hooks.json"
+    local rill_source manifest
+    rill_source="$(_resolve_rill_source)"
+    manifest="$rill_source/templates/codex-hooks.json"
+
+    [ -f "$manifest" ] || {
+        echo "  ⚠ Codex hooks template not found: $manifest" >&2
+        return 1
+    }
+
+    mkdir -p "$vault/.codex"
+    if [ ! -f "$hooks_file" ]; then
+        cp "$manifest" "$hooks_file"
+        return 0
+    fi
+
+    if ! command -v jq &>/dev/null; then
+        echo "  ⚠ jq not found, skipping Codex hook update" >&2
+        return 0
+    fi
+
+    local tmp; tmp="$(mktemp)"
+    jq --slurpfile wanted "$manifest" '
+        .hooks //= {} |
+        reduce (($wanted[0].hooks // {}) | to_entries[]) as $event (
+            .;
+            .hooks[$event.key] //= [] |
+            reduce $event.value[] as $entry (
+                .;
+                reduce ($entry.hooks // [])[] as $hook (
+                    .;
+                    if ([.hooks[$event.key][]?.hooks[]?.command] | index($hook.command)) == null
+                    then .hooks[$event.key] += [$entry]
+                    else .
+                    end
+                )
+            )
+        )
+    ' "$hooks_file" > "$tmp" && mv "$tmp" "$hooks_file"
+}
+
+_install_codex_skill_file() {
+    local vault="$1"
+    local source_root="$2"
+    local src="$3"
+    local managed_file="$4"
+    local skill_rel=".agents/${src#"$source_root"/}"
+    local skill_dest="$vault/$skill_rel"
+    local skill_dest_dir
+    skill_dest_dir="$(dirname "$skill_dest")"
+    [ -L "$skill_dest_dir" ] && rm -f "$skill_dest_dir"
+    mkdir -p "$skill_dest_dir"
+    [ -L "$skill_dest" ] && rm -f "$skill_dest"
+    cp "$src" "$skill_dest"
+    echo "$skill_rel" >> "$managed_file"
+}
+
+_install_codex_container_guidance() {
+    local vault="$1"
+    local source_root="$2"
+    local claude_rel="$3"
+    local managed_file="$4"
+    local agents_rel="${claude_rel%CLAUDE.md}AGENTS.md"
+    mkdir -p "$vault/$(dirname "$agents_rel")"
+    cp "$source_root/$claude_rel" "$vault/$agents_rel"
+    echo "$agents_rel" >> "$managed_file"
+}
+
+_ensure_codex_command_skills() {
+    local vault="$1"
+    local command skill_name skill_dir skill_file
+    for command in "$vault"/.claude/commands/*.md; do
+        [ -f "$command" ] || continue
+        skill_name="$(basename "$command" .md)"
+        [[ "$skill_name" == _* ]] && continue
+        skill_dir="$vault/.agents/skills/$skill_name"
+        skill_file="$skill_dir/SKILL.md"
+        if [ ! -e "$skill_file" ] && [ ! -L "$skill_file" ]; then
+            mkdir -p "$skill_dir"
+            ln -s "../../../.claude/commands/$(basename "$command")" "$skill_file"
+        fi
+    done
+}
+
 # ── Permission installation (ADR-074) ────────────────────────────────────
 # `_ensure_permissions` reads templates/permissions-manifest.json from the
 # source repo and ensures each allow rule is present in settings.json.
@@ -2128,6 +2241,120 @@ EOF
     fi
 
     return 0
+}
+
+# Normalize Codex hook payloads to the file_path envelope used by the
+# existing Rill hook helpers. Supports direct file tools and apply_patch.
+cmd_codex_hook() {
+    local event="${1:-}"
+    local json
+    json="$(cat)"
+
+    case "$event" in
+        pre-write|post-write)
+            local paths
+            paths="$(printf '%s' "$json" | jq -r '
+                [
+                  .tool_input.file_path?, .tool_input.path?,
+                  .input.file_path?, .input.path?
+                ] | .[] | select(type == "string" and length > 0)
+            ' 2>/dev/null || true)"
+
+            local patch_text
+            patch_text="$(printf '%s' "$json" | jq -r '
+                .tool_input.patch // .tool_input.input //
+                .input.patch // .input.input // empty
+            ' 2>/dev/null || true)"
+            if [ -n "$patch_text" ]; then
+                local patch_paths
+                patch_paths="$(printf '%s\n' "$patch_text" |
+                    sed -nE 's/^\*\*\* (Add|Update|Delete) File: (.*)$/\2/p')"
+                paths="${paths}${paths:+$'\n'}${patch_paths}"
+            fi
+
+            paths="$(printf '%s\n' "$paths" | sed '/^$/d' | sort -u)"
+            if [ -z "$paths" ]; then
+                echo "Rill Codex hook could not determine the write target; blocking the write." >&2
+                return 2
+            fi
+
+            local path synthetic
+            while IFS= read -r path; do
+                [ -n "$path" ] || continue
+                if [ "$event" = "pre-write" ]; then
+                    cmd_guard "$path" || return $?
+                else
+                    synthetic="$(jq -cn --arg p "$path" '{tool_input:{file_path:$p}}')"
+                    printf '%s' "$synthetic" | cmd_activity_log on-write
+                    printf '%s' "$synthetic" | cmd_touch
+                fi
+            done <<< "$paths"
+            ;;
+        prompt)
+            printf '%s' "$json" | cmd_activity_log on-prompt
+            ;;
+        stop)
+            printf '%s' "$json" | cmd_activity_log on-stop
+            ;;
+        *)
+            echo "Usage: rill codex-hook [pre-write|post-write|prompt|stop]" >&2
+            return 1
+            ;;
+    esac
+}
+
+cmd_doctor() {
+    if [ "${1:-}" != "codex" ]; then
+        _crypt_doctor
+        return
+    fi
+
+    local vault="${RILL_HOME:-$PWD}"
+    local issues=0
+    echo "Codex migration checks"
+
+    [ -f "$vault/AGENTS.md" ] || { echo "  ✗ missing AGENTS.md"; issues=$((issues + 1)); }
+    [ -f "$vault/.codex/hooks.json" ] || { echo "  ✗ missing .codex/hooks.json"; issues=$((issues + 1)); }
+
+    local claude_file agents_file
+    while IFS= read -r claude_file; do
+        agents_file="${claude_file%CLAUDE.md}AGENTS.md"
+        [ -f "$agents_file" ] || {
+            echo "  ✗ missing ${agents_file#"$vault"/}"
+            issues=$((issues + 1))
+        }
+    done < <(find "$vault" -path "$vault/.claude" -prune -o \
+        -path "$vault/.git" -prune -o -name CLAUDE.md -print)
+
+    local skill
+    for skill in "$vault"/.claude/skills/*/SKILL.md; do
+        [ -f "$skill" ] || continue
+        agents_file="$vault/.agents/skills/$(basename "$(dirname "$skill")")/SKILL.md"
+        [ -f "$agents_file" ] || {
+            echo "  ✗ missing .agents/skills/$(basename "$(dirname "$skill")")/SKILL.md"
+            issues=$((issues + 1))
+        }
+    done
+
+
+    local command skill_name
+    for command in "$vault"/.claude/commands/*.md; do
+        [ -f "$command" ] || continue
+        skill_name="$(basename "$command" .md)"
+        [[ "$skill_name" == _* ]] && continue
+        agents_file="$vault/.agents/skills/$skill_name/SKILL.md"
+        [ -e "$agents_file" ] || {
+            echo "  ✗ command /$skill_name has no Codex skill"
+            issues=$((issues + 1))
+        }
+    done
+
+    if [ "$issues" -eq 0 ]; then
+        echo "  ✓ Codex guidance, hooks, and skills are installed"
+        return 0
+    fi
+    echo "  $issues issue(s) found"
+    return 1
 }
 
 # ── Vault registry: ~/.rill/vaults.json management ──────────────────────
@@ -2461,9 +2688,9 @@ EOF
         done
     fi
 
-    # 2b-2: skills/{name}/ — SKILL.md format. Source layout is top-level
-    # skills/{name}/SKILL.md; vault destination is .claude/skills/{name}/SKILL.md
-    # (Claude Code SKILL.md convention requires the .claude/ prefix).
+    # 2b-2: skills/{name}/ — shared SKILL.md format. Project into both
+    # .claude/skills and .agents/skills so either harness has real, portable
+    # files rather than symlinks into the source checkout.
     # Legacy vaults may have .claude/skills/{name} as a symlink into the
     # source repo (pre-mechanism bootstrap); rm before mkdir+cp so the
     # destination becomes a real file, not a write-through to source.
@@ -2481,6 +2708,8 @@ EOF
             [ -L "$skill_dest" ] && rm -f "$skill_dest"
             cp "$src" "$skill_dest"
             echo "$skill_rel" >> "$vault_dir/.rill/managed-files.txt"
+            _install_codex_skill_file "$vault_dir" "$rill_source" "$src" \
+                "$vault_dir/.rill/managed-files.txt"
         done
     fi
 
@@ -2507,6 +2736,8 @@ EOF
             mkdir -p "$vault_dir/$(dirname "$subdir_claude")"
             cp "$rill_source/$subdir_claude" "$vault_dir/$subdir_claude"
             echo "$subdir_claude" >> "$vault_dir/.rill/managed-files.txt"
+            _install_codex_container_guidance "$vault_dir" "$rill_source" \
+                "$subdir_claude" "$vault_dir/.rill/managed-files.txt"
         fi
     done
 
@@ -2571,6 +2802,13 @@ SCAFFOLD
         echo "  ✓ Created CLAUDE.md with Rill core import"
     else
         echo "  ℹ CLAUDE.md already exists, not modified"
+    fi
+
+    if [ ! -f "$vault_dir/AGENTS.md" ]; then
+        cp "$rill_source/templates/AGENTS.md" "$vault_dir/AGENTS.md"
+        echo "  ✓ Created AGENTS.md with Rill guidance"
+    else
+        echo "  ℹ AGENTS.md already exists, not modified"
     fi
 
     # ── Phase 4.5: Language preference (--lang) ────────────────────────
@@ -2685,7 +2923,9 @@ LANG
 
     # ── Phase 8: Claude Code hooks + permissions (ADR-074) ─────────────
     _ensure_all_hooks "$vault_dir"
+    _ensure_codex_hooks "$vault_dir"
     _ensure_permissions "$vault_dir"
+    _ensure_codex_command_skills "$vault_dir"
     echo "  ✓ Hooks and permissions installed in .claude/settings.json"
 
     # ── Summary ──────────────────────────────────────────────────────
@@ -2833,9 +3073,8 @@ EOF
             done
         fi
 
-        # Skills: skills/{name}/ — SKILL.md format. Source is top-level
-        # skills/{name}/SKILL.md; vault destination is
-        # .claude/skills/{name}/SKILL.md (.claude/ prefix added).
+        # Skills: skills/{name}/ — shared SKILL.md format, projected to both
+        # Claude Code and Codex project skill directories.
         # Legacy vaults may have .claude/skills/{name} as a symlink into the
         # source repo (pre-mechanism bootstrap); rm before mkdir+cp so the
         # destination becomes a real file, not a write-through to source.
@@ -2853,6 +3092,8 @@ EOF
                 [ -L "$skill_dest" ] && rm -f "$skill_dest"
                 cp "$src" "$skill_dest"
                 echo "$skill_rel" >> "$managed_file"
+                _install_codex_skill_file "$vpath" "$rill_source" "$src" \
+                    "$managed_file"
             done
         fi
 
@@ -2871,6 +3112,10 @@ EOF
                 mkdir -p "$vpath/$(dirname "$subdir_claude")"
                 cp "$rill_source/$subdir_claude" "$vpath/$subdir_claude"
                 echo "$subdir_claude" >> "$managed_file"
+                if [ "$subdir_claude" != "SPEC.md" ]; then
+                    _install_codex_container_guidance "$vpath" "$rill_source" \
+                        "$subdir_claude" "$managed_file"
+                fi
                 ((file_count++))
             fi
         done
@@ -2952,11 +3197,10 @@ EOF
                         echo "  ⚠ $vname: not removing '$stale' (path traversal in previous managed list)" >&2
                         continue ;;
                 esac
-                # Namespace restriction: managed cleanup only ever touches
-                # .claude/ and plugins/ (SPEC.md, subdir CLAUDE.md etc. are
-                # left in place and reported).
+                # Namespace restriction: managed cleanup only touches harness
+                # and plugin projections. User content is never eligible.
                 case "$stale" in
-                    .claude/*|plugins/*) ;;
+                    .claude/*|.agents/*|.codex/*|plugins/*|*/AGENTS.md) ;;
                     *)
                         echo "  ℹ $vname: '$stale' is no longer managed (left in place)"
                         continue ;;
@@ -2987,7 +3231,9 @@ EOF
 
         # Ensure Claude Code hooks + permissions in settings.json (ADR-074)
         _ensure_all_hooks "$vpath"
+        _ensure_codex_hooks "$vpath"
         _ensure_permissions "$vpath"
+        _ensure_codex_command_skills "$vpath"
 
         echo "  ✓ $vname: $file_count files updated"
         ((updated++))
@@ -4551,11 +4797,11 @@ Rill — Personal voice journal + knowledge management
 
 Usage: rill <command> [args]
 
-Rill is designed to be used through Claude Code. For daily work, run
-`claude` inside your vault and ask in natural language — Claude routes
-requests to the right skill. The CLI below is grouped by audience so
-you can see at a glance which commands you'd type yourself and which
-ones Claude Code invokes on your behalf.
+Rill is designed to be used through an agent harness such as Codex or
+Claude Code. For daily work, open the vault in your harness and ask in
+natural language; the harness routes requests to the right skill. The CLI
+below is grouped by audience so you can see at a glance which commands
+you would type yourself and which ones the harness invokes on your behalf.
 
 User commands — quick capture from outside Claude Code:
   log [text]            Create a journal entry (inline or editor)
@@ -4566,14 +4812,15 @@ User commands — quick capture from outside Claude Code:
   edit                  Open the latest journal entry in editor
   open <path>           Open a file in the Rill GUI (--highlight for emphasis)
 
-Claude Code helpers — invoked by skills inside your vault, not typed manually:
+Agent helpers — invoked by skills inside your vault, not typed manually:
   mkfile <dir>          Create file with correct timestamp + frontmatter
   task "title"          Create a task ticket file (ADR-063)
   touch                 Update frontmatter \`updated\` field (PostToolUse hook)
   activity-log          Activity log management (on-write, on-prompt, on-stop, add)
   strip-entity-tags     Move entity IDs from tags to mentions (deterministic)
   pages-pending-update  Match new sources to pages via mentions/tags
-  guard <path>          Check if a file is managed (used by Claude Code hook)
+  guard <path>          Check if a file is managed (used by agent hooks)
+  codex-hook <event>    Normalize Codex hook payloads for Rill helpers
 
 System & setup — low-frequency administrative commands:
   init                  Initialize a new Rill vault
@@ -4583,7 +4830,7 @@ System & setup — low-frequency administrative commands:
   plugin <sub>          Plugin management (list, install, enable, disable, uninstall, status; bundled + local tracks)
   sync [name]           Run adapter to sync external sources
   crypt <sub>           Encryption management: crypt init | crypt doctor
-  doctor                Check encryption health status (alias for `rill crypt doctor`)
+  doctor [codex]        Check encryption health or Codex installation status
   help                  Show this help message
 
 Plugin management (details):
@@ -4608,9 +4855,9 @@ Examples (user commands):
   rill push
   rill status 5
 
-For anything beyond these quick-capture commands, ask Claude inside your
+For anything beyond these quick-capture commands, ask your agent inside the
 vault — *"give me today's briefing"*, *"pull in new entries and distill them"*,
-*"install the google-meet plugin"* — and Claude will route it correctly.
+*"install the google-meet plugin"* — and it will route the request correctly.
 EOF
 }
 
@@ -4669,7 +4916,8 @@ case "${1:-help}" in
     vault)  shift; cmd_vault "$@" ;;
     guard)  shift; cmd_guard "$@" ;;
     crypt)  shift; cmd_crypt "$@" ;;
-    doctor) _crypt_doctor ;;
+    codex-hook) shift; cmd_codex_hook "$@" ;;
+    doctor) shift; cmd_doctor "$@" ;;
     help|--help|-h) cmd_help ;;
     *)
         echo "Unknown command: $1"
