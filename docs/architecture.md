@@ -197,7 +197,7 @@ Binary files with PII (scanned PDFs, photos) are gitignored by convention — th
 
 ## 5. Processing Pipeline
 
-Every skill is a plain Markdown file. **The canonical form is `skills/{name}/SKILL.md`** (deployed into vaults as `.claude/skills/{name}/SKILL.md`); no skill is maintained in two forms. Two skills — `close` and `distill` — still ship in the legacy `.claude/commands/{name}.md` format pending migration, and `.claude/commands/` also holds the `_`-prefixed internal sub-agent templates, plugin command symlinks, and your personal skills. The file *is* the skill — reading it shows you exactly what it does, with no hidden logic.
+Every skill is a plain Markdown file. **The canonical form is `skills/{name}/SKILL.md`** (deployed into vaults as `.claude/skills/{name}/SKILL.md`); no skill is maintained in two forms. `.claude/commands/` holds the `_`-prefixed internal sub-agent templates, plugin command symlinks, and your personal skills. The file *is* the skill — reading it shows you exactly what it does, with no hidden logic.
 
 | Skill | Reads | Writes | Purpose |
 |-------|-------|--------|---------|
@@ -216,7 +216,7 @@ Every skill is a plain Markdown file. **The canonical form is `skills/{name}/SKI
 | `/clip-tweet` | tweet URL | `inbox/tweets/` | Single-tweet ingestion |
 | `/plugin` | `plugins/` | `plugins/.installed`, `plugins/.enabled` | Interactive plugin management |
 
-The authoritative description of each skill lives in its source file. Open [`skills/`](../skills) (or [`.claude/commands/`](../.claude/commands) for `close` / `distill`) and read.
+The authoritative description of each skill lives in its source file. Open [`skills/`](../skills) and read.
 
 ## 6. Extension Points
 
@@ -288,7 +288,7 @@ Because reading a skill file must be the authoritative way to know what it does.
 This document is hand-maintained but guarded by `rill docs lint`, which verifies:
 
 - Every directory listed here (`inbox/journal`, `knowledge/notes`, etc.) exists in the project structure
-- Every skill mentioned (`/distill`, `/focus`, etc.) has a source file — `skills/{name}/SKILL.md` (canonical) or `.claude/commands/{name}.md` (legacy: `close`, `distill`)
+- Every skill mentioned (`/distill`, `/focus`, etc.) has a source file at `skills/{name}/SKILL.md`
 - Every rule file in `.claude/rules/rill-{inbox,knowledge,workspace,tasks,outputs}.md` links back to this document
 
 Changes to the layer model or to any skill's data flow **must** be reflected here. The lint will fail the CI otherwise.

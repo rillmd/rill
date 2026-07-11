@@ -280,6 +280,6 @@ alone (no `jq` / `yq` dependency).
 
 | Tier | Examples | Location |
 |------|---------|----------|
-| Tier 1: Core | `/distill`, `/ask`, `/plugin`, `/sync` | `skills/{name}/SKILL.md` (canonical), deployed to `.claude/skills/`; `distill` still in `.claude/commands/` pending migration |
-| Tier 2: Built-in | `/focus`, `/close` | Same canonical form; `close` still in `.claude/commands/` pending migration |
+| Tier 1: Core | `/distill`, `/ask`, `/plugin`, `/sync` | `skills/{name}/SKILL.md` (canonical), deployed to `.claude/skills/` |
+| Tier 2: Built-in | `/focus`, `/close` | Same canonical form |
 | Tier 3: External | `/sync-meetings` | `plugins/*/commands/` via symlink into `.claude/commands/` |
