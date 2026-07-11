@@ -2713,7 +2713,11 @@ EOF
         done
     fi
 
-    # 2c: Subdirectory CLAUDE.md (container schemas, 15 files)
+    # 2c: Subdirectory CLAUDE.md (container schemas) + top-level SPEC.md.
+    # No file count in this comment on purpose: a hardcoded count here is
+    # exactly the kind of stale-comment bug this list previously had
+    # ("15 files" while the loop actually walked 16) — see the eval/
+    # distribution + manifest-drift fix that removed it.
     local subdir_claude
     for subdir_claude in \
         inbox/CLAUDE.md \
@@ -2731,15 +2735,28 @@ EOF
         tasks/CLAUDE.md \
         pages/CLAUDE.md \
         reports/daily/CLAUDE.md \
-        reports/newsletter/CLAUDE.md; do
+        reports/newsletter/CLAUDE.md \
+        SPEC.md; do
         if [ -f "$rill_source/$subdir_claude" ]; then
             mkdir -p "$vault_dir/$(dirname "$subdir_claude")"
             cp "$rill_source/$subdir_claude" "$vault_dir/$subdir_claude"
             echo "$subdir_claude" >> "$vault_dir/.rill/managed-files.txt"
-            _install_codex_container_guidance "$vault_dir" "$rill_source" \
-                "$subdir_claude" "$vault_dir/.rill/managed-files.txt"
+            if [ "$subdir_claude" != "SPEC.md" ]; then
+                _install_codex_container_guidance "$vault_dir" "$rill_source" \
+                    "$subdir_claude" "$vault_dir/.rill/managed-files.txt"
+            fi
         fi
     done
+
+    # 2d: eval/ framework doc (Category A -- always current, same treatment
+    # as SPEC.md above). eval/queries.yaml is deliberately NOT copied here:
+    # it is a user-customizable sample (Category B, seeded in Phase 3 below)
+    # and must never be silently overwritten by a future `rill update`.
+    if [ -f "$rill_source/eval/concept.md" ]; then
+        mkdir -p "$vault_dir/eval"
+        cp "$rill_source/eval/concept.md" "$vault_dir/eval/concept.md"
+        echo "eval/concept.md" >> "$vault_dir/.rill/managed-files.txt"
+    fi
 
     # ── Phase 3: Category B files (seed-only) ────────────────────────
     local now today
@@ -2791,6 +2808,26 @@ EOF
     _seed_sample_file \
         "templates/seed/tasks/try-your-first-distill/_task.md" \
         "$vault_dir/tasks/try-your-first-distill/_task.md"
+
+    # 3c: eval/queries.yaml (Category B -- seed-only). /eval's required
+    # input (skills/eval/SKILL.md Phase 1a); the file already declares
+    # itself a sample and instructs the user to replace it, so it must
+    # never be overwritten once present -- unlike _seed_sample_file above,
+    # the skip check here tests this exact file's own existence rather
+    # than "does the target directory have other content", since eval/
+    # also holds the Category A eval/concept.md seeded in Phase 2d and a
+    # directory-level heuristic would wrongly skip seeding because of it.
+    if [ ! -f "$vault_dir/eval/queries.yaml" ]; then
+        if [ -f "$rill_source/eval/queries.yaml" ]; then
+            mkdir -p "$vault_dir/eval"
+            cp "$rill_source/eval/queries.yaml" "$vault_dir/eval/queries.yaml"
+            echo "  ✓ Seeded eval/queries.yaml (sample)"
+        else
+            echo "  ⚠ eval/queries.yaml not found in source, skipping" >&2
+        fi
+    else
+        echo "  ℹ eval/queries.yaml already exists, skipping (seed-only)"
+    fi
 
     # ── Phase 4: Root CLAUDE.md scaffold (conditional) ───────────────
     if [ ! -f "$vault_dir/CLAUDE.md" ]; then
@@ -2853,6 +2890,7 @@ LANG
         "$vault_dir/inbox/tweets" \
         "$vault_dir/inbox/web-clips" \
         "$vault_dir/inbox/sources" \
+        "$vault_dir/inbox/think-outputs" \
         "$vault_dir/knowledge/notes" \
         "$vault_dir/knowledge/people" \
         "$vault_dir/knowledge/orgs" \
@@ -3119,6 +3157,28 @@ EOF
                 ((file_count++))
             fi
         done
+
+        # eval/ framework doc + sample queries. concept.md is Category A
+        # (always current, like SPEC.md above); queries.yaml is Category B
+        # (seed-only -- must never be silently overwritten once the user
+        # has customized it, so it is deliberately NOT added to
+        # managed_file, which keeps it outside both the always-overwrite
+        # copy loops above and the stale-managed-file cleanup pass below).
+        if [ -f "$rill_source/eval/concept.md" ]; then
+            mkdir -p "$vpath/eval"
+            cp "$rill_source/eval/concept.md" "$vpath/eval/concept.md"
+            echo "eval/concept.md" >> "$managed_file"
+            ((file_count++))
+        fi
+        if [ ! -f "$vpath/eval/queries.yaml" ] && [ -f "$rill_source/eval/queries.yaml" ]; then
+            mkdir -p "$vpath/eval"
+            cp "$rill_source/eval/queries.yaml" "$vpath/eval/queries.yaml"
+            echo "  ✓ $vname: seeded eval/queries.yaml (sample)"
+        fi
+
+        # inbox/think-outputs/ was missing from early `rill init` versions;
+        # backfill it here so vaults created before that fix still get it.
+        mkdir -p "$vpath/inbox/think-outputs"
 
         # Plugins: framework files
         for src in "$rill_source"/plugins/_lib.sh \

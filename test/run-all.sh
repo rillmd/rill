@@ -42,6 +42,7 @@ run_test "/inspect"     "$SCRIPT_DIR/skills/test-inspect.sh"
 run_test "/repair"      "$SCRIPT_DIR/skills/test-repair.sh"
 run_test "/eval"        "$SCRIPT_DIR/skills/test-eval.sh"
 run_test "Codex projection" "$SCRIPT_DIR/cli/test-codex-projection.sh"
+run_test "eval distribution" "$SCRIPT_DIR/cli/test-eval-distribution.sh"
 
 echo "============================================"
 if (( TOTAL_FAIL == 0 )); then
