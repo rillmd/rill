@@ -53,9 +53,6 @@ You interact with it through natural language in Claude Code — no custom UI to
 
 ## How It Works
 
-<!-- AUTO-GENERATED:ia-diagram-start -->
-<!-- DO NOT EDIT: run 'rill docs regenerate' to update -->
-
 ```mermaid
 flowchart LR
     V["🎙 Voice / Text"] --> J["inbox/journal"]
@@ -74,8 +71,6 @@ flowchart LR
     T --> Out
 ```
 
-<!-- AUTO-GENERATED:ia-diagram-end -->
-
 Rill organizes data into layers: **input** (immutable, what you captured), **thinking** (workspaces for deep work), **knowledge** (evergreen distilled notes + entities), **action** (tasks), and **output** (daily briefings, newsletters, aggregated pages). Skills like `/distill`, `/focus`, and `/briefing` move data across the layers. See [docs/architecture.md](docs/architecture.md) for the full flow.
 
 ## Desktop App
@@ -89,18 +84,21 @@ The app and CLI read the same vault. Start with either; they stay in sync throug
 
 ## Core Skills
 
-<!-- AUTO-GENERATED:skills-start -->
-<!-- DO NOT EDIT: run 'rill docs regenerate' to update -->
-
 | Skill | What it does |
 |-------|--------------|
 | `/onboarding` | First-time setup and tutorial |
-| `/morning` | Daily reports: `/briefing` + `/newsletter` in parallel |
+| `/morning` | Daily reports: `/briefing` + `/newsletter`, run sequentially inline |
 | `/distill` | Extract knowledge, tasks, and entities from inbox entries |
 | `/briefing` | Generate today's daily note from recent activity |
 | `/newsletter` | Generate a research report based on your interests |
+| `/pulse` | Refresh your current-state snapshot (direction, open work, recent decisions) |
+| `/retrospective` | Generate a weekly retrospective across workspaces and decisions |
 | `/focus` | Start or resume a deep thinking workspace |
 | `/close` | Complete a workspace and distill insights to knowledge |
+| `/promote` | Crystallize a closed workspace's results into a project |
+| `/project` | Manage a project execution hub — status, next task, or an autonomous run |
+| `/refresh-project` | Recompute a project's active tasks and related workspaces |
+| `/refresh-decisions` | Recompute a project's pending human-decision digest |
 | `/page` | Create and update human-facing aggregated views |
 | `/sync` | Run plugin adapters to pull external sources |
 | `/solve` | AI-assisted execution of a task ticket |
@@ -110,8 +108,6 @@ The app and CLI read the same vault. Start with either; they stay in sync throug
 | `/eval` | Benchmark skill performance |
 | `/clip-tweet` | Ingest a tweet URL into the web-clips layer |
 | `/plugin` | Interactive plugin management |
-
-<!-- AUTO-GENERATED:skills-end -->
 
 Every skill is a single Markdown file — canonically `skills/{name}/SKILL.md` (deployed to your vault as `.claude/skills/{name}/SKILL.md`). Read the file to see exactly what it does — there is no hidden logic.
 
@@ -172,9 +168,6 @@ Run `rill help` to see the full CLI surface. Anything beyond quick capture is be
 
 ## Vault Structure
 
-<!-- AUTO-GENERATED:vault-structure-start -->
-<!-- DO NOT EDIT: run 'rill docs regenerate' to update -->
-
 ```
 my-rill/
 ├── inbox/
@@ -184,11 +177,11 @@ my-rill/
 │   ├── web-clips/      # Web articles
 │   └── sources/        # Other external input
 ├── knowledge/
-│   ├── me.md           # Your interest profile
+│   ├── self/           # Your self entity (profile, interests, direction, ...)
 │   ├── notes/          # Atomic knowledge (distilled)
 │   ├── people/         # Person entities
-│   ├── orgs/           # Organization entities
-│   └── projects/       # Project profiles
+│   └── orgs/           # Organization entities
+├── projects/           # Execution hubs bundling related tasks
 ├── workspace/          # Deep thinking sessions
 ├── tasks/              # Task tickets
 ├── reports/
@@ -198,8 +191,6 @@ my-rill/
 ├── taxonomy.md         # Tag vocabulary
 └── CLAUDE.md           # Claude Code instructions
 ```
-
-<!-- AUTO-GENERATED:vault-structure-end -->
 
 ## The `inbox/` Drop Zone
 
@@ -269,11 +260,10 @@ You rarely need to read any of these directly — just ask Claude. They exist fo
 ## Updating
 
 ```bash
-cd ~/src/rillmd/rill && git pull
 rill update
 ```
 
-`rill update` syncs the latest skills and rules to your vault. Your personal data and custom skills are never touched. Your vault's own git history stays intact.
+`rill update` pulls the latest source itself, then syncs the latest skills and rules to your vault. Your personal data and custom skills are never touched. Your vault's own git history stays intact.
 
 ## Plugins
 
@@ -285,7 +275,7 @@ You can install a plugin by asking Claude inside your vault — *"install the go
 
 - [docs/architecture.md](docs/architecture.md) — Information architecture overview
 - [SPEC.md](SPEC.md) — Full system specification
-- [docs/creating-skills.md](docs/creating-skills.md) — Authoring your own skill
+- [docs/skill-specs/](docs/skill-specs/) — Skill spec examples
 - [plugins/README.md](plugins/README.md) — Plugin system and authoring
 
 ## Acknowledgments

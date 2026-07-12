@@ -29,7 +29,7 @@ Behavioral specification for /distill. Codifies all rules of the skill, serving 
 | IO-O4 | `tasks/*/_task.md` (status: draft) | Phase 1, 2 |
 | IO-O5 | `knowledge/people/*.md` (new/updated) | Phase 1, 2.5 |
 | IO-O6 | `knowledge/orgs/*.md` (new/updated) | Phase 2.5 |
-| IO-O7 | `knowledge/projects/*.md` (updated) | Phase 1, 3 |
+| IO-O7 | `projects/*/_project.md` (updated) | Phase 1, 3 |
 | IO-O8 | `knowledge/self/interests.md`, `knowledge/self/direction.md` (updated; rare year-scale: `knowledge/self/profile.md`) | Phase 4 |
 | IO-O9 | `inbox/*/.processed` (updated) | Phase 1 result collection, Phase 3 result collection |
 | IO-O10 | `taxonomy.md` (appended) | Result collection |
@@ -123,9 +123,9 @@ Rules that must never be violated, verified across all tests.
 | MN-03 | Extract by cross-referencing People mapping name/aliases against body text | Entity input fixture | ✅ |
 | MN-04 | Do not mention generic titles ("manager", "client") | Negative fixture | ✅ |
 | MN-05 | `mentions: []` (empty array) = no entity match | Value check | ✅ |
-| MN-06 | Missing mentions field = legacy file or oversight (repair via /refresh) | Field existence check | ✅ |
+| MN-06 | Missing mentions field = legacy file or oversight (repair via /repair) | Field existence check | ✅ |
 
-**MN-02/05/06 Review Result (2026-04-06)**: The mentions field was in an ambiguous state due to design changes. **Policy finalized**: Always include mentions field in all files. When no entity match exists, set `mentions: []`. Missing field indicates "legacy file" or "oversight" and is a repair target for /refresh. The semantic distinction between MN-05/MN-06 is abolished, unified to **"mentions field should always be present"**.
+**MN-02/05/06 Review Result (2026-04-06)**: The mentions field was in an ambiguous state due to design changes. **Policy finalized**: Always include mentions field in all files. When no entity match exists, set `mentions: []`. Missing field indicates "legacy file" or "oversight" and is a repair target for /repair. The semantic distinction between MN-05/MN-06 is abolished, unified to **"mentions field should always be present"**.
 
 ---
 
@@ -153,7 +153,7 @@ Rules that must never be violated, verified across all tests.
 | TK-03 | Created with `status: draft` (all AI auto-generated tasks are draft) | Value check | ✅ |
 | TK-04 | Background is 2-4 sentences. Readable by third parties. No over-compression | ⚠️ Sentence count | ✅ |
 | TK-05 | Duplicate check against existing tickets required | Duplicate task fixture | ✅ |
-| TK-06 | Context includes related knowledge/notes/ paths in `Title::Path` format | Format check | ✅ |
+| TK-06 | Context includes related file links, one per line with a role descriptor (`rill-tasks.md` Context convention; the legacy `Title::Path` inline format is deprecated) | Format check | ✅ |
 | TK-07 | source uses _organized/ path | Path check | ✅ |
 
 ---
@@ -186,7 +186,7 @@ Rules that must never be violated, verified across all tests.
 |----|------|---------------------|--------|
 | PF-01 | Update conservatively (do not update if change is not clear) | Update frequency check | ✅ |
 | PF-02 | Do not modify category descriptions (parenthetical text) | String comparison | ✅ |
-| PF-03 | Add to Active Projects only if knowledge/projects/{id}.md exists | File existence check | ✅ |
+| PF-03 | Add to Active Projects only if projects/{id}/_project.md exists | File existence check | ✅ |
 | PF-04 | Do not demote Interests just because they haven't been mentioned in the past 2 weeks | ⚠️ LLM judgment | ✅ |
 | PF-05 | Do not add new Interest from only 1-2 mentions | ⚠️ LLM judgment | ⚠️ Not yet designed |
 
@@ -228,7 +228,7 @@ Rules that must never be violated, verified across all tests.
 | CX-01 | Taxonomy injected in YAML list format (name + desc) | Format confirmation | ✅ |
 | CX-02 | People mapping in extended one-line format (`people/id: name \| aliases: ... \| company: ...`) | Format confirmation | ✅ |
 | CX-03 | Orgs mapping in one-line format (`orgs/id: name (aliases)`) | Format confirmation | ✅ |
-| CX-04 | Projects mapping in one-line format (`projects/id: name (stage, tags)`) | Format confirmation | ✅ |
+| CX-04 | Projects mapping in one-line format (`projects/id: name (status, tags)`) | Format confirmation | ✅ |
 | CX-05 | Agent prompt templates are Read by the agents themselves | Design confirmation | ✅ |
 | CX-06 | Full text of target files is not read in the parent context | Design confirmation | ✅ |
 
@@ -252,6 +252,6 @@ Rules that must never be violated, verified across all tests.
 | **EV-03** | Same topic + different type -> create new | ✅ Maintain current | Separating facts from interpretations is sound |
 | **EV-06** | New creation judgment on partial hits | ✅ LLM judgment acceptable | Contextual judgment more appropriate than explicit thresholds |
 | **TY-04** | Ambiguous record/insight -> record default | ✅ Maintain current | Conservative approach is acceptable |
-| **MN-02/05/06** | mentions field handling | ✅ **Policy finalized**: always include | Missing field = legacy file. Repair via /refresh |
+| **MN-02/05/06** | mentions field handling | ✅ **Policy finalized**: always include | Missing field = legacy file. Repair via /repair |
 | **EN-06** | Context-based relationship inference | ✅ Inference acceptable | |
 | **PF-05** | Interest addition threshold | ⚠️ Remains undesigned | Provisional state. Tests verify only "conservative behavior" |

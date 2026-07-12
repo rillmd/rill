@@ -23,7 +23,7 @@ Behavioral specification for /close. A skill that completes an active workspace,
 | IO-O2 | `workspace/{id}/_workspace.md` (status: completed) | Always updated |
 | IO-O3 | `knowledge/notes/*.md` | Generated via knowledge distillation |
 | IO-O4 | `tasks/*/_task.md` (status: draft) | Tasks extracted from unresolved issues |
-| IO-O5 | `knowledge/people/*.md`, `knowledge/projects/*.md` | Key facts appended |
+| IO-O5 | `knowledge/people/*.md`, `projects/*/_project.md` | Key facts appended |
 | IO-O6 | `workspace/{id}/.processed` | Artifact filenames recorded |
 
 ---
