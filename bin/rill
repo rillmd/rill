@@ -213,14 +213,21 @@ cmd_log() {
 cmd_push() {
     cd "$RILL_HOME"
 
-    # git-crypt lock safety check (ADR-047)
+    # git-crypt lock safety check (ADR-047). Probes every file in both
+    # people/ and orgs/, not just the first sorted match: rill init seeds
+    # knowledge/{people,orgs}/CLAUDE.md, which commonly stays plaintext
+    # (template boilerplate, no PII) and sorts before a real locked file,
+    # so stopping at the first candidate would miss a lock elsewhere in the
+    # same directory (Codex review [P1], 2026-07-11).
     if [ -d "$RILL_HOME/.git/git-crypt" ]; then
-        local test_file
-        test_file=$(ls knowledge/people/*.md 2>/dev/null | head -1)
-        if [ -n "$test_file" ] && head -c 9 "$test_file" | grep -q "GITCRYPT"; then
-            echo "⚠️  git-crypt is locked. Run: git-crypt unlock <key>"
-            return 1
-        fi
+        local crypt_file
+        for crypt_file in knowledge/people/*.md knowledge/orgs/*.md; do
+            [ -f "$crypt_file" ] || continue
+            if head -c 9 "$crypt_file" | grep -q "GITCRYPT"; then
+                echo "⚠️  git-crypt is locked. Run: git-crypt unlock <key>"
+                return 1
+            fi
+        done
     fi
 
     git add -A
@@ -237,10 +244,21 @@ cmd_push() {
 
 cmd_status() {
     local count="${1:-10}"
+    # Validate up front so the `|| true` on the listing pipeline below can
+    # only ever mask the ls no-match case, not a bad `head -n "$count"`.
+    case "$count" in
+        ''|*[!0-9]*)
+            echo "Error: count must be a positive integer: $count" >&2
+            return 1 ;;
+    esac
+    if [ "$count" -eq 0 ]; then
+        echo "Error: count must be a positive integer: $count" >&2
+        return 1
+    fi
     echo "=== Recent journal entries ==="
     if [ -d "$JOURNAL_DIR" ]; then
         local files
-        files="$(ls -1t "$JOURNAL_DIR"/*.md 2>/dev/null | head -n "$count")"
+        files="$(ls -1t "$JOURNAL_DIR"/*.md 2>/dev/null | head -n "$count" || true)"
         if [ -z "$files" ]; then
             echo "(no entries yet)"
             return 0
@@ -263,20 +281,23 @@ cmd_status() {
     echo ""
     echo "=== Stats ==="
     local journal_count topics_count knowledge_count
-    journal_count="$(find "$JOURNAL_DIR" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
-    topics_count="$(find "$RILL_HOME/workspace/thinks" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
-    knowledge_count="$(find "$RILL_HOME/knowledge/notes" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+    # `find` exits non-zero when the directory is missing (e.g. a fresh
+    # `rill init` vault has no workspace/thinks). `|| true` keeps the "0"
+    # that wc already printed and stops pipefail from aborting cmd_status.
+    journal_count="$(find "$JOURNAL_DIR" -name '*.md' 2>/dev/null | wc -l | tr -d ' ' || true)"
+    topics_count="$(find "$RILL_HOME/workspace/thinks" -name '*.md' 2>/dev/null | wc -l | tr -d ' ' || true)"
+    knowledge_count="$(find "$RILL_HOME/knowledge/notes" -name '*.md' 2>/dev/null | wc -l | tr -d ' ' || true)"
     local task_count
-    task_count="$(find "$RILL_HOME/tasks" -name '_task.md' 2>/dev/null | wc -l | tr -d ' ')"
+    task_count="$(find "$RILL_HOME/tasks" -name '_task.md' 2>/dev/null | wc -l | tr -d ' ' || true)"
     echo "  journal: $journal_count  thinks: $topics_count  knowledge: $knowledge_count  tasks: $task_count"
 }
 
 cmd_edit() {
     local latest
-    latest="$(ls -1t "$JOURNAL_DIR"/*.md 2>/dev/null | head -1)"
+    latest="$(ls -1t "$JOURNAL_DIR"/*.md 2>/dev/null | head -1 || true)"
     if [ -z "$latest" ]; then
         echo "No journal entries found."
-        return 1
+        return 0
     fi
     echo "Editing: ${latest#$RILL_HOME/}"
     $EDITOR "$latest"
@@ -429,7 +450,7 @@ _clip_tweet() {
     local author_name=""
     local slug=""
     if [ -n "$api_json" ]; then
-        author_name="$(echo "$api_json" | jq -r '.tweet.author.screen_name // empty' 2>/dev/null)"
+        author_name="$(echo "$api_json" | jq -r '.tweet.author.screen_name // empty' 2>/dev/null || true)"
     fi
     slug="${author_name:-tweet}"
 
@@ -771,8 +792,10 @@ _plugin_install() {
     if [ -f "$plugin_dir/requires.sh" ]; then
         echo ""
         echo "Dependency check:"
-        bash "$plugin_dir/requires.sh"
-        local rc=$?
+        # Capture rc without letting `set -e` abort on a failing check -
+        # a bare `local rc=$?` after the command is dead code under set -e.
+        local rc=0
+        bash "$plugin_dir/requires.sh" || rc=$?
         if [ $rc -eq 0 ]; then
             echo "Ready to enable. Run 'rill plugin enable $name'"
         else
@@ -835,8 +858,9 @@ _plugin_enable() {
     # Run dependency check (blocks enable on failure)
     if [ -f "$plugin_dir/requires.sh" ]; then
         echo "Dependency check:"
-        bash "$plugin_dir/requires.sh"
-        local rc=$?
+        # Capture rc without letting `set -e` abort on a failing check.
+        local rc=0
+        bash "$plugin_dir/requires.sh" || rc=$?
         if [ $rc -ne 0 ]; then
             echo "Cannot enable '$name' until dependencies are resolved."
             return 1
@@ -1025,7 +1049,9 @@ _plugin_status() {
         if [ -f "$d/requires.sh" ]; then
             echo ""
             echo "  Dependencies:"
-            bash "$d/requires.sh" 2>&1 | sed 's/^/  /'
+            # `|| true`: an unmet dependency must not abort the listing
+            # (set -e would otherwise stop at the first failing plugin).
+            bash "$d/requires.sh" 2>&1 | sed 's/^/  /' || true
         fi
     done < <(_enumerate_plugin_names)
 
@@ -1740,16 +1766,24 @@ _crypt_doctor() {
 
     # 2. Encrypted file count
     local people_count orgs_count
-    people_count=$(ls knowledge/people/*.md 2>/dev/null | wc -l | tr -d ' ')
-    orgs_count=$(ls knowledge/orgs/*.md 2>/dev/null | wc -l | tr -d ' ')
+    people_count=$(ls knowledge/people/*.md 2>/dev/null | wc -l | tr -d ' ' || true)
+    orgs_count=$(ls knowledge/orgs/*.md 2>/dev/null | wc -l | tr -d ' ' || true)
     echo "  Encrypted files: people=$people_count, orgs=$orgs_count"
 
-    # 3. Lock status
+    # 3. Lock status. Probes every file in both people/ and orgs/, not just
+    # the first sorted match (same rationale as cmd_push's probe above).
     if [ -d ".git/git-crypt" ]; then
-        local test_file
-        test_file=$(ls knowledge/people/*.md 2>/dev/null | head -1)
-        if [ -n "$test_file" ]; then
-            if head -c 9 "$test_file" | grep -q "GITCRYPT"; then
+        local crypt_file found=false locked=false
+        for crypt_file in knowledge/people/*.md knowledge/orgs/*.md; do
+            [ -f "$crypt_file" ] || continue
+            found=true
+            if head -c 9 "$crypt_file" | grep -q "GITCRYPT"; then
+                locked=true
+                break
+            fi
+        done
+        if [ "$found" = true ]; then
+            if [ "$locked" = true ]; then
                 echo "✗ git-crypt is LOCKED (run: git-crypt unlock <key>)"
                 ((issues++))
             else
@@ -2331,11 +2365,11 @@ cmd_codex_hook() {
             if [ -n "$patch_text" ]; then
                 local patch_paths
                 patch_paths="$(printf '%s\n' "$patch_text" |
-                    sed -nE 's/^\*\*\* (Add|Update|Delete) File: (.*)$/\2/p')"
+                    sed -nE 's/^\*\*\* (Add|Update|Delete) File: (.*)$/\2/p' || true)"
                 paths="${paths}${paths:+$'\n'}${patch_paths}"
             fi
 
-            paths="$(printf '%s\n' "$paths" | sed '/^$/d' | sort -u)"
+            paths="$(printf '%s\n' "$paths" | sed '/^$/d' | sort -u || true)"
             if [ -z "$paths" ]; then
                 echo "Rill Codex hook could not determine the write target; blocking the write." >&2
                 return 2
@@ -3514,6 +3548,31 @@ cmd_mkfile() {
         esac
     done
 
+    # Path-safety guard: mkfile only ever writes inside the vault. Reject
+    # absolute paths and any `..` segment in the target directory, and any
+    # `/` in --slug / --date (both embed into the generated filename).
+    # Generalizes the per-branch bare-slug checks (workspace/tasks/projects)
+    # to every file type, incl. knowledge/*, inbox/*, pages, reports/*.
+    # Must run before the implicit `mkdir -p` below.
+    case "$directory" in
+        /*)
+            echo "Error: directory must be a vault-relative path, not absolute: $directory" >&2
+            return 1 ;;
+        ..|../*|*/..|*/../*)
+            echo "Error: directory must not contain '..' path segments: $directory" >&2
+            return 1 ;;
+    esac
+    case "$slug" in
+        */*)
+            echo "Error: --slug must not contain '/': $slug" >&2
+            return 1 ;;
+    esac
+    case "$override_date" in
+        */*)
+            echo "Error: --date must not contain '/': $override_date" >&2
+            return 1 ;;
+    esac
+
     # Timestamps (generated once, used for both filename and frontmatter)
     # created is always the actual current time (never overridden)
     # date/filename may use --date override for "which day this belongs to"
@@ -3964,9 +4023,9 @@ cmd_task() {
     done <<< "$fields"
 
     local filepath
-    filepath="$(cmd_mkfile "${mkfile_args[@]}")"
-
-    if [ $? -ne 0 ] || [ -z "$filepath" ]; then
+    # Assign inside the `if` condition: a bare `filepath="$(cmd_mkfile ...)"`
+    # aborts under `set -e` on failure, making a separate `$?` check dead code.
+    if ! filepath="$(cmd_mkfile "${mkfile_args[@]}")" || [ -z "$filepath" ]; then
         echo "Error: failed to create task file" >&2
         return 1
     fi
@@ -4479,7 +4538,7 @@ EOF
 
     # Load existing (page_id, source_path) pairs to detect new-vs-update
     local existing_pairs
-    existing_pairs="$(awk -F'\t' '!/^#/ && NF>=2 { print $1 "|" $2 }' "$pending_file" 2>/dev/null)"
+    existing_pairs="$(awk -F'\t' '!/^#/ && NF>=2 { print $1 "|" $2 }' "$pending_file" 2>/dev/null || true)"
 
     local now_iso
     now_iso="$(date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/')"
