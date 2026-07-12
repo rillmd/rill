@@ -72,7 +72,6 @@ The distilled, evergreen layer. What Rill knows *about you and for you*.
 | `knowledge/notes/` | Atomic knowledge notes — one fact/insight per file, flat |
 | `knowledge/people/` | Person entities (id, key facts, relationships) |
 | `knowledge/orgs/` | Organization entities |
-| `knowledge/projects/` | Project entities (goals, current focus, watch list) |
 
 **Evergreen contract**: before creating a new note, check for existing ones; update if overlap exists. No duplicates. Entities (people/orgs/projects) are hubs, referenced from notes via `mentions:` frontmatter.
 
@@ -83,6 +82,8 @@ Governing rule: [`.claude/rules/rill-knowledge.md`](../.claude/rules/rill-knowle
 Every actionable item is a ticket file (`tasks/{slug}/_task.md`) with explicit `status`, optional `due` / `scheduled`, and a narrative body (Goal / Background / Context / Request / History).
 
 Tasks are independent of workspaces — a task can exist without a workspace, and a workspace can exist without producing tasks. They link via `mentions:` frontmatter when related.
+
+`projects/{id}/_project.md` sits alongside tasks as a top-level execution hub (ADR-080) that bundles related tasks under one initiative — governed by [`.claude/rules/rill-projects.md`](../.claude/rules/rill-projects.md), not a `knowledge/` entity.
 
 Governing rule: [`.claude/rules/rill-tasks.md`](../.claude/rules/rill-tasks.md).
 
@@ -125,7 +126,7 @@ flowchart TB
     Input -->|"/distill"| Distill{distill}
 
     Distill --> Notes["knowledge/notes/"]
-    Distill --> Entities["knowledge/people/<br/>knowledge/orgs/<br/>knowledge/projects/"]
+    Distill --> Entities["knowledge/people/<br/>knowledge/orgs/<br/>projects/"]
     Distill --> TaskTickets["tasks/"]
     Distill --> SelfUpdate["knowledge/self/<br/>(Self entity, 8 files)"]
 
@@ -150,7 +151,7 @@ flowchart TB
     Knowledge -->|"/briefing"| Daily["reports/daily/"]
     Input -->|"/briefing"| Daily
     Tasks -->|"/briefing"| Daily
-    MeUpdate -->|"/newsletter + web search"| NL["reports/newsletter/"]
+    SelfUpdate -->|"/newsletter + web search"| NL["reports/newsletter/"]
     Knowledge -->|"/page"| Pages["pages/"]
 
     subgraph Output["5. Output"]
@@ -201,14 +202,14 @@ Every skill is a plain Markdown file. **The canonical form is `skills/{name}/SKI
 
 | Skill | Reads | Writes | Purpose |
 |-------|-------|--------|---------|
-| `/distill` | `inbox/**/*.md` (unprocessed) | `knowledge/notes/`, `knowledge/people/`, `knowledge/orgs/`, `knowledge/projects/`, `tasks/`, `inbox/**/.processed` | Core distillation |
+| `/distill` | `inbox/**/*.md` (unprocessed) | `knowledge/notes/`, `knowledge/people/`, `knowledge/orgs/`, `projects/`, `tasks/`, `inbox/**/.processed` | Core distillation |
 | `/focus` | theme + `knowledge/`, `inbox/` | `workspace/{new-id}/_workspace.md` | Start or resume a thinking session |
 | `/close` | `workspace/{id}/` | `workspace/{id}/_summary.md`, `knowledge/notes/`, `status: completed` | Complete a workspace, distill its insights |
 | `/briefing` | `reports/daily/` (yesterday), `inbox/journal/` (today), `tasks/` | `reports/daily/{today}.md` | Daily note |
 | `/newsletter` | `knowledge/self/{profile,interests,direction}.md`, web | `reports/newsletter/{today}.md` | Research report |
 | `/page` | canonical sources + `{id}.recipe.md` | `pages/{id}.md` | Refresh a materialized view |
 | `/sync` | plugin adapters (`plugins/*/adapter.sh`) | `inbox/*/` | Pull from external services |
-| `/morning` | — (orchestrator) | `/briefing` + `/newsletter` (parallel) | Daily user-facing reports. Maintenance (`/sync`, `/distill`) is intentionally separate — see [scheduling guide](./guides/scheduling.md) |
+| `/morning` | — (orchestrator) | `/briefing` + `/newsletter` (sequential, inline) | Daily user-facing reports. Maintenance (`/sync`, `/distill`) is intentionally separate — see [scheduling guide](./guides/scheduling.md) |
 | `/onboarding` | — (tutorial) | first vault files | First-time setup |
 | `/inspect` / `/repair` / `/maintain` | `knowledge/` | metadata fixes | Quality maintenance |
 | `/eval` | standard test prompts | `reports/eval/` | Measure skill quality |
@@ -229,7 +230,7 @@ A plugin is a directory. Each plugin has a lifecycle of `available → installed
 A plugin can provide:
 - **Source**: an `adapter.sh` that pulls data into `inbox/*`
 - **Workflow**: a `plugin.md` that defines a skill extending `/distill` or another pipeline
-- **Hooks**: scripts that run on PostToolUse or PostCommit events
+- **Hooks**: Markdown prompt files (`hooks/{name}.md`) run as sub-agents when a core skill's pipeline reaches the matching point (e.g. `/distill` running `hooks/post-distill.md` after all phases complete)
 
 See [plugins/README.md](../plugins/README.md).
 
@@ -237,7 +238,7 @@ See [plugins/README.md](../plugins/README.md).
 
 A skill is a Markdown file with a `gui:` frontmatter block and a structured body (`## Arguments`, `## Procedure`). Personal skills live in `.claude/commands/` alongside the plugin symlinks and internal templates; `rill update` preserves yours (only files it distributed itself are managed — and cleaned up when retired upstream). The `.claude/skills/{name}/SKILL.md` layout also works for personal skills if you prefer the canonical form.
 
-See [docs/creating-skills.md](creating-skills.md) for the minimum template and how to use an existing skill as your scaffold.
+Use an existing skill under [`skills/`](../skills) as your scaffold — copy one and adapt it. For examples of the behavioral-spec format (not a template), see [docs/skill-specs/](skill-specs/).
 
 ### 6.3 Custom rules (`.claude/rules/personal-*.md`)
 
@@ -280,15 +281,9 @@ Because reading a skill file must be the authoritative way to know what it does.
 - [../README.md](../README.md) — one-screen overview with the simplified flow
 - [../SPEC.md](../SPEC.md) — authoritative state machine, schemas, exact semantics
 - [../.claude/rules/rill-core.md](../.claude/rules/rill-core.md) — runtime rules entry point (auto-loaded by Claude)
-- [creating-skills.md](creating-skills.md) — how to add your own skill
+- [skill-specs/](skill-specs/) — skill spec examples
 - [../plugins/README.md](../plugins/README.md) — plugin system
 
 ## Maintenance
 
-This document is hand-maintained but guarded by `rill docs lint`, which verifies:
-
-- Every directory listed here (`inbox/journal`, `knowledge/notes`, etc.) exists in the project structure
-- Every skill mentioned (`/distill`, `/focus`, etc.) has a source file at `skills/{name}/SKILL.md`
-- Every rule file in `.claude/rules/rill-{inbox,knowledge,workspace,tasks,outputs}.md` links back to this document
-
-Changes to the layer model or to any skill's data flow **must** be reflected here. The lint will fail the CI otherwise.
+This document is hand-maintained — there is no automated lint enforcing it against the codebase. When the layer model or a skill's data flow changes, update this document by hand in the same change.

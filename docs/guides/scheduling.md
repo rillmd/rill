@@ -153,7 +153,7 @@ For systemd timers, see `man systemd.timer` — create a `.service` unit per job
 
 ### Authentication
 
-`claude -p` uses whatever authentication you have already configured with Claude Code — typically a Max Plan login. Rill does not recommend API keys for scheduled runs (see [ADR-068](../decisions/068-claude-code-integration-boundary.md)). If your scheduler runs under a different user than the one logged in to Claude Code, `claude -p` will fail to authenticate; run the scheduler under your normal user account.
+`claude -p` uses whatever authentication you have already configured with Claude Code — typically a Max Plan login. Rill does not recommend API keys for scheduled runs (see ADR-068, a private record in the `rill-dev` repository — there is no public link to follow). If your scheduler runs under a different user than the one logged in to Claude Code, `claude -p` will fail to authenticate; run the scheduler under your normal user account.
 
 ### Permission Mode
 

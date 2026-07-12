@@ -95,7 +95,7 @@ Behavioral specification for /clip-tweet. Ingests a Twitter/X tweet URL into `in
 |----|------|---------------------|
 | EN-01 | engagement-save-ratio >= 1.0 -> high-save | Field check |
 | EN-02 | engagement-rate >= 5.0 -> viral | Field check |
-| EN-03 | Cross-reference with knowledge/projects/ and assign relevance-to | ⚠️ LLM judgment |
+| EN-03 | Cross-reference with projects/ and assign relevance-to | ⚠️ LLM judgment |
 
 ---
 

@@ -83,7 +83,7 @@ A personal information management system that distills fragmented thoughts enter
 | Knowledge | `knowledge/notes/` | Evergreen (updatable) | None (existence = valid) |
 | Person | `knowledge/people/` | Search anchor (updatable) | None (existence = valid) |
 | Org | `knowledge/orgs/` | Search anchor (updatable) | None (existence = valid) |
-| Project | `knowledge/projects/` | Project profile (updatable) | None (existence = valid) |
+| Project | `projects/{id}/_project.md` | Project execution hub (updatable) | frontmatter `status` |
 | Self | `knowledge/self/*.md` | Self entity, 8 files (profile/interests/direction/current-state/decisions/observations/history/constraints, updatable) | None (existence = valid) |
 | Task | `tasks/*/_task.md` | Ticket file (ADR-063) | frontmatter `status` |
 | Daily Note | `reports/daily/` | Generated output (updatable) | Date file existence |
@@ -106,7 +106,7 @@ The following entities are updatable:
 - `knowledge/notes/*.md` — Evergreen principle. Git handles versioning
 - `knowledge/people/*.md` — Status changes, alias additions, key fact accumulation, etc.
 - `knowledge/orgs/*.md` — Status changes, alias additions, key fact accumulation, etc.
-- `knowledge/projects/*.md` — Competitors, Watch Keywords, key fact updates (/distill auto-accumulates)
+- `projects/*/_project.md` — Competitors, Watch Keywords, key fact updates (/distill auto-accumulates); Active Tasks / Related Workspaces (/refresh-project); Pending Decisions (/refresh-decisions)
 - `knowledge/self/*.md` — Self entity, 8 files (/distill Phase 4 auto-updates interests + direction, plus rare year-scale updates to profile; /pulse refreshes current-state; /retrospective auto-appends decisions while observations require explicit user `[x]` approval via `--finalize`; constraints.md and history.md are manual)
 - `workspace/{id}/_workspace.md` — Status changes, workspace information updates
 - `workspace/{id}/_log.md` — Session history appending
@@ -240,8 +240,7 @@ workspace/{id}/
 ### 3.4 Knowledge Lifecycle
 
 ```
-              /extract-knowledge
-              or /distill Phase 1
+              /distill Phase 1
                        |
                        v
               +-----------------+
@@ -609,28 +608,37 @@ Large group-affiliated resort hotel operator. Currently deploying Project Phoeni
 
 The `company` field in knowledge/people/ references the `id` in knowledge/orgs/. See §3.5 for design principles.
 
-### 4.13 knowledge/projects/ frontmatter
+### 4.13 projects/{id}/_project.md frontmatter
 
 ```yaml
 ---
 created: 2026-03-14T01:00+09:00       # Required: ISO 8601 + TZ
 type: project                          # Required: fixed value
-id: project-phoenix                    # Required: unique short identifier (kebab-case)
-name: Project Phoenix                  # Required: project name
-stage: active                          # Required: active | idea | completed
-entity: example-studio                 # Optional: knowledge/orgs/ id (operating entity)
-relationship: own                      # Optional: own | client-work | oss | personal
+id: project-phoenix                    # Required: unique short identifier (kebab-case), matches directory name
+name: Project Phoenix                  # Required: ~30-60 char phrase describing the project
+description: One-line context for what this project is and why it exists  # Required: 1-3 sentences
+status: active                         # Required: planning | active | paused | done
+paused_until: 2026-07-01               # Optional: only when status: paused
 tags: [project-phoenix]                # Optional: max 3
+mentions: [orgs/example-studio]        # Optional: typed entity references (ADR-053, ADR-066)
 ---
 
 Project overview description.
 
 ## Goal
-- Success criteria 1
-- Success criteria 2
+- Success criteria 1 (verifiable end-state; a DoD is required, not optional)
 
 ## Current Focus
 What is currently being worked on (/distill auto-updates).
+
+## Pending Decisions
+- Derived view of queued human decisions, recomputed by /refresh-decisions (ADR-084)
+
+## Active Tasks
+- [ ] [task title](../../tasks/task-xxx/_task.md) — status / due / depends-on
+
+## Related Workspaces
+- [workspace name](../../workspace/xxx/_workspace.md) — status / last updated
 
 ## Watch
 
@@ -645,11 +653,10 @@ What is currently being worked on (/distill auto-updates).
 - Fact 1 (/distill auto-accumulates. Max 20 items)
 
 ## See Also
-- [task-xxx](../../tasks/task-xxx/_task.md) — Related task
-- [workspace/xxx/](../../workspace/xxx/) — Workspace name
+- [knowledge/notes/related-topic.md](../../knowledge/notes/related-topic.md) — manual links not captured by the auto-generated sections above
 ```
 
-Projects are initiatives the user is actively pursuing. Regardless of business, personal, or learning context, and regardless of whether they have completion conditions (ADR-049). Independent from workspace/ (no 1:1 correspondence required). /distill auto-updates "Current Focus," "Key Facts," and "See Also." /newsletter uses Watch > Keywords for Alert search keyword generation. Stage has 3 levels: `active` (in progress), `idea` (concept stage), `completed` (done).
+Projects are execution hubs the user is actively pursuing, bundling related tasks under one initiative (ADR-080) — a top-level directory, not a `knowledge/` entity. Regardless of business, personal, or learning context. Independent from workspace/ (no 1:1 correspondence required; one project may link to N workspaces). /distill auto-updates "Current Focus" and "Key Facts"; `/refresh-project` recomputes "Active Tasks" and "Related Workspaces" via mention reverse-lookup; `/refresh-decisions` recomputes "Pending Decisions." /newsletter uses Watch > Keywords for Alert search keyword generation. Status has 4 levels: `planning` (scope being shaped), `active` (tasks in progress), `paused` (temporarily paused; `paused_until` may indicate a resume target), `done` (DoD met). Every project must have a verifiable completion condition (DoD) in Goal — required, not optional (supersedes ADR-049; see `.claude/rules/rill-projects.md`).
 
 ### 4.14 knowledge/self/ entity (8 files)
 
@@ -864,7 +871,7 @@ Batch processing policy (D14 + D48):
 ```
 /repair:
   Input:  knowledge/.refresh-queue (populated by /inspect)
-  Process: Update tags/mentions/type via _distill/repair-agent.md
+  Process: Update tags/mentions/type via _distill/refresh-agent.md
            Preserve existing related values (no changes)
   Post-process: rill strip-entity-tags (deterministic entity ID removal)
   Output: knowledge/notes/*.md (frontmatter updates only)
@@ -1013,29 +1020,69 @@ When reading a file referenced by `source:`, if an identically-named file exists
 
 ### 8.1 Commands
 
+Grouped by audience, matching `rill help`'s own grouping: commands you type yourself, commands skills invoke on your behalf, and low-frequency admin commands.
+
+**User commands** — quick capture from outside Claude Code:
+
 | Command | Purpose |
 |---------|---------|
-| `rill log [text]` | Add text to inbox/journal/. Opens editor if no argument |
-| `rill i` / `rill interactive` | Interactive mode. Continuous input separated by blank lines |
+| `rill log [text]` | Create a journal entry. Opens editor if no argument |
+| `rill i` / `rill interactive` | Interactive mode (unlimited input, blank line to save) |
+| `rill clip <url>` | Save a web page/tweet to inbox/ for later processing |
 | `rill push` | git add -A && commit && push |
-| `rill status [n]` | Display recent n journal entries |
-| `rill clip <url>` | Fetch URL metadata and save to inbox/web-clips/ |
-| `rill edit` | Open latest journal in editor |
-| `rill plugin <sub>` | Plugin management (list, install, uninstall, status) |
-| `rill sync [name]` | Execute plugin adapters to sync external sources |
-| `rill mkfile <dir>` | Create file with accurate timestamp (for Claude Code skills) |
+| `rill status [n]` | Show recent journal entries (default: 10) |
+| `rill edit` | Open the latest journal entry in editor |
+| `rill open <path>` | Open a file in the Rill GUI (`--highlight` for emphasis) |
+
+**Agent helpers** — invoked by skills inside your vault, not typed manually:
+
+| Command | Purpose |
+|---------|---------|
+| `rill mkfile <dir>` | Create file with correct timestamp + frontmatter (for Claude Code skills) |
+| `rill task "title"` | Create a task ticket file (ADR-063) |
+| `rill touch` | Update frontmatter `updated` field (PostToolUse hook) |
+| `rill activity-log` | Activity log management (on-write, on-prompt, on-stop, add) |
+| `rill strip-entity-tags` | Move entity IDs from tags to mentions (deterministic) |
+| `rill pages-pending-update` | Match new sources to pages via mentions/tags |
+| `rill guard <path>` | Check if a file is managed (used by agent hooks) |
+| `rill codex-hook <event>` | Normalize Codex hook payloads for Rill helpers |
+
+**System & setup** — low-frequency administrative commands:
+
+| Command | Purpose |
+|---------|---------|
+| `rill init` | Initialize a new Rill vault |
+| `rill update` | Update source and reproject managed files into vaults |
+| `rill config` | Open vault-local `.rill/config.json` in `$EDITOR` |
+| `rill vault <sub>` | Vault registry: list \| current \| use \| add \| remove \| edit |
+| `rill plugin <sub>` | Plugin management (list, install, enable, disable, uninstall, status; bundled + local tracks) |
+| `rill sync [name]` | Run a plugin's adapter to sync external sources |
+| `rill crypt <sub>` | Encryption management: crypt init \| crypt doctor |
+| `rill doctor [codex]` | Check encryption health or Codex installation status |
+| `rill help` | Show the help message |
 
 ### 8.2 Claude Code Skills
 
 | Skill | Trigger | Role |
 |-------|---------|------|
-| `/morning` | Manual or automated | Daily user-facing reports: `/briefing` + `/newsletter` in parallel via `claude -p` (D58, D75). `/sync` and `/distill` are not chained — run them separately; see `docs/guides/scheduling.md` |
+| `/onboarding` | Manual, first run | First-time setup and tutorial |
+| `/morning` | Manual or automated | Daily user-facing reports: `/briefing` + `/newsletter` sequentially inline — the harness's classifier refuses subprocess spawning in `auto` mode, so `claude -p` sub-processes are never spawned (D58, D75). `/sync` and `/distill` are not chained — run them separately; see `docs/guides/scheduling.md` |
 | `/distill` | Manual or scheduled | Integrated distillation pipeline. No args = batch, with args = single-file distillation (D58) |
 | `/briefing` | /morning or manual | Daily Note generation. Notes section surfaces unprocessed inbox count + /sync /distill recommendation (D30, D75) |
 | `/newsletter` | /morning or manual | Daily research report generation (D31) |
+| `/pulse` | Manual, or auto-chained from /distill + /close | Refresh `knowledge/self/current-state.md`, a triaged snapshot of current direction, open work, and recent decisions |
+| `/retrospective` | Manual or weekly briefing nudge | Weekly retrospective report: cross-workspace themes, contradictions, stale workspaces, decision digest, self observations |
 | `/focus` | Manual | Start/resume workspace (D28) |
 | `/close` | Manual | Complete workspace (D28) |
+| `/promote` | Manual, after /close | Crystallize a closed workspace's `_summary.md` into its target project — proposes Key Facts and new tasks |
+| `/project` | Manual | Operate a project execution hub: status, next unblocked task, autonomous run, dependency review, list, or create |
+| `/refresh-project` | Before /project invocation, or manual | Recompute a project's Active Tasks and Related Workspaces via mention reverse-lookup |
+| `/refresh-decisions` | After a decision queue write or resolution | Recompute a project's Pending Decisions digest (ADR-084) |
 | `/maintain` | Manual or automated | Quality maintenance: /inspect → /repair (D58) |
+| `/solve` | Manual, or delegated from /project run | Plan-gated execution of a task ticket — Phase 3 Plan approval is the only required user gate, then autonomous through completion (ADR-081) |
+| `/inspect` | Manual, weekly | Diagnose taxonomy health, metadata accuracy, and file integrity; queues mismatches for `/repair` |
+| `/repair` | Manual, or chained from /inspect via /maintain | Batch-repair metadata (tags, mentions, type) queued by `/inspect` |
+| `/eval` | Manual, monthly | Quantitatively evaluate knowledge base search quality against Deep Path ground truth (ADR-050) |
 | `/page` | Manual | Pages creation, update, rebuild (D62) |
 | `/clip-tweet` | Manual | Tweet ingestion |
 | `/plugin` | Manual | Interactive plugin management (with guidance, diagnostics, and suggestions) |
@@ -1049,13 +1096,14 @@ Adding an optional `gui:` field to a skill's frontmatter auto-registers it in th
 
 ```yaml
 gui:
-  label: "/extract-knowledge"         # Command name displayed in ActionMenu
-  hint: "Extract atomic knowledge and save to knowledge/notes/"  # One-line skill description
+  label: "/distill"                   # Command name displayed in ActionMenu
+  hint: "Run knowledge extraction, task extraction, and entity detection"  # One-line skill description
   match:                              # Glob patterns for valid file paths
     - "inbox/**/*.md"
-    - "workspace/**/*.md"
+    - "reports/**/*.md"
   arg: path                           # path | workspace-id | none
-  order: 40                           # Display order (lower = higher. Recommend increments of 10)
+  order: 30                           # Display order (lower = higher. Recommend increments of 10)
+  mode: auto                          # auto | live
 ```
 
 | Field | Type | Description |
@@ -1087,7 +1135,7 @@ Implements data ingestion from external services as interchangeable "plugins."
 
 **Design principles**:
 - Rill is the "destination," not the "sync engine." Data transport mechanisms are separated as plugins
-- "Directory = Plugin" principle (Tier 3): install = directory addition + symlink, uninstall = symlink removal
+- "Directory = Plugin" principle (Tier 3): a plugin's presence on disk under `plugins/{name}/` is the manifest. `install` only marks it as tracked state and runs dependency diagnostics (no symlink yet); `enable` creates the command symlinks; `disable` removes them; `uninstall` reverses `install` and leaves the directory on disk
 - plugin.md = human-readable documentation, directory structure = manifest (no AI parser needed)
 - 2-layer management: `rill plugin` (shell, mechanical) + `/plugin` (Claude Code, interactive)
 
@@ -1157,9 +1205,11 @@ Hook execution spec: /distill scans plugins/ after all Phases complete → execu
 - No plugin (tweet/web-clip) → hardcoded fallback
 - Otherwise → `plugins/_default-distill.md`
 
-**Install / uninstall flow**:
-- `rill plugin install <name>`: Create relative symlinks from `plugins/{name}/commands/*.md` to `.claude/commands/`
-- `rill plugin uninstall <name>`: Remove symlinks in `.claude/commands/` pointing to this plugin. Directory is preserved
+**Install / enable / disable / uninstall flow**:
+- `rill plugin install <name>`: Mark the plugin installed (`.installed` state) and run its `requires.sh` dependency check (informational, does not block)
+- `rill plugin enable <name>`: Requires installed; re-runs `requires.sh` (this time blocking on failure); creates relative symlinks from `plugins/{name}/commands/*.md` to `.claude/commands/`, plus matching Codex skill symlinks under `.agents/skills/`
+- `rill plugin disable <name>`: Removes the command symlinks created by `enable` (both Claude and Codex); keeps the installed state
+- `rill plugin uninstall <name>`: Runs `disable` first if currently enabled, then removes the installed state. Directory is preserved
 
 ---
 
@@ -1198,7 +1248,7 @@ The following conditions must always hold:
 | inbox/*/ (web-clip) | `YYYY-MM-DD-HHmmss-title-slug.md` | `2026-02-16-153000-article-title.md` |
 | workspace/ (date-prefixed) | `{YYYY-MM-DD}-{topic}/` | `2026-02-13-rill-development/` |
 | workspace/ deliverables | `NNN-description.md` | `001-journal-review.md` |
-| tasks/ | `{slug}.md` (kebab-case) | `acme-project-phoenix-followup.md` |
+| tasks/ | `{slug}/_task.md` (kebab-case directory) | `acme-project-phoenix-followup/_task.md` |
 | knowledge/notes/ | `{description}.md` (kebab-case) | `ai-tool-pricing-justification.md` |
 | knowledge/people/ | `{id}.md` (kebab-case) | `jane-smith.md` |
 | knowledge/orgs/ | `{id}.md` (kebab-case) | `acme-corp.md` |
@@ -1315,13 +1365,13 @@ These two are clearly distinguished. PKM Data is the "content" managed by Rill, 
 
 ### 12.4 ADR List
 
-See developer supplement [`docs/SPEC-app.md`](docs/SPEC-app.md) §1 for the ADR list. ADR files are only managed within the `rill-dev` repository (internal operations documentation, not for public release).
+See developer supplement `docs/SPEC-app.md` §1 for the ADR list. That file is private to the `rill-dev` repository (internal operations documentation, not published here or in public releases) — there is no public link to follow.
 
 ---
 
 ## 13. Desktop App (app/)
 
-See developer supplement [`docs/SPEC-app.md`](docs/SPEC-app.md) §2 for Electron desktop app (app/) specifications. Covers tech stack, IPC, window model, Terminal Integration, Write-back, File Change Detection, and Markdown Rendering.
+See developer supplement `docs/SPEC-app.md` §2 for Electron desktop app (app/) specifications. Covers tech stack, IPC, window model, Terminal Integration, Write-back, File Change Detection, and Markdown Rendering. That file is private to the `rill-dev` repository — there is no public link to follow.
 
 ---
 
@@ -1337,7 +1387,6 @@ Encryption targets (defined in `.gitattributes`):
 |-----------|--------|
 | `knowledge/people/*.md` | Person entities (contact information) |
 | `knowledge/orgs/*.md` | Organization entities |
-| `plugins/sales-crm/data/**/*.md` | CRM deal data |
 
 Encryption method: AES-256-CTR (deterministic encryption with SHA-1 HMAC-derived synthetic IV)
 

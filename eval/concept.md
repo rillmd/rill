@@ -30,7 +30,7 @@ Measures the metadata completeness of individual notes via grep/glob. No ground 
 | **tag_balance** | Usage count distribution across tags | max_count, median_count, max_tag | max < 50 |
 | **sampling_precision** | /inspect sampling audit accuracy | PASS/MINOR/MAJOR counts and ratios | PASS rate > 70% |
 
-**Entity prefix definition**: A filename that starts with any id from knowledge/people/, knowledge/orgs/, or knowledge/projects/. Example: `acme-saas-pricing-model.md` has the `acme-saas` prefix.
+**Entity prefix definition**: A filename that starts with any id from knowledge/people/, knowledge/orgs/, or projects/. Example: `acme-saas-pricing-model.md` has the `acme-saas` prefix.
 
 ### Axis 2: Structural Reachability (/inspect Phase 1.8)
 
@@ -88,9 +88,9 @@ Run Claude Code without constraints and **empirically** measure whether it can e
 ### Ground Truth Scope
 
 Files included in the ground truth set (persistent knowledge/structure):
-- knowledge/notes/, people/, orgs/, projects/, me.md
+- knowledge/notes/, knowledge/people/, knowledge/orgs/, projects/, knowledge/self/
 - workspace/{id}/_workspace.md (as MOC)
-- docs/decisions/, tasks.md, SPEC.md, taxonomy.md
+- docs/decisions/, tasks/, SPEC.md, taxonomy.md
 
 Files NOT included in the ground truth set (temporary or pre-distillation intermediates):
 - workspace/{id}/NNN-*.md, _summary.md — distilled to knowledge/notes/ via /distill
