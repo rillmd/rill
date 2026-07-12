@@ -179,7 +179,7 @@ inbox-dir: inbox/meetings
 source-type: sales-contact        # source capability (optional)
 inbox-dir: inbox/contacts          # source capability (optional)
 data-dir: data                     # workflow capability
-search-scope: true                 # workflow capability: included in /ask search scope
+search-scope: true                 # workflow capability: Claude Code search target (explores plugin data-dir)
 hooks:                             # hooks capability
   post-distill: hooks/post-distill.md
   briefing: hooks/briefing.md
@@ -280,6 +280,6 @@ alone (no `jq` / `yq` dependency).
 
 | Tier | Examples | Location |
 |------|---------|----------|
-| Tier 1: Core | `/distill`, `/ask`, `/plugin`, `/sync` | `skills/{name}/SKILL.md` (canonical), deployed to `.claude/skills/` |
+| Tier 1: Core | `/distill`, `/plugin`, `/sync` | `skills/{name}/SKILL.md` (canonical), deployed to `.claude/skills/` |
 | Tier 2: Built-in | `/focus`, `/close` | Same canonical form |
-| Tier 3: External | `/sync-meetings` | `plugins/*/commands/` via symlink into `.claude/commands/` |
+| Tier 3: External | `/sync-google-meet` | `plugins/*/commands/` via symlink into `.claude/commands/` |

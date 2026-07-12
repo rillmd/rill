@@ -50,6 +50,6 @@ Claude Code's shell is zsh:
 
 ## Other Cross-Cutting
 
-- **`docs/` vs PKM**: `docs/` is documentation about Rill itself (distinct from inbox/, knowledge/, workspace/). ADRs live in `docs/decisions/`. Update `SPEC.md` on system design changes.
+- **`docs/` vs PKM**: `docs/` is documentation about Rill itself (distinct from inbox/, knowledge/, workspace/). ADRs live in the private rill-dev repo's `docs/decisions/` (not in this repo — this repo is PUBLIC and does not have a `docs/decisions/` directory). Update `SPEC.md` on system design changes.
 - **Binary assets**: PII-bearing source binaries (business cards, scanned contracts, screenshots with real names/emails/phones) — don't commit; excluded by default `.gitignore` per ADR-047 D47-2. Non-PII asset binaries (app icons, logos, doc screenshots, figures) — commit if small (~2 MB soft cap) and user-approved. Prefer SVG / Markdown. Gate is PII content, not format.
 - **`_distill/` internal templates**: `.claude/commands/_distill/` holds internal templates for /distill (underscore = not user-invocable, agents Read them, ADR-048).

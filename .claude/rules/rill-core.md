@@ -15,12 +15,12 @@ Personal voice journal + knowledge management system. Core flow: **voice / text 
 ├── projects/       # Execution hub layer (ADR-080)
 ├── workspace/{id}/ # Working layer (stateful)
 ├── tasks/{slug}/   # Per-task directory (_task.md + optional artifacts, ADR-076)
-├── reports/        # Claude Code outputs: daily/, newsletter/
+├── reports/        # Claude Code outputs: daily/, newsletter/, eval/, distill/, retrospective/
 ├── pages/          # Human-facing aggregated Materialized Views
 ├── taxonomy.md     # Tag vocabulary management
 └── .claude/
     ├── skills/     # Claude Code skills (canonical form: {name}/SKILL.md)
-    ├── commands/   # Legacy skills (close, distill), internal templates, plugin symlinks, personal skills
+    ├── commands/   # Internal templates (_close/, _distill/, _task/, _lib/), plugin symlinks, personal skills
     └── rules/      # Split rules (including this file)
 ```
 

@@ -69,15 +69,15 @@ Automatically collect information related to the theme:
 
 1. Create directory:
    - `workspace/{YYYY-MM-DD}-{topic-name}/` (today's date + kebab-case topic name)
-2. Generate `_workspace.md`. First get the exact current time:
+2. Generate `_workspace.md` via `rill mkfile` (LLMs must never write `created` by hand — ADR-060):
    ```bash
-   date +%Y-%m-%dT%H:%M%z | sed 's/\([0-9][0-9]\)$/:\1/'
+   rill mkfile workspace --slug {YYYY-MM-DD}-{topic-name} --type workspace
    ```
-   Use the obtained value for `created`:
+   This creates `workspace/{YYYY-MM-DD}-{topic-name}/_workspace.md` with `created` (ISO 8601, auto-assigned), `type: workspace`, `id`, and `status: active` already populated. Then Edit the file to fill in the remaining frontmatter fields (`name`, `origin`, `tags`) and the body:
 
 ```markdown
 ---
-created: {time obtained above}
+created: {auto-assigned by rill mkfile — do not edit}
 type: workspace
 id: {YYYY-MM-DD}-{topic-name}
 name: {Topic title}

@@ -1,6 +1,6 @@
 ---
 name: pulse
-description: Refresh knowledge/self/current-state.md — a triaged 80-line/6-section snapshot of the user's current state (direction / active workspaces / open tasks / recent decisions / open questions / known contradictions). Called manually, or auto-chained from /distill + /close, or on-demand by /briefing when the snapshot is stale. Use when the user asks for "current state" (in any language) / "what's going on across my workspaces", or when a higher-level skill needs a fresh self-snapshot.
+description: Refresh knowledge/self/current-state.md — a triaged 80-line/7-section snapshot of the user's current state (direction / active workspaces / open tasks / recent decisions / open questions / execution gaps / known contradictions). Called manually, or auto-chained from /distill + /close, or on-demand by /briefing when the snapshot is stale. Use when the user asks for "current state" (in any language) / "what's going on across my workspaces", or when a higher-level skill needs a fresh self-snapshot.
 gui:
   label: "/pulse"
   hint: "Refresh self/current-state.md snapshot"
@@ -17,7 +17,7 @@ gui:
 
 > **Tool references in this skill** (`Bash`, `Grep`, `Read`, `Edit`, `Glob`, `Skill`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent.
 
-Aggregates active state from `workspace/`, `tasks/`, and `knowledge/self/` and writes a triaged snapshot to `knowledge/self/current-state.md`. The snapshot has a **hard cap of 80 lines / 2 screens** with each section limited to 7 entries (5 for known contradictions).
+Aggregates active state from `workspace/`, `tasks/`, and `knowledge/self/` and writes a triaged snapshot to `knowledge/self/current-state.md`. The snapshot has a **hard cap of 80 lines / 2 screens** with each section limited to 7 entries (3 for execution gap, 5 for known contradictions).
 
 Design essence:
 

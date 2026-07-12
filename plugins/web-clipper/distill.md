@@ -8,7 +8,7 @@ Instructions passed to the sub-agent by /distill Phase 2 when organizing web-cli
 - `{taxonomy_yaml}` — Tag vocabulary list in YAML format (name + desc)
 - `{people_mapping}` — id: name (aliases) mapping for knowledge/people/
 - `{orgs_mapping}` — id: name (aliases) mapping for knowledge/orgs/
-- `{projects_mapping}` — id: name (stage) mapping for knowledge/projects/
+- `{projects_mapping}` — id: name (status) mapping for projects/{slug}/_project.md
 - `{task_extraction_rules}` — Task extraction format and background description rules
 
 ## Agent Prompt

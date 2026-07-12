@@ -17,7 +17,7 @@ Write the organized version to inbox/journal/_organized/{same filename}.
 - Body: Restructure and organize the content (do not change the original meaning; clarification and supplementation are OK)
 
 ## Task 2: Knowledge Extraction
-Create atomic knowledge files in knowledge/notes/ using Write.
+Create atomic knowledge files in knowledge/notes/ using `rill mkfile` (never Write — LLMs must never write `created` by hand).
 **Follow the extraction rules and Evergreen check in `.claude/commands/_distill/knowledge-agent.md`.**
 Read knowledge-agent.md first to review the rules before extracting.
 
@@ -27,7 +27,6 @@ Read knowledge-agent.md first to review the rules before extracting.
 ## Task 3: Task Extraction
 Extract tasks following the "Task extraction rules" in the shared context.
 Use `inbox/journal/_organized/{same filename}` as the source.
-Include related knowledge/notes/ files from Task 2 in the context field as `Title::path` format.
 
 ## Task 4: Key Fact Accumulation (people/)
 For people mentioned in the journal, determine if there is new information to add to knowledge/people/{id}.md key facts.
@@ -53,7 +52,7 @@ The following data is injected from the orchestrator's prompt (not included in t
 - **Tag vocabulary**: YAML list format (name + desc). Refer to desc when selecting tags
 - **People mapping**: id → name | aliases | company in extended one-line format
 - **Orgs mapping**: id → name (aliases) in one-line format
-- **Projects mapping**: id → name (stage, tags) in one-line format
+- **Projects mapping**: id → name (status, tags) in one-line format
 - **Task extraction rules**: Task extraction format and background writing rules
 - `output_language` (optional): ISO 639-1 language code for narrative output fields (e.g. `"ja"`, `"en"`); when omitted, default to English
 - `style_guide` (optional): short vocabulary-boundary rules for narrative fields (see Language section); when omitted, write narrative fields in plain English

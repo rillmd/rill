@@ -362,15 +362,16 @@ For each entity in the Tier dict with `tier_assignment == tier1`:
    - At least 5 new fact entries added in the past 4 weeks (detect via `(YYYY-MM)` date prefixes in fact lines, or `git log --since=4.weeks --follow {path}` line additions if blame is preferred)
 3. For each entity that passes both conditions, emit a curation review block.
 
-Generate `reports/distill/tier1-curation-{YYYY-MM-DD}.md` with one section per flagged entity. Format:
+Generate `reports/distill/tier1-curation-{YYYY-MM-DD}.md` with one section per flagged entity. `rill mkfile reports/distill` ignores `--slug` and always writes `reports/distill/{YYYY-MM-DD}.md` (bin/rill `cmd_mkfile`'s generic `reports/*` branch), so get the correct `created` frontmatter that way (LLMs must never write `created` by hand — ADR-060) and rename to the slugged filename, the same pattern `/retrospective` uses for `reports/retrospective/{period_id}.md`:
+
+```bash
+mkfile_out="$(rill mkfile reports/distill --type distill-curation --field "period={YYYY-MM-DD}")"
+mv "$mkfile_out" "reports/distill/tier1-curation-{YYYY-MM-DD}.md"
+```
+
+Then Edit the body into this format:
 
 ```markdown
----
-created: {now ISO 8601}
-type: distill-curation
-period: {YYYY-MM-DD}
----
-
 # Tier 1 Key Fact Curation Review
 
 ## {type}/{id} — current {N} facts, guideline 20
