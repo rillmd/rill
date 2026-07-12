@@ -10,6 +10,9 @@
 #   - rill push with a git-crypt marker + empty knowledge/people/
 #   - rill push refuses when only knowledge/orgs/ (not people/) holds a
 #     locked git-crypt file (ADR-047 lock-probe coverage gap)
+#   - rill push refuses a locked file even when a plaintext
+#     knowledge/orgs/CLAUDE.md sorts before it (lock probe scans every
+#     candidate file, not just the first sorted match)
 #   - rill plugin status keeps listing past a plugin whose requires.sh fails
 #   - rill plugin install completes (rc=0) when requires.sh fails
 #   - rill mkfile path-safety guard (absolute / `..` directory, `/` in
@@ -101,6 +104,13 @@ assert_out_contains "$out" "thinks: 0" "status prints the Stats line (survives f
 rc=0; "$RILL" status foo >/dev/null 2>&1 || rc=$?
 assert_true "[ $rc -ne 0 ]" "rill status rejects a non-numeric count"
 
+# Regression (Codex review [P2], 2026-07-12): count=0 passed the
+# non-numeric check, then `head -n 0` produced an empty result that read as
+# "no entries yet" even though the vault has entries -- a misleading
+# success instead of a validation error.
+rc=0; "$RILL" status 0 >/dev/null 2>&1 || rc=$?
+assert_true "[ $rc -ne 0 ]" "rill status rejects a count of zero"
+
 # --- 3. empty-journal branches of status / edit ------------------------------
 # Regression: ls | head under pipefail aborted before the guidance messages.
 # Empty the journal explicitly (init seeds a welcome entry + CLAUDE.md).
@@ -145,14 +155,25 @@ assert_out_contains "$out" "Pushed." "second push reports success"
 # knowledge/orgs/ silently skipped the check and pushed anyway (ADR-047
 # protection gap: files added while locked could be committed as
 # plaintext-looking-but-actually-encrypted content). people/ is still empty
-# from section 5. rill init also seeds knowledge/orgs/CLAUDE.md, so clear
-# orgs/*.md first (mirrors section 5's people/ cleanup) - otherwise `ls | head
-# -1` would alphabetically pick CLAUDE.md over the fixture and prove nothing.
-rm -f "$VAULT/knowledge/orgs"/*.md
+# from section 5.
+#
+# Regression 2 (Codex review [P1], 2026-07-11 round 4): the lock probe only
+# inspected the first `ls`-sorted candidate file. rill init seeds
+# knowledge/orgs/CLAUDE.md in every vault, and it commonly stays plaintext
+# (template boilerplate, no PII), so a probe limited to the first sorted
+# file would see only CLAUDE.md and miss a real locked file next to it. This
+# case therefore does NOT delete CLAUDE.md -- an earlier version of this
+# test did, which only proved the guard fires once the exact file that was
+# masking the bug is removed, i.e. it proved nothing about a real default
+# vault. CLAUDE.md is plaintext and sorts alphabetically before
+# "locked-org.md" ('C' < 'l'), so this is precisely the shape that used to
+# slip through: the probe must now scan every candidate file, not stop at
+# the first.
+assert_file_exists "$VAULT/knowledge/orgs/CLAUDE.md" "orgs/CLAUDE.md is present (default vault shape) going into the locked-file check"
 printf 'GITCRYPT' > "$VAULT/knowledge/orgs/locked-org.md"
 rc=0; out="$("$RILL" push 2>&1)" || rc=$?
-assert_true "[ $rc -ne 0 ]" "rill push refuses when only knowledge/orgs/ holds a locked git-crypt file"
-assert_out_contains "$out" "git-crypt is locked" "push prints the lock warning for an orgs-only locked vault"
+assert_true "[ $rc -ne 0 ]" "rill push refuses when knowledge/orgs/ holds a locked file alongside plaintext CLAUDE.md"
+assert_out_contains "$out" "git-crypt is locked" "push prints the lock warning even though CLAUDE.md sorts first and is plaintext"
 rm -f "$VAULT/knowledge/orgs/locked-org.md"
 
 # --- 7. rill status with entries (regular path still works) -----------------

@@ -213,15 +213,21 @@ cmd_log() {
 cmd_push() {
     cd "$RILL_HOME"
 
-    # git-crypt lock safety check (ADR-047). Probes both people/ and orgs/:
-    # a vault with only orgs/ encrypted files must not skip this check.
+    # git-crypt lock safety check (ADR-047). Probes every file in both
+    # people/ and orgs/, not just the first sorted match: rill init seeds
+    # knowledge/{people,orgs}/CLAUDE.md, which commonly stays plaintext
+    # (template boilerplate, no PII) and sorts before a real locked file,
+    # so stopping at the first candidate would miss a lock elsewhere in the
+    # same directory (Codex review [P1], 2026-07-11).
     if [ -d "$RILL_HOME/.git/git-crypt" ]; then
-        local test_file
-        test_file=$(ls knowledge/people/*.md knowledge/orgs/*.md 2>/dev/null | head -1 || true)
-        if [ -n "$test_file" ] && head -c 9 "$test_file" | grep -q "GITCRYPT"; then
-            echo "⚠️  git-crypt is locked. Run: git-crypt unlock <key>"
-            return 1
-        fi
+        local crypt_file
+        for crypt_file in knowledge/people/*.md knowledge/orgs/*.md; do
+            [ -f "$crypt_file" ] || continue
+            if head -c 9 "$crypt_file" | grep -q "GITCRYPT"; then
+                echo "⚠️  git-crypt is locked. Run: git-crypt unlock <key>"
+                return 1
+            fi
+        done
     fi
 
     git add -A
@@ -245,6 +251,10 @@ cmd_status() {
             echo "Error: count must be a positive integer: $count" >&2
             return 1 ;;
     esac
+    if [ "$count" -eq 0 ]; then
+        echo "Error: count must be a positive integer: $count" >&2
+        return 1
+    fi
     echo "=== Recent journal entries ==="
     if [ -d "$JOURNAL_DIR" ]; then
         local files
@@ -1760,13 +1770,20 @@ _crypt_doctor() {
     orgs_count=$(ls knowledge/orgs/*.md 2>/dev/null | wc -l | tr -d ' ' || true)
     echo "  Encrypted files: people=$people_count, orgs=$orgs_count"
 
-    # 3. Lock status. Probes both people/ and orgs/: a vault with only
-    # orgs/ encrypted files must not skip this check.
+    # 3. Lock status. Probes every file in both people/ and orgs/, not just
+    # the first sorted match (same rationale as cmd_push's probe above).
     if [ -d ".git/git-crypt" ]; then
-        local test_file
-        test_file=$(ls knowledge/people/*.md knowledge/orgs/*.md 2>/dev/null | head -1 || true)
-        if [ -n "$test_file" ]; then
-            if head -c 9 "$test_file" | grep -q "GITCRYPT"; then
+        local crypt_file found=false locked=false
+        for crypt_file in knowledge/people/*.md knowledge/orgs/*.md; do
+            [ -f "$crypt_file" ] || continue
+            found=true
+            if head -c 9 "$crypt_file" | grep -q "GITCRYPT"; then
+                locked=true
+                break
+            fi
+        done
+        if [ "$found" = true ]; then
+            if [ "$locked" = true ]; then
                 echo "✗ git-crypt is LOCKED (run: git-crypt unlock <key>)"
                 ((issues++))
             else
@@ -2348,11 +2365,11 @@ cmd_codex_hook() {
             if [ -n "$patch_text" ]; then
                 local patch_paths
                 patch_paths="$(printf '%s\n' "$patch_text" |
-                    sed -nE 's/^\*\*\* (Add|Update|Delete) File: (.*)$/\2/p')"
+                    sed -nE 's/^\*\*\* (Add|Update|Delete) File: (.*)$/\2/p' || true)"
                 paths="${paths}${paths:+$'\n'}${patch_paths}"
             fi
 
-            paths="$(printf '%s\n' "$paths" | sed '/^$/d' | sort -u)"
+            paths="$(printf '%s\n' "$paths" | sed '/^$/d' | sort -u || true)"
             if [ -z "$paths" ]; then
                 echo "Rill Codex hook could not determine the write target; blocking the write." >&2
                 return 2
