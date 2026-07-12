@@ -20,7 +20,7 @@ Personal voice journal + knowledge management system. Core flow: **voice / text 
 ├── taxonomy.md     # Tag vocabulary management
 └── .claude/
     ├── skills/     # Claude Code skills (canonical form: {name}/SKILL.md)
-    ├── commands/   # Internal templates (_close/, _distill/, _task/, _lib/), plugin symlinks, personal skills
+    ├── commands/   # Internal templates, plugin symlinks, personal skills
     └── rules/      # Split rules (including this file)
 ```
 
