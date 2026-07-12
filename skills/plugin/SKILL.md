@@ -5,6 +5,8 @@ description: Manage Rill plugins interactively (lifecycle: available → install
 
 # /plugin — Plugin Management
 
+**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
+
 > **Tool references in this skill** (`shell`, `Read`, `Grep`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in Bash/Read/Grep tools as named; Codex CLI uses shell / `apply_patch` / `--search` etc. as appropriate.
 
 Interactively manage plugins with a 3-state lifecycle: available → installed → enabled. Internally calls `rill plugin` in a shell, with guidance, diagnostics, and suggestions added before and after.

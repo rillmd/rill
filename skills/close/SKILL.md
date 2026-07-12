@@ -35,7 +35,7 @@ Historically /close ran all phases directly in the parent context (ADR-072). Thi
 
 The parent session stays lightweight and never runs out of budget regardless of workspace size. Each sub-agent has a fresh context (independent budget). Narrative consistency is preserved because the Analysis sub-agent reads everything in a single fresh context, and each Distillation sub-agent cross-verifies against other deliverables before writing.
 
-See [ADR-073](../../docs/decisions/2026-04-08-073-close-two-layer-subagent-delegation.md) for the full rationale.
+See ADR-073 (private, rill-dev `docs/decisions/`) for the full rationale.
 
 ## Procedure
 
@@ -424,6 +424,6 @@ If the /pulse invocation fails, log a 1-line warning to stdout and treat the /cl
 - `.claude/commands/_close/distillation-agent.md` — Phase 4 Distillation sub-agent prompt template
 - `.claude/commands/_distill/knowledge-agent.md` — referenced by distillation-agent.md for Evergreen check procedure
 - `.claude/commands/_distill/task-extraction.md` — referenced by Phase 8.1 for task extraction rules
-- `docs/decisions/2026-04-08-073-close-two-layer-subagent-delegation.md` — ADR-073 rationale
-- `docs/decisions/2026-06-25-083-close-remove-candidate-approval-gate.md` — ADR-083 (Phase 3 user checkpoint removed; downstream defenses retained)
+- ADR-073 (private, rill-dev `docs/decisions/`) — two-layer sub-agent delegation rationale
+- ADR-083 (private, rill-dev `docs/decisions/`) — Phase 3 user checkpoint removed; downstream defenses retained
 - `docs/skill-specs/close.md` — IAD (rule table for testing)

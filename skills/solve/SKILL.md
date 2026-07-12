@@ -43,7 +43,7 @@ Two classification axes govern Phase 4 execution: **lane** (what files the task 
 
 | Lane | Target paths | Branch | Push | Review |
 |---|---|---|---|---|
-| **A** (PKM) | `inbox/`, `knowledge/`, `workspace/`, `tasks/`, `reports/`, `pages/`, `taxonomy.md`, `activity-log.md` | main directly | `rill push` immediate | None |
+| **A** (PKM) | `inbox/`, `knowledge/`, `projects/`, `workspace/`, `tasks/`, `reports/`, `pages/`, `taxonomy.md`, `activity-log.md` | main directly | `rill push` immediate | None |
 | **B** (dev) | `.claude/`, `bin/`, `app/`, sibling repos | `feature/{slug}` in `.claude/worktrees/{slug}/` | PR → review → auto-merge | `codex review --base main` required |
 
 Mixed tasks split into a Lane A path + Lane B path running concurrently within the single task. See `rill-autonomous-execution.md` §1 and §5.
@@ -464,6 +464,7 @@ While inside a Lane B worktree, **never Edit/Write any of**:
 
 - `tasks/`
 - `knowledge/`
+- `projects/`
 - `workspace/`
 - `pages/`
 - `reports/`
@@ -697,7 +698,7 @@ Idempotency: the `id` plus the done state make a second resume a no-op -- a cons
 - For in-body file references, use Markdown links of the form `[display name](relative path)`. Backtick-only ID references are forbidden
 - Always include a Sources section at the end of any deliverable (URLs for web research, file paths for in-Rill references)
 - When Reading a file referenced by `source:`, prefer the `_organized/` version if a same-named file exists there
-- **Two-channel write invariant**: while inside a Lane B worktree, never Edit/Write under `tasks/`, `knowledge/`, `workspace/`, `pages/`, `reports/`, `inbox/`, `taxonomy.md`, `activity-log.md`. These are Lane A files and must be edited from the main worktree only
+- **Two-channel write invariant**: while inside a Lane B worktree, never Edit/Write under `tasks/`, `knowledge/`, `projects/`, `workspace/`, `pages/`, `reports/`, `inbox/`, `taxonomy.md`, `activity-log.md`. These are Lane A files and must be edited from the main worktree only
 - **Worktree slug-identity**: 1 task = 1 slug = 1 worktree (`.claude/worktrees/{slug}`) = 1 branch (`feature/{slug}`) = 1 PR, identical across all target repos. Do not introduce per-purpose branch suffixes (no `feat/`, `chore/`, `docs/` prefixes; everything is `feature/{slug}`)
 - **PUBLIC repo PII/JP scan (BLOCKING)** before any push to a PUBLIC repository — see §4.6
 - **Per-step `[Claude]` / `[User]` tags are not used**. Step kind (Refine / Research / etc.) replaces the per-step actor tag. The only `[User]` actions are the three Remaining Breakpoints

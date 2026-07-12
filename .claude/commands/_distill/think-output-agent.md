@@ -14,7 +14,7 @@ think-outputs are AI-extracted at write time (in-flight capture during a Claude 
 Use the language specified by `output_language` (ISO 639-1) for narrative output fields — namely the knowledge note bodies (including the `# Title` heading) created in Task 1, the task candidate `Title` and `hint` fields produced in Task 2, and the new key fact entries appended in Tasks 3 and 4. Unlike journal-agent there is no `_organized/` output for this category (think-outputs are structured at write time). Internal keys stay verbatim English regardless of `output_language` because the orchestrator and downstream agents string-match them: the original `inbox/think-outputs/{filename}` path used as `source` (NOT `_organized/`), frontmatter field names (`created`, `type`, `source`, `tags`, `mentions`, `related`) and their values, knowledge/notes/ slugs and paths, the `type` enum (`record` / `insight` / `reference`), mentions entity IDs (`people/{id}`, `orgs/{id}`, `projects/{id}`), tag slugs, the report section heading `### Created knowledge files`, the task pipe field names (`slug:` / `mentions:` / `source:` / `hint:` / `depends-on:` / `blocks:`) and the `No tasks` sentinel produced by the Task extraction rules. Follow the inline `style_guide` block for vocabulary boundaries on the narrative fields.
 
 ## Task 1: Knowledge Extraction
-Create atomic knowledge files in knowledge/notes/ using Write.
+Create atomic knowledge files in knowledge/notes/ using `rill mkfile` (never Write — LLMs must never write `created` by hand).
 **Follow the extraction rules and Evergreen check in `.claude/commands/_distill/knowledge-agent.md`.**
 Read knowledge-agent.md first to review the rules before extracting.
 
@@ -24,7 +24,6 @@ Read knowledge-agent.md first to review the rules before extracting.
 ## Task 2: Task Extraction
 Extract tasks following the "Task extraction rules" in the shared context.
 Use `inbox/think-outputs/{filename}` (the original, not `_organized/`) as the source.
-Include related knowledge/notes/ files from Task 1 in the context field as `Title::path` format.
 
 ## Task 3: Key Fact Accumulation (people/)
 For people mentioned in the think-output, determine if there is new information to add to knowledge/people/{id}.md key facts.
@@ -50,7 +49,7 @@ The following data is injected from the orchestrator's prompt (not included in t
 - **Tag vocabulary**: YAML list format (name + desc). Refer to desc when selecting tags
 - **People mapping**: id → name | aliases | company in extended one-line format
 - **Orgs mapping**: id → name (aliases) in one-line format
-- **Projects mapping**: id → name (stage, tags) in one-line format
+- **Projects mapping**: id → name (status, tags) in one-line format
 - **Task extraction rules**: Task extraction format and background writing rules
 - `output_language` (optional): ISO 639-1 language code for narrative output fields (e.g. `"ja"`, `"en"`); when omitted, default to English
 - `style_guide` (optional): short vocabulary-boundary rules for narrative fields (see Language section); when omitted, write narrative fields in plain English

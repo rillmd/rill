@@ -9,7 +9,7 @@ PKM updates and Rill system development are physically separated.
 | Axis | Lane A: PKM Operations | Lane B: Rill System Development |
 |---|---|---|
 | Purpose | Daily knowledge / tasks / journal updates | Adding / fixing Rill itself (skills, rules, CLI, GUI) |
-| Target paths | `inbox/`, `knowledge/`, `workspace/`, `tasks/`, `reports/`, `pages/`, `taxonomy.md`, `activity-log.md` | `.claude/`, `bin/rill`, `~/src/rillmd/rill/**`, sibling repos, vault's `personal-*.md` / `settings.json` |
+| Target paths | `inbox/`, `knowledge/`, `projects/`, `workspace/`, `tasks/`, `reports/`, `pages/`, `taxonomy.md`, `activity-log.md` | `.claude/`, `bin/rill`, `~/src/rillmd/rill/**`, sibling repos, vault's `personal-*.md` / `settings.json` |
 | Branch | main directly | feature branch in worktree |
 | Push | Commit + push immediately (`rill push`) | PR → Codex review → auto-merge |
 | Review | None (use `codex review --uncommitted` only for sensitive distills) | `codex review --base main` required |
@@ -132,7 +132,7 @@ Save as `tasks/{slug}/NNN-codex-review-{repo}.md` from the main worktree.
 
 ## 5. Two-Channel Write Invariant
 
-A Lane B feature branch **must never modify** files under `tasks/`, `knowledge/`, `workspace/`, `pages/`, `reports/`, `inbox/`, `taxonomy.md`, `activity-log.md`. Those are the main worktree (Lane A) channel. The Lane B worktree only touches `.claude/`, `bin/`, `app/`, sibling repos' equivalents.
+A Lane B feature branch **must never modify** files under `tasks/`, `knowledge/`, `projects/`, `workspace/`, `pages/`, `reports/`, `inbox/`, `taxonomy.md`, `activity-log.md`. Those are the main worktree (Lane A) channel. The Lane B worktree only touches `.claude/`, `bin/`, `app/`, sibling repos' equivalents.
 
 This works because squash-merge is a 3-way merge: for any file F the feature branch didn't touch, `theirs` (feature HEAD) = base ancestor, so git picks `ours` (main HEAD with Lane A updates) automatically — no conflict.
 

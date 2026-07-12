@@ -139,7 +139,7 @@ If `knowledge/self/profile.md` does not exist, ask for the user's name at the en
 
 **Scaffolding sequence**:
 
-1. Create the 8 self/ skeleton files. Use `rill mkfile` for each so the `created` timestamp is correct, then rename to bare names (the singleton-entity convention; same idea as `knowledge/projects/{id}.md`):
+1. Create the 8 self/ skeleton files. Use `rill mkfile` for each so the `created` timestamp is correct, then rename to bare names (the singleton-entity convention; same idea as `projects/{id}/_project.md`):
 
    ```bash
    for slug in profile interests direction current-state decisions observations history constraints; do
