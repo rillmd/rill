@@ -33,6 +33,9 @@ run_test() {
 # CLI smoke first: pure shell, no claude required, fails fast on CLI breakage
 run_test "CLI smoke"    "$SCRIPT_DIR/cli/test-cli-smoke.sh"
 
+# Static consistency checks: pure shell, no claude required
+run_test "Skill preamble" "$SCRIPT_DIR/cli/test-skill-preamble.sh"
+
 run_test "/distill"     "$SCRIPT_DIR/skills/test-distill.sh"
 run_test "/briefing"    "$SCRIPT_DIR/skills/test-briefing.sh"
 run_test "/clip-tweet"  "$SCRIPT_DIR/skills/test-clip-tweet.sh"

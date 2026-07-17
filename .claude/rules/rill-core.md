@@ -50,6 +50,7 @@ Container `CLAUDE.md` files (e.g., `inbox/meetings/`, `knowledge/people/`) load 
 
 - **Body text**: user's preferred language (distribution default: English; personal vaults override via `.claude/rules/personal-*.md`)
 - **English exceptions** (only): tokens inside backticks, proper nouns, ASCII acronyms
+- **Translation quality** (applies wherever the assistant writes non-English body text, including workspace artifacts): prefer the established translation — a term actually used in documents written by native speakers of the target language; if none exists but a loanword form is in common use, use the loanword; otherwise keep the English term inside backticks with a short parenthetical gloss on first use. Never invent literal calques that do not exist in the target language, and keep one consistent rendering per concept within a document.
 - **File/directory names, frontmatter keys, commit messages**: English
 
 ## Customization

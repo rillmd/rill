@@ -11,6 +11,10 @@ gui:
 
 # /onboarding — First-Time Setup & Tutorial
 
+**Conduct all conversation with the user — and write all generated output — in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if that file is absent). Follow the language rules in full — exceptions and translation quality are defined in the Language Rules of `.claude/rules/rill-core.md` and the vault's `personal-*.md` overrides, never restated per skill. The English instructions below are for skill clarity, not for output style.
+
+> **First-run precedence**: during onboarding `personal-language.md` does not exist yet. The language detected in Phase 0 (`DETECTED_LANG`) governs all conversation and generated output until that file is written — it overrides the input-language fallback above.
+
 > **Tool references in this skill** (`Write`, `Read`, `shell`, `CronCreate`, `schedule`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in Write / Bash tools and the `schedule` skill / `CronCreate`; Codex CLI uses `apply_patch` (for file creation) / shell / system cron or launchd as appropriate.
 >
 > **User-facing prose in this skill assumes Claude Code as the harness** ("ask Claude," "open Claude Code in your vault"). When running on a different harness, substitute the harness name (e.g., "ask Codex," "open Codex CLI in your vault") for the user-facing references. The Claude-Code-flavored phrasing below is the default and should be adapted, not removed.
@@ -62,7 +66,7 @@ Map the result to a language:
 
 Set the result as `DETECTED_LANG`.
 
-**From this point on, conduct ALL conversation in `DETECTED_LANG`.** The only exceptions are: tokens inside backticks or code blocks (e.g., `/distill`, `frontmatter`), proper nouns, and ASCII acronyms — keep those in English.
+**From this point on, conduct ALL conversation in `DETECTED_LANG`.** English exceptions and translation quality follow the Language Rules in `.claude/rules/rill-core.md` (already present in the vault scaffold).
 
 #### 0-2: Create personal-language.md
 

@@ -11,7 +11,7 @@ gui:
 
 # /close — Workspace Completion
 
-**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
+**Conduct all conversation with the user — and write all generated output — in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if that file is absent). Follow the language rules in full — exceptions and translation quality are defined in the Language Rules of `.claude/rules/rill-core.md` and the vault's `personal-*.md` overrides, never restated per skill. The English instructions below are for skill clarity, not for output style.
 
 > **Tool references in this skill** (`Read`, `Edit`, `Grep`, `AskUserQuestion`, the `Agent` tool's `subagent_type`, `model: "sonnet"`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent. On Codex CLI: sub-agent fan-out (`Agent` / `subagent_type`, including the parallel Distillation sub-agents below) maps to Codex's own sub-agent mechanism where one is available, or runs sequentially in the current session when it isn't; a named `model` is a preference for an equivalent lighter/faster model, falling back to the session default. `AskUserQuestion` maps to a plain free-text question in an interactive session; in an unattended run it must not block — write a `[DECISION-QUEUE]` entry instead, per the decision-loop contract (ADR-084, `.claude/rules/rill-autonomous-execution.md` §9).
 
