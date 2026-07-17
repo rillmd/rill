@@ -13,7 +13,7 @@ gui:
 
 # /newsletter — Daily News
 
-**Conduct ALL conversation with the user — and write the generated report body — in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
+**Conduct all conversation with the user — and write all generated output — in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if that file is absent). Follow the language rules in full — exceptions and translation quality are defined in the Language Rules of `.claude/rules/rill-core.md` and the vault's `personal-*.md` overrides, never restated per skill. The English instructions below are for skill clarity, not for output style.
 
 > **Tool references in this skill** (`shell`, `Read`, `Edit`, `Glob`, `WebSearch`, `WebFetch`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in tools as named; Codex CLI uses shell / `apply_patch` / `--search` / its own URL fetcher as appropriate.
 
@@ -152,15 +152,9 @@ Generate at `reports/newsletter/YYYY-MM-DD.md` with the following structure.
 
 #### Report Body Language
 
-Write the report body in the language defined by `.claude/rules/personal-language.md` (English when absent). This skill floods the context with English web sources — **translate their vocabulary instead of importing it**. A large amount of English in the context is not a reason to mix English words into the report. English exceptions (only): (1) tokens inside backticks, (2) proper nouns (products, companies, people), (3) ASCII acronyms, (4) fixed template strings — the section headings and labels defined in the Template below (`# YYYY-MM-DD Daily News`, `## Alerts`, `## Deep Dive:`, `## Discovery`, `## Research Metadata`, and the `Alert:` / `Deep Dive:` / `Discovery:` keyword labels) stay verbatim English because downstream tooling parses them.
+Write the report body in the language defined by `.claude/rules/personal-language.md` (English when absent). This skill floods the context with English web sources — **translate their vocabulary instead of importing it**. A large amount of English in the context is not a reason to mix English words into the report. Translation quality follows the Language Rules in `.claude/rules/rill-core.md` and the vault's `personal-*.md` overrides — in particular, never invent literal calques that do not exist in the target language.
 
-When a term has no obvious rendering in the target language, decide in this order:
-
-1. Use the established translation — a word actually used in documents written by native speakers of the target language.
-2. If none exists but a loanword form is in common use, use the loanword (e.g., Japanese renders "chunk" as its established katakana loanword).
-3. Otherwise keep the English term inside backticks and add a short parenthetical gloss on first use.
-
-Never invent literal calques that do not exist in the target language, and use one consistent rendering per concept within the document.
+Skill-specific exception: the fixed template strings — the section headings and labels defined in the Template below (`# YYYY-MM-DD Daily News`, `## Alerts`, `## Deep Dive:`, `## Discovery`, `## Research Metadata`, and the `Alert:` / `Deep Dive:` / `Discovery:` keyword labels) — stay verbatim English because downstream tooling parses them.
 
 #### File Creation
 

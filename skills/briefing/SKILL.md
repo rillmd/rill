@@ -13,7 +13,7 @@ gui:
 
 # /briefing — Daily Note Generation
 
-**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
+**Conduct all conversation with the user — and write all generated output — in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if that file is absent). Follow the language rules in full — exceptions and translation quality are defined in the Language Rules of `.claude/rules/rill-core.md` and the vault's `personal-*.md` overrides, never restated per skill. The English instructions below are for skill clarity, not for output style.
 
 > **Tool references in this skill** (`Bash`, `Grep`, `Read`, `Edit`, `Glob`, `sub-agent`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in tools as named; Codex CLI uses `apply_patch` / shell / its own sub-agent mechanism etc. as appropriate.
 
@@ -203,7 +203,7 @@ Collect data from plugin briefing hooks.
 
 ### Phase 2: Daily Note Generation
 
-Write the report body in the language defined by `.claude/rules/personal-language.md` (English when absent), with the same exceptions as the conversation rule above. When a term has no established translation in the target language, prefer a loanword in common use; otherwise keep the English term inside backticks with a short parenthetical gloss — never invent literal calques that do not exist in the target language.
+Write the report body in the language defined by `.claude/rules/personal-language.md` (English when absent). Translation quality follows the Language Rules in `.claude/rules/rill-core.md` and the vault's `personal-*.md` overrides — in particular, never invent literal calques that do not exist in the target language.
 
 #### File Creation
 

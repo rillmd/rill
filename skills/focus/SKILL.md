@@ -13,7 +13,7 @@ gui:
 
 # /focus — Workspace Start / Resume
 
-**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
+**Conduct all conversation with the user — and write all generated output — in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if that file is absent). Follow the language rules in full — exceptions and translation quality are defined in the Language Rules of `.claude/rules/rill-core.md` and the vault's `personal-*.md` overrides, never restated per skill. The English instructions below are for skill clarity, not for output style.
 
 > **Tool references in this skill** (`Read`, `Edit`, `Grep`, `Glob`, `AskUserQuestion`, `shell`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in tools as named (Read / Edit / Grep / Glob / AskUserQuestion / Bash); Codex CLI uses `apply_patch` / `--search` / shell / its own question primitive as appropriate.
 

@@ -15,7 +15,9 @@ gui:
 
 > **Registration convention**: `skills/{name}/SKILL.md` is the canonical skill form; there is **no** `.claude/commands/retrospective.md` and one is not required. `rill update` propagates `skills/*/SKILL.md` to consumer vaults as `.claude/skills/{name}/SKILL.md`.
 
-**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
+**Conduct all conversation with the user — and write all generated output — in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if that file is absent). Follow the language rules in full — exceptions and translation quality are defined in the Language Rules of `.claude/rules/rill-core.md` and the vault's `personal-*.md` overrides, never restated per skill. The English instructions below are for skill clarity, not for output style.
+
+> **Skill-specific language exception**: the five report section headings (`## Cross-WS Themes`, `## Contradictions`, `## Stale Workspaces`, `## Decision Digest`, `## Self Observations`) stay verbatim English regardless of the report-body language — they are a dependency contract; `/pulse` parses `## Contradictions` by name.
 
 > **Tool references in this skill** (`Bash`, `Grep`, `Read`, `Edit`, `Glob`, `Agent`, `Skill`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent.
 

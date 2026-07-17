@@ -13,7 +13,7 @@ gui:
 
 # /solve — Plan-Gated Autonomous Task Execution
 
-**Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if absent). The English instructions below are for skill clarity, not for output style. Exceptions (only): tokens inside backticks or code blocks, proper nouns, ASCII acronyms.
+**Conduct all conversation with the user — and write all generated output — in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if that file is absent). Follow the language rules in full — exceptions and translation quality are defined in the Language Rules of `.claude/rules/rill-core.md` and the vault's `personal-*.md` overrides, never restated per skill. The English instructions below are for skill clarity, not for output style.
 
 > **Tool references** (`Read`, `Edit`, `Grep`, `Glob`, `WebSearch`, the harness's question primitive, `find`, `shell`) describe **intent**, not Claude-specific tool calls. Each harness maps them to its native equivalent.
 
