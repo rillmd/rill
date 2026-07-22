@@ -195,6 +195,8 @@ The following entities are updatable:
 2026-02-10-article.md:skipped
 ```
 
+Managed via `rill processed` (never hand-appended): `set` rewrites one line per file, and reads (`count`, `list --status`) are **last-wins** — a file's state is decided by its latest line. This keeps the `organized` → `extracted` transition to a single line and prevents an already-`extracted` file from being re-selected by a stale `:organized` row. `normalize` collapses any legacy duplicates left by the old append-style writer.
+
 **State transition conditions**:
 
 | Transition | Trigger | Condition |
@@ -802,7 +804,7 @@ Architecture:
     +-- Reads knowledge-agent.md + uses _summary.md as filter
 
 Parallel execution groups:
-  Group 1: Phase 1 + 2 (mutually independent, max 5 parallel)
+  Group 1: Phase 1 + 2 (mutually independent, launched as one background queue, harness-capped concurrency)
   Group 2: Phase 2.5 + 3 (depends on Group 1 output, mutually independent and parallelizable)
   Group 3: Phase 4 + 5 (depends on all Phase results)
 
@@ -810,7 +812,7 @@ Phase 1: inbox/journal/ distillation
   Input:  inbox/journal/*.md (unprocessed)
   Process: Organize + knowledge extraction + task extraction + key fact appending via _distill/journal-agent.md
   Output: inbox/journal/_organized/*.md, knowledge/notes/*.md, knowledge/people/*.md
-  State:  Append to inbox/journal/.processed
+  State:  rill processed set inbox/journal/.processed <name>  (bare, last-wins)
 
 * Workspace distillation is executed directly in parent context by /close (ADR-072)
 
@@ -820,7 +822,7 @@ Phase 2: inbox/*/ organization (plugin routing)
            plugins/{name}/distill.md (if matching plugin exists)
            plugins/_default-distill.md (if no match)
   Output: inbox/{type}/_organized/*.md, tasks/*/_task.md
-  State:  Append to inbox/*/.processed as name:organized
+  State:  rill processed set inbox/*/.processed <name> organized  (last-wins)
 
 Phase 2.5: Automatic entity extraction
   Input:  participants: and tags: from inbox/{type}/_organized/ processed in Group 1
@@ -828,10 +830,10 @@ Phase 2.5: Automatic entity extraction
   Output: knowledge/people/*.md, knowledge/orgs/*.md
 
 Phase 3: Automatic knowledge extraction
-  Input:  Files with status=organized in inbox/*/.processed
+  Input:  rill processed list inbox/*/.processed --status organized  (last-wins; skips already-extracted files)
   Process: Knowledge extraction via _distill/knowledge-agent.md (Glob/Grep Evergreen check)
   Output: knowledge/notes/*.md (with mentions)
-  State:  Update inbox/*/.processed to extracted
+  State:  rill processed set inbox/*/.processed <name> extracted  (rewrites line, last-wins)
 
 Phase 4: Self entity update (Interests + Direction; rare Profile)
   Input:  Summary of all Phase 1-3 processing results
@@ -845,10 +847,9 @@ Phase 5: Post-distill Hooks
 
 Shared context (injected by orchestrator into each agent):
   - taxonomy_yaml: Tag vocabulary in YAML list format (D46-3)
-  - people_mapping: People entity one-line mapping
-  - orgs_mapping: Orgs entity one-line mapping
-  - projects_mapping: Projects entity one-line mapping
-  - entity_ids: All entity IDs (/repair only)
+  - people_mapping / orgs_mapping / projects_mapping / entity_ids / tier dict:
+    all produced by `rill context-map` (frontmatter-only, 0 LLM tokens, sub-second)
+    — replaces the old per-run ~620 KB parent-context Read + compression pass
   * knowledge/notes/ filename list is deprecated (D48-2). Each agent explores via Glob/Grep
 
 Evergreen check (D48-2):
@@ -860,10 +861,10 @@ Evergreen check (D48-2):
     4. Same topic found -> skip / not found -> create new
 
 Batch processing policy (D14 + D48):
-  1. Pre-load: taxonomy.md + entity mappings (once in parent context)
-  2. Process each file in an independent Agent (max 5 parallel)
+  1. Pre-load: taxonomy.md + `rill context-map` output (entity mappings + Tier dict; once in parent context, 0 LLM tokens)
+  2. Process each file in an independent Agent — launch the whole queue in the background; the harness caps effective concurrency (no hand-managed fixed-size pool or round-boundary waiting)
   3. Templates are Read by agents themselves (not pre-read by parent)
-  4. After result collection, batch-update .processed + run rill strip-entity-tags
+  4. After result collection, record .processed via `rill processed set` (last-wins) + run rill strip-entity-tags
 ```
 
 ### 5.2 /repair — Metadata Batch Repair
@@ -1044,6 +1045,8 @@ Grouped by audience, matching `rill help`'s own grouping: commands you type your
 | `rill activity-log` | Activity log management (on-write, on-prompt, on-stop, add) |
 | `rill strip-entity-tags` | Move entity IDs from tags to mentions (deterministic) |
 | `rill pages-pending-update` | Match new sources to pages via mentions/tags |
+| `rill context-map` | Emit deterministic shared context — people/orgs/projects one-line mappings, entity-ID list, Tier dict (frontmatter-only, 0 LLM tokens). Used by `/distill` Step 1 and `/close` Phase 1 |
+| `rill processed <sub>` | `.processed` state management: `set` / `count` / `list --status` / `normalize` (last-wins, one line per file; preserves bare journal-style and `filename:status` forms) |
 | `rill guard <path>` | Check if a file is managed (used by agent hooks) |
 | `rill codex-hook <event>` | Normalize Codex hook payloads for Rill helpers |
 

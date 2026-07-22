@@ -31,7 +31,7 @@ Historically /close ran all phases directly in the parent context (ADR-072). Thi
 
 1. **Parent session** (this skill): orchestration + user interaction + final phases
 2. **Analysis sub-agent** (fresh context): reads all deliverables, writes `_summary.md`, enumerates distillation candidates
-3. **Distillation sub-agents** (fresh context, up to 5 parallel): one candidate → one atomic note, with mandatory cross-deliverable verification
+3. **Distillation sub-agents** (fresh context, launched as one background queue with harness-capped concurrency): one candidate → one atomic note, with mandatory cross-deliverable verification
 
 The parent session stays lightweight and never runs out of budget regardless of workspace size. Each sub-agent has a fresh context (independent budget). Narrative consistency is preserved because the Analysis sub-agent reads everything in a single fresh context, and each Distillation sub-agent cross-verifies against other deliverables before writing.
 
@@ -65,10 +65,9 @@ Decide up-front whether this `/close` should chain into `/promote` at the end. T
 Prepare context data once in the parent, so both the Analysis sub-agent and the Distillation sub-agents can use it without re-computing.
 
 1. Read the "Topic Tags" table from `taxonomy.md` and generate **YAML list format (name + desc)** (exclude deprecated tags)
-2. Read `knowledge/people/*.md`, `knowledge/orgs/*.md`, `projects/*/_project.md` and compress into one-line mapping format. (ADR-080: projects moved from `knowledge/projects/*.md` flat layout to top-level `projects/{slug}/_project.md` per-directory layout)
-3. Generate entity ID list (for post-processing `rill strip-entity-tags`)
+2. **Run `rill context-map` once** and capture its output (deterministic, 0 LLM tokens, sub-second — frontmatter only). Its `### People mapping` / `### Orgs mapping` / `### Projects mapping` sections are the one-line entity mappings, and `### Entity IDs` is the entity-ID list for post-processing `rill strip-entity-tags`. Do not read the entity files in the parent (this replaces the old ~620 KB per-run compression pass; container `CLAUDE.md`/`AGENTS.md` are ignored). (`rill context-map` also emits a `### Tier dict` section; /close does not use it — ignore it.)
 
-This is the same preparation that /distill Step 1 performs. Hold the result in parent state for injection into sub-agent prompts.
+This is the same `rill context-map` preparation /distill Step 1 uses. Hold the result in parent state for injection into sub-agent prompts.
 
 ### Phase 1.5: Build language args
 
@@ -201,7 +200,7 @@ Layer 2 (from per-deliverable scan): {NL2}
 
 Then proceed directly to Phase 4 with the full candidate list from the Analysis report — do not call AskUserQuestion. If the result looks wrong, the user fixes it after the run by editing or `git`-reverting the generated `knowledge/notes/` (distillation is reversible). To re-run the analysis from scratch, reopen the workspace (set its metadata `status` from `completed` back to `active` — an allowed transition) and re-invoke `/close`.
 
-### Phase 4: Spawn Distillation Sub-agents (parallel, up to 5)
+### Phase 4: Spawn Distillation Sub-agents (parallel, harness-capped)
 
 Read `.claude/commands/_close/distillation-agent.md` once. For each candidate from the Analysis report, fill in the placeholders:
 
@@ -216,8 +215,7 @@ After substituting placeholders, append `inject_args` (from Phase 1.5) to the bo
 **Dispatch strategy**:
 
 - Spawn each sub-agent via the Agent tool with **`model: "sonnet"`** (Tier 2 LLM-as-judge eval, 2026-04-19: 3/3 EQUIVALENT vs Opus baseline across evergreen-duplicate, novel-verified, and verification-contradicted fixtures; both models caught the planted cross-deliverable contradiction; verification rigor equivalent; 0/3 DEGRADED; cost reduced ~50% vs Opus on this workload). Monitor the `related:` field usage in production — Sonnet occasionally mixes workspace deliverable paths into `related` where the spec calls for knowledge/notes/ paths only; roll back if this appears systematically
-- If total candidates ≤ 5: spawn all in parallel in a single message (multiple Agent tool calls in one response)
-- If total candidates > 5: process in batches of 5. Spawn 5 in parallel, wait for all to return, then spawn the next 5, and so on
+- **Record all candidates as an explicit queue, then spawn one sub-agent per candidate in the background** (`run_in_background: true`) — launch the whole queue; do not hand-maintain a fixed-size pool or wait at round boundaries. The harness caps effective concurrency and re-invokes on each completion, so a slow sub-agent no longer blocks a round. Collect results as completions arrive.
 
 **Collect results**: each sub-agent returns one of `created` / `updated` / `skipped`. Parent maintains a result table:
 
