@@ -41,9 +41,9 @@ When the argument is a file or directory, execute the following:
 When a file or non-workspace directory is specified.
 
 1. **Resolve target files**: If directory, target all .md files inside (exclude `_workspace.md`, `_summary.md`, `_organized/`). If `_organized/` has a file with the same name, prefer that one
-2. **Knowledge extraction**: Launch an Agent per target file (`_distill/knowledge-agent.md` template + shared context injection. Max 5 parallel). When `inject_args` (from Step 1.6) is non-empty, append it to each agent's prompt
+2. **Knowledge extraction**: Launch an Agent per target file (`_distill/knowledge-agent.md` template + shared context injection; launch the whole set in the background and let the harness cap effective concurrency — no fixed-size pool). When `inject_args` (from Step 1.6) is non-empty, append it to each agent's prompt
 3. **Entity detection**: If newly created knowledge/notes/ mentions reference entities not in knowledge/people/ or knowledge/orgs/, auto-create them (Phase 2.5 equivalent)
-4. **Task extraction**: For each target file, launch `_task/create-agent.md` as a sub-agent in `mode=extract` (parallel up to 5) **with `model: "sonnet"`** (Tier 2 LLM-as-judge eval, 2026-04-19: 3/3 decision agreement with Opus baseline including correct ENRICH-vs-CREATE judgment on a thin-duplicate case and correct skip discipline on a 4-item committed/speculative mix; 0/3 DEGRADED-MAJOR; cost reduced ~24% vs Opus on this workload, larger savings expected in production where cache effects are smaller). Pass `source_path` = the target file, the shared context (taxonomy + entity mappings), and the list of knowledge/notes/ paths created in step 2 as hints. The sub-agent owns duplicate checking, substance writing, and file creation per `.claude/rules/rill-tasks.md`. It sets `status=draft` via `rill mkfile --field` (ADR-069)
+4. **Task extraction**: For each target file, launch `_task/create-agent.md` as a sub-agent in `mode=extract` (launched in the background, harness-capped concurrency) **with `model: "sonnet"`** (Tier 2 LLM-as-judge eval, 2026-04-19: 3/3 decision agreement with Opus baseline including correct ENRICH-vs-CREATE judgment on a thin-duplicate case and correct skip discipline on a 4-item committed/speculative mix; 0/3 DEGRADED-MAJOR; cost reduced ~24% vs Opus on this workload, larger savings expected in production where cache effects are smaller). Pass `source_path` = the target file, the shared context (taxonomy + entity mappings), and the list of knowledge/notes/ paths created in step 2 as hints. The sub-agent owns duplicate checking, substance writing, and file creation per `.claude/rules/rill-tasks.md`. It sets `status=draft` via `rill mkfile --field` (ADR-069)
 5. **Post-processing**: Run `rill strip-entity-tags` on created knowledge/notes/, append new tags to taxonomy.md
 6. **Summary display**: List of created knowledge, entity creation count, added tasks
 
@@ -56,79 +56,25 @@ When a file or non-workspace directory is specified.
 
 - Read the "Topic Tags" table from `taxonomy.md` and generate **YAML list format (name + desc)** (exclude deprecated tags). Example: `- name: api-design\n    desc: API, interface, and protocol design`
   **Important: Tag vocabulary must always be passed in YAML list format**. Inline format like `tag(description)` is prohibited (ADR-046 D46-3)
-- Generate **entity ID list** from all filenames (without extension) in knowledge/{people,orgs}/ plus directory names under projects/ (used for entity stripping in post-processing)
-- Read `knowledge/people/*.md` and compress into **extended one-line mapping format** (e.g., `people/jane-smith: Jane Smith | aliases: Jane,J. Smith | company: acme-corp`) — type prefix required (ADR-053). company is an orgs/ id. Aliases are comma-separated
-- Read `knowledge/orgs/*.md` and compress into **one-line mapping format** (e.g., `orgs/acme-corp: Acme Corporation (Acme, Acme Inc)`)
-- Read `projects/*/_project.md` and compress into **one-line mapping format** (e.g., `projects/phoenix: Project Phoenix (active, tags: infrastructure)`). (ADR-080: projects moved from `knowledge/projects/*.md` flat layout to top-level `projects/{slug}/_project.md` per-directory layout)
+- **Run `rill context-map` once and capture its output** (deterministic, 0 LLM tokens, sub-second — it reads only frontmatter, never file bodies). It emits five sections that supply the rest of the shared context without any parent-context file reads:
+  - `### People mapping` → `{people_mapping}` (extended one-line format `people/jane-smith: Jane Smith | aliases: Jane,J. Smith | company: acme-corp`, type prefix per ADR-053)
+  - `### Orgs mapping` → `{orgs_mapping}` (`orgs/acme-corp: Acme Corporation (Acme,Acme Inc)`)
+  - `### Projects mapping` → `{projects_mapping}` (`projects/phoenix: Project Phoenix (active, tags: infrastructure)`; ADR-080 per-directory layout)
+  - `### Entity IDs` → the entity-ID list used for entity stripping in post-processing
+  - `### Tier dict` → the `tier_assignment` block injected into Group 2 (knowledge-agent) for Tier-aware processing (see the Tier dict note below)
+  - **Do not** re-read `knowledge/{people,orgs}/*.md` or `projects/*/_project.md` in the parent — `rill context-map` replaces the old per-run ~620 KB compression pass (container files `CLAUDE.md`/`AGENTS.md` and files without top-of-file frontmatter are ignored)
 - Read `.claude/commands/_distill/task-extraction.md` and store contents in `{task_extraction_rules}` variable (single definition of task extraction rules)
 - ※ Do not generate knowledge/notes/ filename list (each agent explores via Glob/Grep, D48-2)
 - ※ Task duplicate checking is done by parent context in batch (scan existing tickets in `tasks/`)
 - **Important: Do not read target file contents in parent context. Pass only file paths to agents, let agents Read internally**
 
-#### Tier dict computation (artifact 013 §5.3, dream-phase-2)
+#### Tier dict (from `rill context-map`)
 
-After the entity-mapping reads above, compute the entity Tier dict by counting mentions across the vault. This dict is injected as shared context into `_distill/knowledge-agent.md` (artifact 013 §6.1), enabling Tier-aware processing without per-agent grep.
+The `### Tier dict` section emitted by `rill context-map` (Step 1 above) **is** the entity Tier dict — per-entity mention counts across the vault, bucketed `tier1` (≥8) / `tier2` (≥3) / `tier3`, with a `tier_assignment` block. It is computed deterministically in a single awk pass (0 LLM tokens, sub-second) and replaces the former inline Bash that spawned a subprocess per file (artifact 013 §5.3). The CLI owns the scope (`inbox/*/_organized` + `inbox/think-outputs` + `workspace` + `tasks` + `knowledge/notes` + `reports/{daily,newsletter}`; entity self-reference dirs excluded), the thresholds, and the `mentions:` parse (both inline `[a, b]` and block-list forms; files without top-of-file frontmatter are ignored, so fenced examples in `CLAUDE.md` never leak phantom counts).
 
-Run the following Bash inline. Scope: `inbox/_organized/` + `workspace/` + `tasks/` + `knowledge/notes/` + `reports/daily/` + `reports/newsletter/` (6 dirs). `knowledge/{people,orgs}/`, `projects/`, and `knowledge/self/` are excluded (entity self-references / singleton, 013 §2.2).
+Inject the `tier_assignment` block into the shared context passed to Group 2 (`_distill/knowledge-agent.md`) for Tier-aware processing (artifact 013 §6.1).
 
-```bash
-# Tier dict (artifact 013 §5.3)
-# inbox uses per-type subdirectories with their own _organized/ children
-# (inbox/journal/_organized/, inbox/tweets/_organized/, etc.); include all of them
-SCOPE_DIRS=(
-  inbox/journal/_organized
-  inbox/tweets/_organized
-  inbox/meetings/_organized
-  inbox/web-clips/_organized
-  inbox/sources/_organized
-  inbox/think-outputs                # think-outputs has no _organized/ (microfiles are structured at write time)
-  workspace
-  tasks
-  knowledge/notes
-  reports/daily
-  reports/newsletter
-)
-
-_emit_ids() {
-  awk '
-    /^---$/ { n++; if (n==2) exit; next }
-    n==1 && /^mentions:/ { in_m=1; line=$0; sub(/^mentions:/, "", line); print line; next }
-    n==1 && in_m && /^  *-/ { print $0; next }
-    n==1 && in_m && /^[a-zA-Z]/ { in_m=0 }
-  ' "$1" | grep -oE '(people|orgs|projects)/[a-z0-9][a-z0-9-]*' | sort -u || true
-}
-
-{
-  for dir in "${SCOPE_DIRS[@]}"; do
-    [[ -d "$dir" ]] || continue
-    while IFS= read -r -d '' f; do _emit_ids "$f"; done \
-      < <(find "$dir" -name '*.md' -type f -print0 2>/dev/null)
-  done
-} | sort | uniq -c | awk '{
-  count=$1; id=$2
-  if (count >= 8) tier="tier1"
-  else if (count >= 3) tier="tier2"
-  else tier="tier3"
-  print id, count, tier
-}' | sort -k2 -n -r > /tmp/distill-tier-dict.txt
-```
-
-Format the result into a YAML block for the shared context:
-
-```yaml
-### Tier dict
-computed_at: {ISO 8601 now}
-counts:
-  {id}: {count}
-  ...
-tier_assignment:
-  {id}: {tier1|tier2|tier3}
-  ...
-```
-
-Inject this block into the shared context that is passed to Group 2 (knowledge-agent). Cost: ~0.4s shell execution, 0 LLM tokens. Both inline (`mentions: [a, b]`) and block-list (`mentions:\n  - a\n  - b`) YAML forms are supported.
-
-**Ordering tradeoff**: this dict is computed once at the top of Step 1 (before inbox files are organized in Step 4). An entity that crosses a tier boundary in *this* run (e.g. 7 → 8 mentions via newly-organized files) will not be reflected here; the next `/distill` invocation captures it. This is an accepted Phase 1 limitation — recomputing post-Group-2 would double the cost and the cadence check in Step 1.5 only fires monthly anyway, so the impact is at most one curation cycle of latency. If Tier-boundary precision becomes important, move the computation between Step 5 and Step 6.
+**Ordering tradeoff**: the dict reflects vault state at Step 1 (before inbox files are organized in Step 4). An entity that crosses a tier boundary via *this* run's newly-organized files is captured on the next `/distill` invocation — an accepted Phase 1 limitation (the Step 1.5 curation cadence only fires monthly).
 
 ### Step 1.5: Tier 1 monthly curation cadence judgment (NEW)
 
@@ -261,7 +207,7 @@ Collect unprocessed files in 2 categories:
 
 ※ Workspace distillation is handled by /close in the parent context (ADR-072). Not processed in batch pipeline
 
-Display target counts for all categories. If all 0, display "No unprocessed files" and exit.
+Display target counts for all categories. **Also display the organized-backlog** per Phase 2 subdirectory — files organized in a prior run but not yet knowledge-extracted — via `rill processed count inbox/{subdir}/.processed organized` (last-wins). This surfaces silent carry-over that the old append-style `.processed` hid. If the unprocessed counts **and** the organized-backlog are all 0, display "No unprocessed files" and exit; otherwise proceed (Step 6 Phase 3 consumes the backlog).
 
 ### Step 3: Plugin Discovery
 
@@ -274,7 +220,7 @@ Display target counts for all categories. If all 0, display "No unprocessed file
 
 ### Step 4: Group 1 — Parallel Agent Launch
 
-Phase 1/2 are mutually independent. Mix all files into a queue and launch **max 5 agents in parallel** in background (`run_in_background: true`). If more than 5, batch in groups of 5 and wait for previous batch to complete.
+Phase 1/2 are mutually independent. **Record all target files as an explicit queue up front** (list them, so nothing is silently dropped), then launch one Agent per file in the background (`run_in_background: true`) — **launch the whole queue; do not hand-maintain a fixed-size pool or wait at round boundaries**. The harness caps effective concurrency and re-invokes on each completion, so a slow agent no longer blocks a round or gets skipped. Collect results as completions arrive (Step 5).
 
 #### Phase 2 Pre-processing: Frontmatter Check
 For each Phase 2 file, check frontmatter presence before Agent launch. If no frontmatter, auto-infer `created` and `source-type` from file creation date and directory name.
@@ -315,12 +261,12 @@ Shared context:
 ### Step 5: Group 1 Result Collection
 
 After all agents complete:
-1. Batch-update `.processed` (do not append files that errored/skipped):
-   - journal: Append filenames to `inbox/journal/.processed`
-   - think-outputs: Append filenames to `inbox/think-outputs/.processed` (journal-style format, no status suffix; AI structures at write time so no organize step occurs)
-   - inbox/* (meetings/web-clips/tweets/sources): Append `filename:organized` to each subdirectory's `.processed`
+1. Update `.processed` via `rill processed set` (do not record files that errored/skipped; the CLI enforces one line per file, last-wins — no duplicate rows):
+   - journal: `rill processed set inbox/journal/.processed <filename>` (bare, no status)
+   - think-outputs: `rill processed set inbox/think-outputs/.processed <filename>` (bare; AI structures at write time so no organize step occurs)
+   - inbox/* (meetings/web-clips/tweets/sources): `rill processed set inbox/{subdir}/.processed <filename> organized`
 2. **Entity ID stripping (deterministic post-processing)**: Run `rill strip-entity-tags <file-paths ...>` on created/updated knowledge/notes/ (ADR-046 D46-2)
-3. Aggregate task candidates from all Phase 1 + Phase 2 agents. For each candidate, launch `_task/create-agent.md` as a sub-agent in `mode=extract` (max 5 parallel, `run_in_background: true`, **`model: "sonnet"`** — see the Sonnet-routing rationale on the single-file-mode invocation above; same eval applies). Pass the candidate pipe line, the `source_path` already recorded in it, and the shared context (taxonomy_yaml, people/orgs/projects mappings). The sub-agent handles duplicate checking, substance-rule-compliant body writing, and file creation via `rill mkfile tasks --field 'status=draft' ...` (ADR-069). Legacy parent-side parsing of `| background:` / `| context:` fields and `Title::path` conversion is no longer performed here — substance writing is owned by the sub-agent per `.claude/rules/rill-tasks.md`
+3. Aggregate task candidates from all Phase 1 + Phase 2 agents. For each candidate, launch `_task/create-agent.md` as a sub-agent in `mode=extract` (launch all in the background, `run_in_background: true`, harness-capped concurrency, **`model: "sonnet"`** — see the Sonnet-routing rationale on the single-file-mode invocation above; same eval applies). Pass the candidate pipe line, the `source_path` already recorded in it, and the shared context (taxonomy_yaml, people/orgs/projects mappings). The sub-agent handles duplicate checking, substance-rule-compliant body writing, and file creation via `rill mkfile tasks --field 'status=draft' ...` (ADR-069). Legacy parent-side parsing of `| background:` / `| context:` fields and `Title::path` conversion is no longer performed here — substance writing is owned by the sub-agent per `.claude/rules/rill-tasks.md`
 4. If new tags are reported, append to `taxonomy.md` (verify no conflict with deprecated tags)
 
 ### Step 6: Group 2 — Parallel Agent Launch
@@ -339,15 +285,15 @@ Phase 2.5 and Phase 3 are mutually independent, so execute in parallel.
   9. Report creation results in summary
 
 - **Phase 3: Knowledge Extraction** (`_distill/knowledge-agent.md`, launch Agent per organized file):
-  1. Identify files with status `organized` from each subdirectory's `.processed` (exclude `extracted`, `skipped`)
+  1. Identify candidate files with `rill processed list inbox/{subdir}/.processed --status organized` (last-wins: only files whose latest `.processed` line is `:organized`; a file already `extracted` is never re-selected even if a stale `:organized` line lingers from the old append bug)
   2. If no candidates, display "No knowledge extraction candidates" and skip
-  3. **Launch Agent per file with `model: "sonnet"`** (max 5 parallel, `run_in_background: true`) — knowledge extraction's defining behavior is the Evergreen check (merge/skip/create-new judgment), and Sonnet has been validated as production-equivalent on this dimension (Tier 2 LLM-as-judge eval, 2026-04-19: 3/3 Evergreen judgments agreed with Opus baseline; 0/3 DEGRADED-MAJOR; 1/3 EQUIVALENT, 1/3 DIFFERENT-OK, 1/3 DEGRADED-MINOR — the minor case had thinner body prose but correct Evergreen call; cost reduced ~49% vs Opus). Monitor /distill output 1–2 weeks for note-body richness and speculative content; revert to Opus if regressions appear.
+  3. **Launch Agent per file with `model: "sonnet"`** (launch all in the background, `run_in_background: true`, harness-capped concurrency) — knowledge extraction's defining behavior is the Evergreen check (merge/skip/create-new judgment), and Sonnet has been validated as production-equivalent on this dimension (Tier 2 LLM-as-judge eval, 2026-04-19: 3/3 Evergreen judgments agreed with Opus baseline; 0/3 DEGRADED-MAJOR; 1/3 EQUIVALENT, 1/3 DIFFERENT-OK, 1/3 DEGRADED-MINOR — the minor case had thinner body prose but correct Evergreen call; cost reduced ~49% vs Opus). Monitor /distill output 1–2 weeks for note-body richness and speculative content; revert to Opus if regressions appear.
   4. Inject shared context (taxonomy_yaml, people/orgs/projects mappings, **tier_assignment dict from Step 1**). The tier_assignment dict is required for `_distill/knowledge-agent.md` Tier-Aware Processing (artifact 013 §6.1). When `inject_args` (from Step 1.6) is non-empty, append it to each agent's prompt alongside the shared context
 
 ### Step 7: Group 2 Result Collection
 
 1. Run `rill strip-entity-tags` on knowledge/notes/ created in Phase 3
-2. Update `.processed` status to `extracted` (leave errored/skipped files as-is)
+2. Mark each extracted file via `rill processed set inbox/{subdir}/.processed <filename> extracted` — this rewrites the line in place, so the `organized` → `extracted` transition stays one line per file (no duplicate row). Leave errored/skipped files as-is
 3. Append new tags to `taxonomy.md`
 
 ### Step 7.5: Tier 1 curation review (NEW, conditional)
@@ -495,10 +441,11 @@ If the /pulse invocation fails for any reason, log a 1-line warning to stdout an
 ## Rules
 
 - **Never modify inbox/ original files** (read-only. Exception: auto-adding frontmatter is allowed)
-- `inbox/journal/.processed` records filenames only (no path prefix. e.g., `2026-02-13-1921.md`)
+- `.processed` is written and read via `rill processed` (never hand-appended): `set` rewrites one line per file (last-wins), `count` / `list --status` read last-wins, `normalize` collapses any legacy duplicate rows. This keeps the `organized` → `extracted` transition to a single line and prevents an already-extracted file from being re-selected by a stale `:organized` line
+- `inbox/journal/.processed` records filenames only (no path prefix. e.g., `2026-02-13-1921.md`); `set` with no status preserves this bare form
 - `inbox/{subdir}/.processed` uses `filename:status` format (e.g., `2026-02-16-meeting.md:organized`)
 - Agent prompt templates (`.claude/commands/_distill/`) are **Read by agents themselves** (do not Read in parent context). Exception: `task-extraction.md` is Read by parent and injected as shared context data for child agents so they can return task *candidates*; actual ticket writing is delegated to the `_task/create-agent.md` sub-agent invoked by the orchestrator
 - Plugin distill.md is Read by parent, template variables expanded, and injected inline into prompt
 - Template variable names are unified: `{taxonomy_yaml}`, `{people_mapping}`, `{orgs_mapping}`, `{projects_mapping}`, `{task_extraction_rules}`, `{file_path}`
-- **Error handling**: If an agent returns an error, skip that file and do not append to `.processed`. Include skip count in summary
+- **Error handling**: If an agent returns an error, skip that file and do not record it in `.processed` (no `rill processed set` call for it). Include skip count in summary
 - **zsh compatibility**: Refer to CLAUDE.md rule 26
