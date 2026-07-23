@@ -60,7 +60,7 @@ When reading knowledge/notes/ files:
 **Mode B — append to `knowledge/.refresh-queue`** (detection only, dedup against existing):
 
 - `tags` empty `[]`
-- `tags` has only 1 tag with 50+ uses (generic-only)
+- `tags` has only 1 tag and that tag is a current mega-tag: its usage count exceeds the /inspect split threshold `max(60, 2.5 x median tag usage)` (reuse the latest `eval/metrics/` tag_balance median instead of recomputing when available)
 - `mentions` field missing
 - `related` field missing
 - `type` is not `record` / `insight` / `reference`

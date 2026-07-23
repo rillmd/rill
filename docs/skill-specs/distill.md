@@ -107,7 +107,7 @@ Rules that must never be violated, verified across all tests.
 | TG-01 | Select tags by referencing taxonomy.md descriptions (guessing from name alone is prohibited) | ⚠️ LLM judgment | ✅ |
 | TG-02 | Max 3 tags | Count | ✅ |
 | TG-03 | Entity IDs must not be included in tags (managed via mentions) | ID list cross-reference | ✅ |
-| TG-04 | Prefer specific sub-tags over mega-tags with 50+ entries | ⚠️ LLM judgment | ✅ |
+| TG-04 | Prefer specific sub-tags over mega-tags (usage above the split threshold max(60, 2.5 x median)) | ⚠️ LLM judgment | ✅ |
 | TG-05 | New tag creation is allowed, but must verify no synonyms exist in existing tags and aliases | taxonomy cross-reference | ✅ |
 | TG-06 | Tag vocabulary injected in YAML list format (name + desc). Inline format is prohibited | Context injection format | ✅ |
 | TG-07 | Lowercase kebab-case | regex | ✅ |

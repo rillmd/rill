@@ -29,7 +29,7 @@ $ARGUMENTS — None (no arguments required)
    - Each agent uses Grep/Read to collect tags and mentions from frontmatter
    - Merge results in the parent context
 5. Check the following:
-   - **Tag frequency distribution**: Count usage for each tag. Warn about topic tags exceeding 50 uses as "split candidates"
+   - **Tag frequency distribution**: Count usage for each tag, and compute the median usage count across all tags in use (count >= 1; for an even number of tags, the median is the mean of the two middle values). Derive the **split threshold** for this run: `split_threshold = max(60, 2.5 x median)`. Warn about topic tags whose count strictly exceeds `split_threshold` as "split candidates" (a count exactly at the threshold is healthy). (A fixed threshold assumes a fixed vault size and misfires as the pool grows — a median-relative threshold self-scales, so healthy tags in a large vault are not flagged en masse. Record the computed `split_threshold` for reuse in Phase 1.5 Split Execution and Phase 2.5.)
    - **Unapproved tags**: Detect tags that are neither in the approved nor deprecated lists
    - **Deprecated tag usage**: Detect files still using deprecated tags (migration gaps)
    - **Entity contamination**: Detect files where entity IDs appear in tags (D46-2 gaps)
@@ -126,9 +126,9 @@ Summary at the end:
 - Per-axis accuracy: tags {rate}% / mentions {rate}% / related {rate}% / type {rate}% / source {rate}%
 ```
 
-#### Split Execution (tags exceeding 50 uses)
+#### Split Execution (tags exceeding the split threshold)
 
-If there are tags exceeding 50 uses, generate subcategories and add them to taxonomy.md using the following steps:
+If there are split candidates (count > `split_threshold` from Phase 1), execute splits for **at most the top 3 candidates by usage count** in a single /inspect run — the rest stay listed as candidates in the report. The cap keeps taxonomy churn incremental and avoids the historical loop where mass splits produced subtags that themselves crossed the threshold as the vault grew. For each executed tag, generate subcategories and add them to taxonomy.md using the following steps:
 
 1. Randomly sample up to 20 files that have the target tag
 2. Use a sub-agent to Read sample file contents and perform theme clustering
@@ -251,7 +251,7 @@ Use Phase 1-2 aggregation data and Phase 1.5 tag accuracy audit results to appen
 
 1. Collect file paths matching the following **deterministic** conditions (no AI judgment needed):
    - `tags: []` (empty array)
-   - `tags` has only 1 tag and that tag exceeds 50 uses in Phase 1 aggregation
+   - `tags` has only 1 tag and that tag was **actually split in this run's Phase 1.5 Split Execution** (its subtags now exist in taxonomy.md). Candidates left unexecuted by the top-3 cap are not queued — /repair would have no migration target for them yet
    - `mentions` field does not exist
    - `type` is not one of `record` / `insight` / `reference`
    - `tags` contains a deprecated tag (migration gap)
@@ -276,7 +276,7 @@ Display a summary to the console:
 | mentions_coverage | 0.XX | > 0.90 | ✓/⚠ |
 | tag_coverage | 0.XX | > 0.95 | ✓/⚠ |
 | orphan_rate | 0.XX | < 0.05 | ✓/⚠ |
-| tag_balance (max) | N ({tag}) | < 50 | ✓/⚠ |
+| tag_balance (max) | N ({tag}) | <= split_threshold (= max(60, 2.5 x median)) | ✓/⚠ |
 | structural_reachability | 0.XX | > 0.85 | ✓/⚠ |
 | avg_path_count | N.N | > 1.5 | ✓/⚠ |
 | avg_noise_per_path | N.N | < 30 | ✓/⚠ |
@@ -294,7 +294,7 @@ Display a summary to the console:
   - {file} — MINOR tags:[{current}]->[{recommended}], mentions:omission[{ids}]
   - {file} — MAJOR type:{current}->{recommended}, source:broken
 
-### Split Candidates (50+ uses)
+### Split Candidates (count > split_threshold)
 - {tag}: {count} files
 
 ### Split Execution

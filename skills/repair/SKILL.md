@@ -33,7 +33,7 @@ Build the following once (shared prefix for all agents):
 1. Read `taxonomy.md`
 2. Generate tag vocabulary in **YAML list format (name + desc)** from the "Topic Tags" table (ADR-046 D46-3)
 3. Generate **deprecated tag → successor mapping** from the "Deprecated Tags" table
-4. **Identify mega-tags (50+ uses)**: Bulk-extract tags from `knowledge/notes/*.md` frontmatter and tally usage counts (shell one-liner: `for f in knowledge/notes/*.md; do awk ... done | sort | uniq -c | sort -rn`). List tag names with 50+ uses. If none, note "No mega-tags"
+4. **Identify mega-tags**: Bulk-extract tags from `knowledge/notes/*.md` frontmatter and tally usage counts (shell one-liner: `for f in knowledge/notes/*.md; do awk ... done | sort | uniq -c | sort -rn`). Compute the median usage count across tags in use and derive `split_threshold = max(60, 2.5 x median)` — the same formula as /inspect Phase 1, so both skills agree on what counts as a mega-tag as the vault grows. List tag names whose count exceeds `split_threshold`. If none, note "No mega-tags"
 5. Read `knowledge/people/*.md` and compress into **one-line mapping format** (e.g., `alex-chen: Alex Chen (Alex, Chen)`)
 6. Read `knowledge/orgs/*.md` and compress into **one-line mapping format**
 7. Read `projects/*/_project.md` and compress into **one-line mapping format** (ADR-080: projects moved from `knowledge/projects/*.md` flat layout to top-level `projects/{slug}/_project.md` per-directory layout)
@@ -66,7 +66,7 @@ Shared context:
 ### Deprecated tag → successor mapping (replace deprecated tags with their successors)
 {deprecated_tag_mapping}
 
-### Mega-tag list (50+ uses. Prefer more specific sub-tags over these)
+### Mega-tag list (count > max(60, 2.5 x median). Prefer more specific sub-tags over these)
 {mega_tag_list}
 
 ### People mapping

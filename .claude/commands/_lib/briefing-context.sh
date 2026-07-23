@@ -187,17 +187,30 @@ if [ -d "$knowledge_dir" ]; then
 fi
 
 # --- Tag health (live grep) ---
+# Mega-tag detection uses the same median-relative split threshold as
+# /inspect Phase 1 (max(60, 2.5 x median tag usage)) so the briefing
+# never flags tags that /inspect considers healthy at this vault size.
 tag_counts=""
-over_50=""
+over_threshold=""
+tag_threshold=60
 if [ -d "$knowledge_dir" ]; then
-    # Extract all tags from frontmatter, count occurrences
+    # Extract all tags from frontmatter, count occurrences (full list —
+    # the median must be computed over the whole distribution)
     tag_counts=$(grep -h '^tags:' "$knowledge_dir"/*.md 2>/dev/null \
         | sed 's/^tags: *\[//; s/\].*//; s/, */\n/g' \
         | grep -v '^$' \
-        | sort | uniq -c | sort -rn \
-        | head -10)
+        | sort | uniq -c | sort -rn)
 
-    over_50=$(echo "$tag_counts" | awk '$1 > 50 {print "  - { tag: \"" $2 "\", count: " $1 " }"}')
+    tag_threshold=$(echo "$tag_counts" | awk '
+        NF {a[++n]=$1}
+        END {
+            if (n == 0) m = 0
+            else if (n % 2) m = a[(n+1)/2]
+            else m = (a[n/2] + a[n/2+1]) / 2
+            t = 2.5*m; if (t < 60) t = 60; printf "%d", t
+        }')
+    over_threshold=$(echo "$tag_counts" | awk -v t="$tag_threshold" \
+        '$1 > t {print "  - { tag: \"" $2 "\", count: " $1 " }"}')
 fi
 top_5=$(echo "$tag_counts" | head -5 | awk '{print "  - { tag: \"" $2 "\", count: " $1 " }"}')
 
@@ -253,8 +266,9 @@ ${knowledge_in_window:-  []}
 tag_health:
   top_5:
 ${top_5:-    []}
-  over_50:
-${over_50:-    []}
+  split_threshold: ${tag_threshold}
+  over_threshold:
+${over_threshold:-    []}
 task_tickets:
   open: ${ticket_open}
   waiting: ${ticket_waiting}
