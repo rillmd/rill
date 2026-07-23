@@ -3349,6 +3349,14 @@ EOF
             cp "$rill_source/plugins/.gitignore" "$vpath/plugins/.gitignore"
         fi
 
+        # Codex deny rules: registers a managed-files.txt entry, so this
+        # must run before the stale cleanup below compares the previous
+        # list against the new one (or the rules file is deleted as
+        # "retired" on every run and only recreated afterwards — leaving a
+        # window where an abort strips the vault's Codex guardrails), and
+        # before .gitignore is regenerated from the list further down.
+        _ensure_codex_deny_rules "$vpath" "$managed_file"
+
         # Stale managed-file cleanup: a file managed by the previous update
         # that the source no longer produces has been retired upstream (e.g.
         # the .claude/commands/{name}.md duplicates removed when
@@ -3410,11 +3418,6 @@ EOF
                 echo "  ✓ $vname: removed $removed_count retired managed file(s)"
             fi
         fi
-
-        # Codex deny rules: registers a new managed-files.txt entry, so
-        # this must run before .gitignore is regenerated from that list
-        # below — otherwise the rules file isn't recognized as managed.
-        _ensure_codex_deny_rules "$vpath" "$managed_file"
 
         # Regenerate .gitignore for this vault (D009-6)
         _generate_vault_gitignore "$vpath"
