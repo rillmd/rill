@@ -236,6 +236,76 @@ assert_eq "$rc" "0" "mkfile accepts a normal --date"
 assert_file_exists "$VAULT/inbox/meetings/2026-01-02-kickoff.md" "dated meeting file exists"
 
 echo ""
+echo "=== 15. rill update: stale managed-file cleanup ==="
+
+# The cleanup must remove retired managed files regardless of their git
+# tracking state (regression: a vault that gitignores its managed copies
+# kept 14 retired command files after the SKILL.md canonicalization),
+# must never touch files outside the managed namespaces, and must not
+# churn (delete + recreate) entries registered late in the update pass
+# (regression: .codex/rules/rill-deny.rules was re-registered after the
+# cleanup ran, so every update deleted it as "retired" and recreated it).
+
+# Project from a non-git source copy so `rill update` never runs
+# `git pull` against this checkout.
+SOURCE_COPY="$WORK/source-copy"
+cp -R "$REPO_ROOT" "$SOURCE_COPY"
+rm -rf "$SOURCE_COPY/.git" "$SOURCE_COPY/.claude/worktrees"
+export RILL_SOURCE="$SOURCE_COPY"
+
+# Baseline update, then a steady-state update: the second run must not
+# report retired files (churn check).
+rc=0; out="$("$RILL" update 2>&1)" || rc=$?
+assert_eq "$rc" "0" "baseline rill update exits 0"
+rc=0; out="$("$RILL" update 2>&1)" || rc=$?
+assert_eq "$rc" "0" "steady-state rill update exits 0"
+churn_free=false
+[[ "$out" != *"retired managed file"* ]] && churn_free=true
+assert_true "$churn_free" "steady-state update removes nothing (no managed-list churn)"
+
+# Simulate upstream retirement: files present in the previous managed
+# list that the source no longer produces.
+echo "retired untracked" > "$VAULT/.claude/commands/retired-untracked.md"
+echo ".claude/commands/retired-untracked.md" >> "$VAULT/.gitignore"
+rc=0; git -C "$VAULT" check-ignore -q .claude/commands/retired-untracked.md || rc=$?
+assert_eq "$rc" "0" "untracked variant is really gitignored"
+
+echo "retired tracked" > "$VAULT/.claude/commands/retired-tracked.md"
+git -C "$VAULT" add -f .claude/commands/retired-tracked.md
+git -C "$VAULT" commit -qm "track retired file"
+
+ln -s /dev/null "$VAULT/.claude/commands/retired-link.md"
+echo "keep me" > "$VAULT/inbox/user-owned-keep.md"
+
+{
+  echo ".claude/commands/retired-untracked.md"
+  echo ".claude/commands/retired-tracked.md"
+  echo ".claude/commands/retired-link.md"
+  echo "inbox/user-owned-keep.md"
+} >> "$VAULT/.rill/managed-files.txt"
+
+rc=0; out="$("$RILL" update 2>&1)" || rc=$?
+assert_eq "$rc" "0" "rill update exits 0 on the retirement scenario"
+assert_out_contains "$out" "removed 2 retired managed file(s)" \
+  "exactly the two retired regular files are removed"
+
+gone_untracked=false; [ ! -e "$VAULT/.claude/commands/retired-untracked.md" ] && gone_untracked=true
+assert_true "$gone_untracked" "gitignored (untracked) retired copy is removed"
+gone_tracked=false; [ ! -e "$VAULT/.claude/commands/retired-tracked.md" ] && gone_tracked=true
+assert_true "$gone_tracked" "git-tracked retired copy is removed"
+link_kept=false; [ -L "$VAULT/.claude/commands/retired-link.md" ] && link_kept=true
+assert_true "$link_kept" "symlink in the previous managed list is skipped"
+assert_file_exists "$VAULT/inbox/user-owned-keep.md" \
+  "file outside managed namespaces is left in place"
+assert_out_contains "$out" "no longer managed (left in place)" \
+  "out-of-namespace entry is reported, not deleted"
+assert_file_exists "$VAULT/.codex/rules/rill-deny.rules" \
+  "codex deny rules survive the cleanup pass"
+
+rm -f "$VAULT/.claude/commands/retired-link.md"
+export RILL_SOURCE="$REPO_ROOT"
+
+echo ""
 echo "=== Static audit: bare pipeline assignments in bin/rill ==="
 
 # Any assignment of a command substitution containing a pipe, without an
