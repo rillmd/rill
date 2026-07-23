@@ -172,7 +172,7 @@ type: research
   **Mode B — Append to .refresh-queue** (no AI judgment, detection only. < 10ms):
   Append file paths matching any of the following to `knowledge/.refresh-queue` (only if not already present):
   - `tags` is empty array `[]`
-  - `tags` has only 1 tag and that tag has 50+ uses (generic tag only)
+  - `tags` has only 1 tag and that tag is a current mega-tag (usage exceeds the /inspect split threshold `max(60, 2.5 x median tag usage)`; reuse the latest `eval/metrics/` tag_balance median when available)
   - `mentions` field does not exist
   - `related` field does not exist
   - `type` is not one of `record` / `insight` / `reference`

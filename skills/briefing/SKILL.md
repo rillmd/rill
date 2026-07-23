@@ -51,7 +51,7 @@ Structured data returned by the script:
 - `inbox`: Unprocessed count per subdirectory
 - `journals_in_window`: Journal filenames within the activity window
 - `knowledge_created_in_window`: knowledge/notes filenames created within the activity window
-- `tag_health`: Top 5 tag counts + list of tags exceeding 50 files
+- `tag_health`: Top 5 tag counts + the split threshold (`max(60, 2.5 x median tag usage)`, same formula as /inspect) + list of tags exceeding it
 - `task_tickets`: Ticket file statistics (open/waiting/overdue counts + due_soon list + all filenames)
 - `activity_window`: "Yesterday" time range (based on day_boundary, default 03:00)
 

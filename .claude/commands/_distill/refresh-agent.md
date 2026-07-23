@@ -14,7 +14,7 @@ Sub-agent prompt for /refresh. Batch-updates frontmatter metadata of existing kn
 - Reference each tag's desc and select tags that match the definition
 - Re-select the most appropriate tags for the content, using existing tags as a reference
 - **If deprecated tags are present**: Reference the "merge target" in the deprecated tags table and replace them with the appropriate successor tag
-- **Prefer more specific subtags over megatags with more than 50 entries (see shared context)**
+- **Prefer more specific subtags over megatags (tags on the megatag list in the shared context)**
 - **Creating new tags is forbidden**. Only use tags that exist in the tag vocabulary in the shared context
 
 ### mentions
@@ -44,7 +44,7 @@ Sub-agent prompt for /refresh. Batch-updates frontmatter metadata of existing kn
 The following data is injected from the orchestrator's prompt (not included in this file):
 - **Tag vocabulary**: YAML list format (name + desc). Reference desc when selecting tags
 - **Deprecated tags table**: Mapping of old tag → merge target. When a deprecated tag is found, replace with the successor tag
-- **Megatag list**: List of tag names with more than 50 entries. Prefer more specific subtags over these
+- **Megatag list**: List of tag names whose usage count exceeds the split threshold `max(60, 2.5 x median tag usage)` (same formula as /inspect). Prefer more specific subtags over these
 - **People mapping**: id → name (aliases) in single-line format
 - **Orgs mapping**: id → name (aliases) in single-line format
 - **Projects mapping**: id → name (stage, tags) in single-line format

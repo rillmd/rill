@@ -27,7 +27,7 @@ Measures the metadata completeness of individual notes via grep/glob. No ground 
 | **mentions_coverage** | Proportion of notes with 1+ mentions | notes containing `mentions:` / total notes | > 0.90 |
 | **tag_coverage** | Proportion of notes with 1+ tags | notes containing `tags: [` / total notes (excluding `tags: []`) | > 0.95 |
 | **orphan_rate** | Proportion with no mentions AND no entity prefix in filename | Notes unreachable from any entry point | < 0.05 |
-| **tag_balance** | Usage count distribution across tags | max_count, median_count, max_tag | max < 50 |
+| **tag_balance** | Usage count distribution across tags | max_count, median_count, max_tag | max <= max(60, 2.5 x median_count) |
 | **sampling_precision** | /inspect sampling audit accuracy | PASS/MINOR/MAJOR counts and ratios | PASS rate > 70% |
 
 **Entity prefix definition**: A filename that starts with any id from knowledge/people/, knowledge/orgs/, or projects/. Example: `acme-saas-pricing-model.md` has the `acme-saas` prefix.

@@ -887,7 +887,7 @@ Batch design:
   - 70 items/agent limit, max 4 parallel
   - Shared context: full taxonomy (including deprecated tags) + entity mapping
   - New tag creation prohibited (only approved tags from taxonomy.md)
-  - Prefer specific sub-tags over mega-tags (50+ occurrences)
+  - Prefer specific sub-tags over mega-tags (usage above the split threshold max(60, 2.5 x median tag usage))
 ```
 
 ### 5.3 /focus → /close — Workspace Pipeline (D28)
