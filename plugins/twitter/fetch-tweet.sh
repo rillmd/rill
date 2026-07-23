@@ -171,7 +171,10 @@ if [ "$api_code" = "200" ]; then
                     if ($t.article.content.entityMap // {} | length) > 0 then
                         "  entity-map:",
                         (
-                            $t.article.content.entityMap | to_entries[] |
+                            # FixTweet returns entityMap as an array of {key, value}
+                            # pairs (draft-js raw form is an object; support both).
+                            $t.article.content.entityMap |
+                            (if type == "array" then .[] else to_entries[] end) |
                             "    - key: \(.key | @json)",
                             "      type: \(.value.type // "")",
                             (if .value.data.url then "      url: \(.value.data.url | @json)" else empty end),
