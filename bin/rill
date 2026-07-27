@@ -2024,6 +2024,27 @@ _ensure_hook() {
     fi
 }
 
+_remove_legacy_guard_hook() {
+    # One-shot migration: drop the pre---hook guard wiring that referenced
+    # $TOOL_INPUT_PATH. Claude Code never populated that variable (hook input
+    # arrives as JSON on stdin), so the entry errored on every invocation.
+    # `rill guard --hook` from the manifest replaces it.
+    local vault="$1"
+    local settings_file="$vault/.claude/settings.json"
+    [ -f "$settings_file" ] || return 0
+    local legacy='rill guard $TOOL_INPUT_PATH'
+    jq -e --arg c "$legacy" \
+        '.hooks.PreToolUse[]? | .hooks[]? | select(.command == $c)' \
+        "$settings_file" &>/dev/null || return 0
+    local tmp; tmp="$(mktemp)"
+    jq --arg c "$legacy" '
+        .hooks.PreToolUse |= (map(
+            .hooks |= map(select(.command != $c))
+        ) | map(select(.hooks | length > 0)))
+    ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
+    echo "  ✓ Migrated guard hook to stdin mode (removed legacy \$TOOL_INPUT_PATH entry)"
+}
+
 _ensure_all_hooks() {
     # Install all hooks from templates/hooks-manifest.json into the vault.
     local vault="$1"
@@ -2047,6 +2068,8 @@ _ensure_all_hooks() {
     if [ ! -f "$settings_file" ]; then
         echo '{}' > "$settings_file"
     fi
+
+    _remove_legacy_guard_hook "$vault"
 
     local count i=0
     count="$(jq 'length' "$manifest")"
@@ -2281,13 +2304,18 @@ _generate_vault_gitignore() {
 # Usage: rill guard <file_path>
 #   Called by Claude Code PreToolUse hook.
 cmd_guard() {
-    if [ "$1" = "-h" ] || [ "$1" = "--help" ] || [ "$1" = "help" ] 2>/dev/null; then
+    if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "help" ]; then
         cat <<'EOF'
 Usage: rill guard <file_path>
+       rill guard --hook    (Claude Code PreToolUse mode)
 
-Check if a file is a Rill managed file. If so, print a warning and exit 1.
-Designed to be called from a Claude Code PreToolUse hook to prevent
-accidental edits to official skills and rules.
+Check if a file is a Rill managed file. If so, print a warning and exit 1
+(plain mode) or exit 2 (--hook mode; 2 is Claude Code's blocking exit code).
+
+In --hook mode the file path is read from the PreToolUse JSON payload that
+Claude Code pipes to stdin (.tool_input.file_path). Configure as:
+  { "matcher": "Edit|Write", "hooks": [
+      { "type": "command", "command": "rill guard --hook", "timeout": 5 } ] }
 
 Managed files are listed in .rill/managed-files.txt and are overwritten
 by `rill update`. Create personal skills instead of modifying managed ones.
@@ -2295,7 +2323,19 @@ EOF
         return 0
     fi
 
-    local target_path="$1"
+    # --hook: Claude Code PreToolUse mode. The hook payload arrives on stdin;
+    # Claude Code does not pass tool input via environment variables.
+    if [ "${1:-}" = "--hook" ]; then
+        local hook_json hook_path
+        hook_json="$(cat 2>/dev/null || true)"
+        hook_path="$(printf '%s' "$hook_json" | jq -r \
+            '.tool_input.file_path? // .tool_input.path? // empty' 2>/dev/null || true)"
+        [ -z "$hook_path" ] && return 0
+        cmd_guard "$hook_path" || return 2
+        return 0
+    fi
+
+    local target_path="${1:-}"
     [ -z "$target_path" ] && return 0
 
     # Resolve RILL_HOME for managed-files.txt lookup
