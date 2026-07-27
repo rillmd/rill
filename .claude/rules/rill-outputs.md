@@ -1,3 +1,9 @@
+---
+paths:
+  - "reports/**"
+  - "pages/**"
+---
+
 # Output Rules — Rill
 
 `reports/` and `pages/` are the **output layer** — Claude Code-generated artifacts and human-facing aggregated documents.

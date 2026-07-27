@@ -1,3 +1,8 @@
+---
+paths:
+  - "knowledge/**"
+---
+
 # Knowledge Rules — Rill
 
 `knowledge/` is the **accumulation layer (Evergreen)** — distilled atomic knowledge and entity information.

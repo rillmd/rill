@@ -1,3 +1,8 @@
+---
+paths:
+  - "tasks/**"
+---
+
 # Task Rules — Rill
 
 `tasks/` is the **action layer**. Tasks are managed as per-task directories (ADR-063, ADR-076).

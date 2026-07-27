@@ -1,4 +1,6 @@
 ---
+name: close
+description: "Complete a Rill workspace: set status to completed, generate _summary.md, and run the mandatory knowledge distillation via the two-layer sub-agent architecture (ADR-073). Use when the user asks to close, complete, or wrap up a workspace, or when /focus proposes completion."
 gui:
   label: "/close"
   hint: "Complete workspace and generate summary"

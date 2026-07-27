@@ -1,3 +1,9 @@
+---
+paths:
+  - "tasks/**"
+  - "projects/**"
+---
+
 # Autonomous Execution Rules — Rill
 
 `/solve` (and any future autonomous-execution skill) operates in one of two **lanes** depending on what the task touches. Loaded automatically via `.claude/rules/*.md`.

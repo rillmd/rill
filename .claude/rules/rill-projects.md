@@ -1,3 +1,8 @@
+---
+paths:
+  - "projects/**"
+---
+
 # Project Rules — Rill
 
 `projects/` is the **execution hub layer** — management unit for initiatives bundling multiple tasks (ADR-080).

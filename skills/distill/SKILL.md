@@ -1,4 +1,6 @@
 ---
+name: distill
+description: "Unified distillation pipeline: process inbox sources (journal, meetings, tweets, web-clips, think-outputs) into knowledge notes, task candidates, and entity updates, then refresh queued note metadata. Use when the user asks to distill, process the inbox, or extract knowledge and tasks from recent inputs."
 gui:
   label: "/distill"
   hint: "Run knowledge extraction, task extraction, and entity detection"
