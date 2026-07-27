@@ -1,3 +1,8 @@
+---
+paths:
+  - "workspace/**"
+---
+
 # Workspace Rules — Rill
 
 `workspace/` is the **working layer (stateful)** — projects, areas, and Deep Think sessions in a unified structure.

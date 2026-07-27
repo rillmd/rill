@@ -1,6 +1,6 @@
 # Rill Core Rules
 
-Entry point for working in a Rill-managed vault. Detailed rules are split into `.claude/rules/rill-*.md` files, auto-loaded each turn.
+Entry point for working in a Rill-managed vault. Detailed rules are split into `.claude/rules/rill-*.md` files. Cross-cutting rules load every turn; directory-scoped rules carry `paths:` frontmatter and load only when Claude works with matching files.
 
 ## What is Rill
 

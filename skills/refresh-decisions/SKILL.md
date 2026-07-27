@@ -1,4 +1,6 @@
 ---
+model: sonnet
+effort: low
 name: refresh-decisions
 description: Recompute the `## Pending Decisions` digest section of `projects/{slug}/_project.md` by collecting line-start `[DECISION-QUEUE]` markers from the project's tasks and the project file itself (decision-loop contract v1.1, ADR-084). Deterministic grep-render-replace, no LLM judgment, idempotent. Use after an agent queues a decision, after a human resolves one, or as a leaf invoked by other skills.
 gui:

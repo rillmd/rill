@@ -1,3 +1,8 @@
+---
+paths:
+  - "inbox/**"
+---
+
 # Inbox Rules — Rill
 
 `inbox/` is the **input layer (immutable)** — incoming information from external sources and personal journals.

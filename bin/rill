@@ -3097,7 +3097,7 @@ LANG
     echo ""
     echo "✓ Rill vault initialized at $vault_dir"
     echo "  $managed_count managed files copied"
-    echo "  ℹ Rill rules auto-load from .claude/rules/rill-*.md"
+    echo "  ℹ Rill rules load from .claude/rules/rill-*.md (path-scoped rules load on demand)"
     echo "  ℹ After git clone, run 'rill update' to restore managed files"
 }
 

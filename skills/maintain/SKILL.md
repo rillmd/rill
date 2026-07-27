@@ -1,4 +1,6 @@
 ---
+model: sonnet
+effort: low
 name: maintain
 description: Run note quality maintenance — invoke /inspect to diagnose vault metadata, then /repair to fix queued issues. Use when the user wants weekly or periodic Rill vault health maintenance.
 ---

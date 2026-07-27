@@ -1,4 +1,6 @@
 ---
+model: sonnet
+effort: low
 name: refresh-project
 description: Recompute the auto-maintained sections (`## Active Tasks`, `## Related Workspaces`) of `projects/{slug}/_project.md` via mention reverse-lookup, sorted by dependency-resolved priority. Idempotent. Use when refreshing a project's surface, or as a leaf invoked internally by `/project` and `/promote`.
 gui:
