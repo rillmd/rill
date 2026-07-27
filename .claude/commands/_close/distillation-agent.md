@@ -155,15 +155,6 @@ Then `Edit` the created file to append the body. Body requirements:
 - Use standard Markdown links `[display](path)` — never Wiki links `[[...]]`
 - Do not repeat the frontmatter content in the body
 
-### Step 7: Verify your work
-
-After writing, Read the file you just created to confirm:
-
-- Frontmatter is well-formed
-- `source` matches `candidate.source`
-- `type` is one of `record` / `insight` / `reference`
-- Body has a `# Title` heading and 200-800 chars of substance
-
 ## Output — return to parent
 
 Return ONE of the following structured reports. Use this exact format:
@@ -228,7 +219,7 @@ If you find yourself wanting to skip for one of these reasons, re-examine the ca
 
 ## Budget discipline
 
-- Total tool calls for one distillation: **~8-12** (Read source + Read related + Read _summary.md + Grep verify + Read extra deliverable + Glob evergreen + Grep evergreen + rill mkfile + Edit + final Read verify)
+- Total tool calls for one distillation: **~8-12** (Read source + Read related + Read _summary.md + Grep verify + Read extra deliverable + Glob evergreen + Grep evergreen + rill mkfile + Edit)
 - Do not read more than **5 files total** from the workspace directory
 - Do not read more than **2 files total** from `knowledge/notes/` (and only frontmatter, first 10 lines each)
 
