@@ -29,7 +29,7 @@ $ARGUMENTS — omitted → normal run (12h cooldown applies) / `--force` → byp
 
 - **Cooldown & state sidecar**: `.claude/state/pulse.json` (git-tracked; never frontmatter — frontmatter is a search anchor, not skill telemetry) holds `last_pulse_at`, `pulse_run_count`, `last_force_at`. If not forced and `now - last_pulse_at < 12h`, no-op skip with a single line: `/pulse: skipped (last run at {timestamp}, cooldown 12h)`. Invocations chained from `/distill` and `/close` respect the cooldown; briefing-on-demand invocations (from `/briefing` when `last_pulse_at` is >5min old) always count as forced. After a real run, update the sidecar (bump `last_pulse_at`, increment `pulse_run_count`, set `last_force_at` on forced runs).
 - **Non-recursion with /distill**: the chain direction is `/distill → /pulse` only; /pulse never invokes /distill. (/distill's path scoping excludes `knowledge/self/`.)
-- **Grep-first cost profile**: collect inputs with two bulk status Greps — `^status: active` over `workspace/**/_workspace.md` and `^status: (open|waiting)` over `tasks/**/_task.md` — plus frontmatter-only reads (≤25 lines) of the hits. Full-body reads of every active workspace do not scale. Full reads are limited to `self/direction.md`, `self/decisions.md` (if present), and the latest `reports/retrospective/*.md` (if present).
+- **Grep-first cost profile**: collect candidates with two bulk status Greps — `^status: active` over `workspace/**/_workspace.md` and `^status: (open|waiting)` over `tasks/**/_task.md` — plus frontmatter reads (≤25 lines) of the hits. Read `_workspace.md` bodies only where a section requires them: Section 2's one-line summaries, and Section 5/6's checkbox extraction from the deliberation / next-step headings of qualifying workspaces. Never full-read every active workspace's artifacts wholesale — that is what does not scale. Additional full reads are limited to `self/direction.md`, `self/decisions.md` (if present), and the latest `reports/retrospective/*.md` (if present).
 
 ## Output contract
 
@@ -37,7 +37,7 @@ Target: `knowledge/self/current-state.md` — replace the body, preserve the exi
 
 **Output language**: section headings below are the canonical English forms. Render the body in the language defined by `personal-language.md` (English when absent), translating the canonical strings consistently (one rendering per concept). Two stability rules: the `# Current State — ` H1 prefix stays verbatim in every language, and the previous snapshot's heading renderings are reused when its language matches the config, so day-to-day diffs stay quiet.
 
-Seven sections, in order (Section 6's header is omitted entirely when it has no entries; all caps are hard — overflow is dropped or signaled, never listed):
+Seven sections, in order (Section 6's header is omitted entirely when it has no entries; all caps are hard — overflow is dropped or signaled, never listed). **The numbered `### N.` headings below organize this spec only — in the output, emit each section as an unnumbered `## {Heading}` H2** (e.g. `## Execution Gap`), matching prior snapshots so heading reuse and /briefing's section parsing keep working:
 
 ### 1. Current Direction (4-6 lines, no triage)
 
@@ -65,9 +65,15 @@ If `self/decisions.md` is absent or empty, render the single stub line `(not yet
 
 No keyword filter (fixed contract). Every unchecked checkbox (`- [ ]`) from the deliberation and next-action sections of active WS `_workspace.md` files — canonical headings `## Issues to Consider` and `## Next Steps`, plus their vault-language equivalents. Sort by Section 2's WS score descending, then `updated` descending. Entry: `- [{checkbox text}](workspace/{id}/_workspace.md) — {WS name}`. If total hits ≥ 8, append `⚠ Judgment-gate overload ({total} entries, target ≤7). Possible /focus overuse — consider /retrospective` (bold it at ≥ 14).
 
-### 6. Execution Gap (cap 3, additive signal)
+### 6. Execution Gap (cap 3, additive signal — deterministic selection, no editorial judgment)
 
-Purpose: surface "decided but unexecuted, deadline-past" items that sink out of Sections 2/5 because the recency factor decays stale WSs. Source set (stricter than Section 5): active WS `_workspace.md` files whose `updated` (fallback `created`) is **> 7 days ago**; unchecked checkboxes from decided-action sections only — `## Next Steps` and vault-language equivalents, stopping at the next `## ` heading; never `## Issues to Consider` (deliberation stays in Section 5). Unparseable dates exclude the WS defensively. Sort by `days_since_updated × unchecked_count_in_WS` descending, tie-break oldest `updated` first. Entry: `- {N}d [{checkbox first line}](workspace/{id}/_workspace.md) — {WS name}` where `{N}d` = integer days since `updated`. Omit the whole section when empty. A checkbox appearing in both Sections 5 and 6 is acceptable — that duplication is itself an "important AND stale" signal. (/briefing reads the whole snapshot and surfaces these entries as urgent-card candidates.)
+Purpose: surface "decided but unexecuted" items that sink out of Sections 2/5 because the recency factor decays stale WSs. **This section exists to counteract recency bias — the oldest stalled items are the point, not a staleness smell to filter out.** Selection is fully deterministic; do not substitute fresher or deadline-tied items for higher-ranked stale ones:
+
+1. Source set (stricter than Section 5): active WS `_workspace.md` files whose `updated` (fallback `created`) is **> 7 days ago**; unchecked checkboxes from decided-action sections only — `## Next Steps` and vault-language equivalents, stopping at the next `## ` heading; never `## Issues to Consider` (deliberation stays in Section 5). Unparseable dates exclude the WS defensively.
+2. Rank every qualifying WS by `days_since_updated × unchecked_count_in_WS` descending, tie-break oldest `updated` first.
+3. **Fill exactly to the cap with checkbox items** (the unit is the checkbox, not the workspace): walk workspaces in rank order taking each one's first unchecked box (document order); if fewer than 3 workspaces qualify, keep cycling through the qualifying workspaces in the same rank order taking each one's next unchecked box per pass, until 3 items are output or the qualifying boxes are exhausted.
+
+Entry: `- {N}d [{checkbox first line}](workspace/{id}/_workspace.md) — {WS name}` where `{N}d` = integer days since `updated`. Omit the whole section when empty. A checkbox appearing in both Sections 5 and 6 is acceptable — that duplication is itself an "important AND stale" signal. (/briefing reads the whole snapshot and surfaces these entries as urgent-card candidates.)
 
 ### 7. Known Contradictions (cap 5)
 

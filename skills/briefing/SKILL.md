@@ -59,8 +59,11 @@ period_id = "weekly-{Monday of the ISO week before the one containing target_dat
 init nudge_state[period_id] to { nudge_count: 0, last_nudge_at: null } if absent
 same_day_rerun = (date of last_nudge_at == target_date)   # reruns never consume strikes
 
-nudge = OFF  if last_period == period_id or period_id in skipped_periods or Mon/Tue/Wed
-nudge = ON   if Thursday;  nudge = DELAYED  if Fri/Sat/Sun
+if last_period == period_id or period_id in skipped_periods:
+    nudge = OFF            # completed / 3-strike-skipped periods never re-nudge
+elif Thursday:  nudge = ON
+elif Fri/Sat/Sun:  nudge = DELAYED
+else:  nudge = OFF         # Mon/Tue/Wed
 on ON/DELAYED and not same_day_rerun: nudge_count += 1, last_nudge_at = now
 
 3-strike auto-skip: if nudge_count >= 3 and target_date is Sunday →
