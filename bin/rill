@@ -1506,6 +1506,215 @@ updated: ${ts}
     fi
 }
 
+# ── Session checkpoint (state durability) ────────────────────────────
+# Rill's continuity model puts session state in vault files, not in the
+# harness. That only holds if the files actually get written, and today
+# they get written when the model decides to. These hooks move the timing
+# decision to the harness: the model still writes the meaning, but the
+# mechanical record lands even when the model never writes anything.
+#
+# Every path exits 0. A hook failure must never take down a session; a
+# missed checkpoint is the cheaper failure.
+
+_ckpt_state_dir() {
+    # Per-session scratch. Hook input carries session_id, which is stabler
+    # than $PPID for identifying the session across hook invocations.
+    local session_id="$1"
+    [ -z "$session_id" ] && return 1
+    # Keep the path shell-safe: session ids are opaque strings from the harness.
+    # Pure parameter expansion, so no pipeline can fail under `set -o pipefail`.
+    local safe="${session_id//[^A-Za-z0-9_.-]/_}"
+    printf '%s/rill-ckpt-%s' "${TMPDIR:-/tmp}" "$safe"
+}
+
+_ckpt_work_unit() {
+    # Resolve the active work unit from files written this session: the most
+    # recent path under workspace/{id}/ or tasks/{slug}/. Empty when the
+    # session has not touched one, which is how ordinary code sessions in
+    # sibling repos stay silent.
+    local files="$1"
+    [ -f "$files" ] || return 0
+    local line unit="" rest=""
+    while IFS= read -r line; do
+        case "$line" in
+            workspace/*/*|tasks/*/*)
+                # First two path segments, via parameter expansion only, so no
+                # pipeline can fail under `set -o pipefail`.
+                rest="${line#*/}"
+                unit="${line%%/*}/${rest%%/*}"
+                ;;
+        esac
+    done < "$files"
+    printf '%s' "$unit"
+}
+
+_ckpt_last_assistant_message() {
+    # Pull the final assistant text turn out of the transcript. Best effort:
+    # the transcript format is the harness's, not ours, so a miss is fine.
+    local transcript="$1"
+    [ -f "$transcript" ] || return 0
+    tail -n 400 "$transcript" 2>/dev/null | jq -rs '
+        [ .[]
+          | select(.type? == "assistant")
+          | .message?.content?
+          | if type == "array" then (map(select(.type? == "text") | .text) | join(" ")) else . end
+          | select(type == "string" and length > 0)
+        ] | last // empty
+    ' 2>/dev/null | tr '\n' ' ' | cut -c1-400
+}
+
+_ckpt_ensure_log() {
+    # Create {unit}/_log.md with frontmatter when absent. The CLI is the
+    # authoritative issuer of `created` (the prohibition is on LLMs writing
+    # it by hand, not on rill).
+    local log_file="$1" unit_id="$2"
+    if [ -f "$log_file" ]; then return 0; fi
+    {
+        echo "---"
+        echo "created: $(_activity_log_timestamp)"
+        echo "type: log"
+        echo "topic: ${unit_id}"
+        echo "---"
+        echo ""
+        echo "# Session checkpoints"
+        echo ""
+        echo "Written by \`rill checkpoint\` on session end and before context compaction."
+        echo ""
+    } > "$log_file"
+}
+
+_ckpt_track() {
+    # PostToolUse (Edit|Write). Record the path and reset the idle counter
+    # when the write landed in a work unit.
+    local json; json="$(cat)"
+    local session_id file_path
+    session_id="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
+    file_path="$(printf '%s' "$json" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)"
+    if [ -z "$session_id" ] || [ -z "$file_path" ] || [ -z "${RILL_HOME:-}" ]; then
+        return 0
+    fi
+
+    local dir; dir="$(_ckpt_state_dir "$session_id" || true)"
+    if [ -z "$dir" ]; then return 0; fi
+    mkdir -p "$dir" 2>/dev/null || return 0
+
+    local rel_path="${file_path#"$RILL_HOME"/}"
+    # Still absolute means the write happened outside the vault (sibling repo
+    # work): stay silent there.
+    case "$rel_path" in
+        /*) return 0 ;;
+    esac
+
+    printf '%s\n' "$rel_path" >> "$dir/files" 2>/dev/null || true
+
+    case "$rel_path" in
+        workspace/*/*|tasks/*/*) printf '0' > "$dir/turns" 2>/dev/null || true ;;
+    esac
+    return 0
+}
+
+_ckpt_on_stop() {
+    # Stop. Count turns since the last artifact write and nudge when the
+    # conversation has been running without leaving a trace.
+    local json; json="$(cat)"
+    local session_id
+    session_id="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
+    if [ -z "$session_id" ]; then return 0; fi
+
+    local dir; dir="$(_ckpt_state_dir "$session_id" || true)"
+    if [ -z "$dir" ] || [ ! -d "$dir" ]; then return 0; fi
+
+    local unit; unit="$(_ckpt_work_unit "$dir/files" || true)"
+    if [ -z "$unit" ]; then return 0; fi
+
+    local threshold="${RILL_CKPT_NUDGE_AFTER:-5}"
+    case "$threshold" in ''|*[!0-9]*) threshold=5 ;; esac
+
+    local turns=0
+    if [ -f "$dir/turns" ]; then turns="$(cat "$dir/turns" 2>/dev/null || echo 0)"; fi
+    case "$turns" in ''|*[!0-9]*) turns=0 ;; esac
+    turns=$((turns + 1))
+    printf '%s' "$turns" > "$dir/turns" 2>/dev/null || true
+
+    local nudged=0
+    if [ -f "$dir/nudged" ]; then nudged="$(cat "$dir/nudged" 2>/dev/null || echo 0)"; fi
+    case "$nudged" in ''|*[!0-9]*) nudged=0 ;; esac
+
+    if [ "$turns" -lt "$threshold" ]; then return 0; fi
+    if [ $((turns - nudged)) -lt "$threshold" ]; then return 0; fi
+    printf '%s' "$turns" > "$dir/nudged" 2>/dev/null || true
+
+    jq -cn --arg u "$unit" --arg n "$turns" '{
+        hookSpecificOutput: {
+            hookEventName: "Stop",
+            additionalContext: ("Rill: \($n) turns without writing an artifact in \($u). If this conversation produced analysis, decisions, or research worth keeping, write it to a file now and update the state file of that work unit, so the next session can pick it up.")
+        }
+    }' 2>/dev/null || true
+    return 0
+}
+
+_ckpt_on_end() {
+    # SessionEnd and PreCompact. Append a mechanical checkpoint to the work
+    # unit's _log.md. This is the entry that survives /clear and compaction.
+    local json; json="$(cat)"
+    local session_id transcript reason event
+    session_id="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
+    if [ -z "$session_id" ] || [ -z "${RILL_HOME:-}" ]; then return 0; fi
+    transcript="$(printf '%s' "$json" | jq -r '.transcript_path // empty' 2>/dev/null || true)"
+    event="$(printf '%s' "$json" | jq -r '.hook_event_name // "checkpoint"' 2>/dev/null || true)"
+    # SessionEnd carries `reason`; PreCompact carries `trigger`.
+    reason="$(printf '%s' "$json" | jq -r '.reason // .trigger // empty' 2>/dev/null || true)"
+
+    local dir; dir="$(_ckpt_state_dir "$session_id" || true)"
+    if [ -z "$dir" ] || [ ! -d "$dir" ]; then return 0; fi
+
+    local unit; unit="$(_ckpt_work_unit "$dir/files" || true)"
+    if [ -z "$unit" ] || [ ! -d "$RILL_HOME/$unit" ]; then return 0; fi
+
+    local touched last_msg
+    touched="$(sort -u "$dir/files" 2>/dev/null | tr '\n' ' ' | sed 's/ $//' || true)"
+    last_msg="$(_ckpt_last_assistant_message "$transcript" || true)"
+
+    # PreCompact immediately followed by SessionEnd would otherwise write the
+    # same state twice. Skip when nothing changed since the last checkpoint.
+    local fingerprint
+    fingerprint="$(printf '%s|%s' "$touched" "$last_msg" | cksum 2>/dev/null | cut -d' ' -f1 || true)"
+    if [ -f "$dir/last" ] && [ "$(cat "$dir/last" 2>/dev/null || true)" = "$fingerprint" ]; then
+        return 0
+    fi
+    printf '%s' "$fingerprint" > "$dir/last" 2>/dev/null || true
+
+    local log_file="$RILL_HOME/$unit/_log.md"
+    local unit_id; unit_id="$(basename "$unit")"
+    _ckpt_ensure_log "$log_file" "$unit_id" || return 0
+
+    {
+        echo "## $(_activity_log_timestamp) — checkpoint (${event}${reason:+: $reason})"
+        echo ""
+        echo "- session: ${session_id}"
+        if [ -n "$touched" ]; then echo "- touched: ${touched}"; fi
+        if [ -n "$last_msg" ]; then echo "- last message: ${last_msg}"; fi
+        echo ""
+    } >> "$log_file" 2>/dev/null || true
+    return 0
+}
+
+cmd_checkpoint() {
+    local subcmd="${1:-}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        track)   _ckpt_track ;;
+        on-stop) _ckpt_on_stop ;;
+        on-end)  _ckpt_on_end ;;
+        *)
+            echo "Usage: rill checkpoint [track|on-stop|on-end]" >&2
+            return 1
+            ;;
+    esac
+    return 0
+}
+
 cmd_activity_log() {
     local subcmd="${1:-}"
     shift 2>/dev/null || true
@@ -5390,6 +5599,7 @@ Agent helpers — invoked by skills inside your vault, not typed manually:
   task "title"          Create a task ticket file (ADR-063)
   touch                 Update frontmatter \`updated\` field (PostToolUse hook)
   activity-log          Activity log management (on-write, on-prompt, on-stop, add)
+  checkpoint            Session state durability hooks (track, on-stop, on-end)
   strip-entity-tags     Move entity IDs from tags to mentions (deterministic)
   pages-pending-update  Match new sources to pages via mentions/tags
   context-map           Emit deterministic shared context (entity maps + Tier dict)
@@ -5480,6 +5690,7 @@ case "${1:-help}" in
     open)   shift; cmd_open "$@" ;;
     activity-log) shift; cmd_activity_log "$@" ;;
     touch) shift; cmd_touch "$@" ;;
+    checkpoint) shift; cmd_checkpoint "$@" ;;
     mkfile) shift; cmd_mkfile "$@" ;;
     strip-entity-tags) shift; cmd_strip_entity_tags "$@" ;;
     pages-pending-update) shift; cmd_pages_pending_update "$@" ;;
