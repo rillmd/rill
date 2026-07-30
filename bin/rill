@@ -1630,6 +1630,15 @@ _ckpt_ensure_log() {
     # vault frontmatter outside the schema.
     local log_file="$1" unit_id="$2"
     if [ -f "$log_file" ]; then return 0; fi
+
+    # Build the header away from the target and link it into place. Two
+    # sessions ending in the same workspace can both pass the existence check
+    # above; a truncating redirect would then let the slower one erase the
+    # header the faster one wrote, along with any checkpoint appended right
+    # after it. `ln` fails when the target already exists, so the loser of
+    # that race simply keeps the winner's file.
+    local tmp
+    tmp="$(mktemp "${log_file}.XXXXXX" 2>/dev/null)" || return 0
     {
         echo "---"
         echo "created: $(_activity_log_timestamp)"
@@ -1641,7 +1650,10 @@ _ckpt_ensure_log() {
         echo ""
         echo "Written by \`rill checkpoint\` on session end and before context compaction."
         echo ""
-    } > "$log_file"
+    } > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null || true; return 0; }
+    ln "$tmp" "$log_file" 2>/dev/null || true
+    rm -f "$tmp" 2>/dev/null || true
+    return 0
 }
 
 _ckpt_track() {
@@ -1828,20 +1840,25 @@ _ckpt_write_checkpoint() {
     if [ -f "$dir/last" ] && [ "$(cat "$dir/last" 2>/dev/null || true)" = "$fingerprint" ]; then
         return 0
     fi
-    printf '%s' "$fingerprint" > "$dir/last" 2>/dev/null || true
 
     local log_file="$home_phys/$unit/_log.md"
     local unit_id; unit_id="$(basename "$unit")"
     _ckpt_ensure_log "$log_file" "$unit_id" || return 0
 
-    {
+    if {
         echo "## $(_activity_log_timestamp) — checkpoint (${event}${reason:+: $reason})"
         echo ""
         echo "- session: ${session_id}"
         if [ -n "$touched" ]; then echo "- touched: ${touched}"; fi
         if [ -n "$last_msg" ]; then echo "- last message: ${last_msg}"; fi
         echo ""
-    } >> "$log_file" 2>/dev/null || true
+    } >> "$log_file" 2>/dev/null; then
+        # Only now. Recording the fingerprint before the append would let a
+        # transient write failure at PreCompact suppress the SessionEnd
+        # checkpoint as a duplicate, losing the entry for good even though
+        # the second attempt would have succeeded.
+        printf '%s' "$fingerprint" > "$dir/last" 2>/dev/null || true
+    fi
     return 0
 }
 

@@ -272,6 +272,39 @@ assert_file_contains "$STATE_ROOT/rill-ckpt-$SID_LINK/files" "workspace/demo-ws/
 on_end "$SID_NOWORK" "SessionEnd" "reason" "clear"
 assert_file_not_exists "$VAULT/_log.md" "no work unit means nothing is written"
 
+# ── a failed write must not suppress the retry ───────────────────────
+# The fingerprint is what makes PreCompact and SessionEnd idempotent, so
+# recording it before the append would turn one transient failure into a
+# permanently lost checkpoint.
+SID_FAIL="cse_ckpt_fail"
+mkdir -p "$VAULT/workspace/ws-fail"
+track "$SID_FAIL" "$VAULT/workspace/ws-fail/001-a.md"
+chmod 555 "$VAULT/workspace/ws-fail"
+printf '{"session_id":"%s","hook_event_name":"PreCompact","trigger":"auto"}' "$SID_FAIL" \
+  | "$RILL" checkpoint on-end
+assert_file_not_exists "$VAULT/workspace/ws-fail/_log.md" "a read-only work unit writes nothing"
+chmod 755 "$VAULT/workspace/ws-fail"
+printf '{"session_id":"%s","hook_event_name":"SessionEnd","reason":"clear"}' "$SID_FAIL" \
+  | "$RILL" checkpoint on-end
+assert_file_exists "$VAULT/workspace/ws-fail/_log.md" \
+  "the next checkpoint still lands once writing is possible again"
+
+# ── concurrent first checkpoints keep one header and both entries ────
+SID_C1="cse_ckpt_conc1"; SID_C2="cse_ckpt_conc2"
+mkdir -p "$VAULT/workspace/ws-conc"
+track "$SID_C1" "$VAULT/workspace/ws-conc/001-a.md"
+track "$SID_C2" "$VAULT/workspace/ws-conc/002-b.md"
+printf '{"session_id":"%s","hook_event_name":"SessionEnd","reason":"clear"}' "$SID_C1" \
+  | "$RILL" checkpoint on-end &
+printf '{"session_id":"%s","hook_event_name":"SessionEnd","reason":"clear"}' "$SID_C2" \
+  | "$RILL" checkpoint on-end &
+wait
+CONC_LOG="$VAULT/workspace/ws-conc/_log.md"
+assert_eq "$(grep -c '^# Session checkpoints' "$CONC_LOG" || true)" "1" \
+  "the header is written exactly once"
+assert_eq "$(grep -c '^## ' "$CONC_LOG" || true)" "2" \
+  "neither session's checkpoint is lost"
+
 # ── session scratch is dropped when the session really ends ──────────
 SID_CLEAN="cse_ckpt_clean"
 mkdir -p "$VAULT/workspace/ws-clean"
