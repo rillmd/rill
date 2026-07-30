@@ -30,6 +30,18 @@
     "timeout": 5
   },
   {
+    "event": "PostToolUse",
+    "matcher": "Write",
+    "command": "rill checkpoint track",
+    "timeout": 5
+  },
+  {
+    "event": "PostToolUse",
+    "matcher": "Edit",
+    "command": "rill checkpoint track",
+    "timeout": 5
+  },
+  {
     "event": "UserPromptSubmit",
     "command": "rill activity-log on-prompt",
     "timeout": 5
@@ -37,6 +49,26 @@
   {
     "event": "Stop",
     "command": "rill activity-log on-stop",
+    "timeout": 5
+  },
+  {
+    "event": "Stop",
+    "command": "rill checkpoint on-stop",
+    "timeout": 5
+  },
+  {
+    "event": "SessionEnd",
+    "command": "rill checkpoint on-end",
+    "timeout": 10
+  },
+  {
+    "event": "PreCompact",
+    "command": "rill checkpoint on-end",
+    "timeout": 10
+  },
+  {
+    "event": "UserPromptSubmit",
+    "command": "rill checkpoint on-prompt",
     "timeout": 5
   }
 ]

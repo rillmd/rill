@@ -1506,6 +1506,348 @@ updated: ${ts}
     fi
 }
 
+# ── Session checkpoint (state durability) ────────────────────────────
+# Rill's continuity model puts session state in vault files, not in the
+# harness. That only holds if the files actually get written, and today
+# they get written when the model decides to. These hooks move the timing
+# decision to the harness: the model still writes the meaning, but the
+# mechanical record lands even when the model never writes anything.
+#
+# Every path exits 0. A hook failure must never take down a session; a
+# missed checkpoint is the cheaper failure.
+
+_ckpt_state_dir() {
+    # Per-session scratch. Hook input carries session_id, which is stabler
+    # than $PPID for identifying the session across hook invocations.
+    local session_id="$1"
+    [ -z "$session_id" ] && return 1
+    # Keep the path shell-safe: session ids are opaque strings from the harness.
+    # Pure parameter expansion, so no pipeline can fail under `set -o pipefail`.
+    local safe="${session_id//[^A-Za-z0-9_.-]/_}"
+    printf '%s/rill-ckpt-%s' "${TMPDIR:-/tmp}" "$safe"
+}
+
+_ckpt_rel_path() {
+    # Vault-relative path for an absolute hook file_path, or empty when the
+    # write happened outside the vault. `resolve_rill_home` hands back
+    # $RILL_HOME verbatim, so it may carry a trailing slash, be relative, or
+    # reach the vault through a symlink; a plain prefix strip would then treat
+    # every write as external and silence the hooks entirely. Resolve both
+    # sides to physical absolute paths before comparing.
+    local file_path="$1"
+    [ -n "$file_path" ] || return 0
+    [ -n "${RILL_HOME:-}" ] || return 0
+
+    local home_phys file_dir file_dir_phys
+    home_phys="$(cd "$RILL_HOME" 2>/dev/null && pwd -P || true)"
+    [ -n "$home_phys" ] || return 0
+
+    file_dir="$(dirname "$file_path")"
+    file_dir_phys="$(cd "$file_dir" 2>/dev/null && pwd -P || true)"
+    # The file's directory may not exist (a write that failed, or a path the
+    # harness reported without creating). Fall back to a literal comparison.
+    if [ -z "$file_dir_phys" ]; then
+        case "$file_path" in
+            "$home_phys"/*) printf '%s' "${file_path#"$home_phys"/}" ;;
+        esac
+        return 0
+    fi
+
+    local base; base="$(basename "$file_path")"
+    if [ "$file_dir_phys" = "$home_phys" ]; then
+        printf '%s' "$base"
+        return 0
+    fi
+    case "$file_dir_phys" in
+        "$home_phys"/*) printf '%s/%s' "${file_dir_phys#"$home_phys"/}" "$base" ;;
+    esac
+    return 0
+}
+
+_ckpt_work_unit() {
+    # Resolve the active work unit from files written this session: the most
+    # recent path under workspace/{id}/ or tasks/{slug}/. Empty when the
+    # session has not touched one, which is how ordinary code sessions in
+    # sibling repos stay silent.
+    local files="$1"
+    [ -f "$files" ] || return 0
+    local line unit="" rest=""
+    while IFS= read -r line; do
+        case "$line" in
+            workspace/*/*|tasks/*/*)
+                # First two path segments, via parameter expansion only, so no
+                # pipeline can fail under `set -o pipefail`.
+                rest="${line#*/}"
+                unit="${line%%/*}/${rest%%/*}"
+                ;;
+        esac
+    done < "$files"
+    printf '%s' "$unit"
+}
+
+_ckpt_ensure_log() {
+    # Create {unit}/_log.md with frontmatter when absent. The CLI is the
+    # authoritative issuer of `created` (the prohibition is on LLMs writing
+    # it by hand, not on rill).
+    #
+    # `type: progress` rather than a new `log` type: the data model admits
+    # research | progress | analysis | decision | review for artifacts, and a
+    # checkpoint trail is a progress record. Inventing a type here would put
+    # vault frontmatter outside the schema.
+    local log_file="$1" unit_id="$2"
+    if [ -f "$log_file" ]; then return 0; fi
+
+    # Build the header away from the target and link it into place. Two
+    # sessions ending in the same workspace can both pass the existence check
+    # above; a truncating redirect would then let the slower one erase the
+    # header the faster one wrote, along with any checkpoint appended right
+    # after it. `ln` fails when the target already exists, so the loser of
+    # that race simply keeps the winner's file.
+    local tmp
+    tmp="$(mktemp "${log_file}.XXXXXX" 2>/dev/null)" || return 0
+    {
+        echo "---"
+        echo "created: $(_activity_log_timestamp)"
+        echo "type: progress"
+        echo "topic: ${unit_id}"
+        echo "---"
+        echo ""
+        echo "# Session checkpoints"
+        echo ""
+        echo "Written by \`rill checkpoint\` on session end and before context compaction."
+        echo ""
+    } > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null || true; return 0; }
+    ln "$tmp" "$log_file" 2>/dev/null || true
+    rm -f "$tmp" 2>/dev/null || true
+    # A filesystem without hard links leaves the target missing. Report that,
+    # so the caller does not append a body to a file with no frontmatter.
+    [ -f "$log_file" ] || return 1
+    return 0
+}
+
+_ckpt_track() {
+    # PostToolUse (Edit|Write). Record the path and reset the idle counter
+    # when the write landed in a work unit.
+    local json; json="$(cat)"
+    local session_id file_path
+    session_id="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
+    file_path="$(printf '%s' "$json" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)"
+    if [ -z "$session_id" ] || [ -z "$file_path" ] || [ -z "${RILL_HOME:-}" ]; then
+        return 0
+    fi
+
+    local dir; dir="$(_ckpt_state_dir "$session_id" || true)"
+    if [ -z "$dir" ]; then return 0; fi
+    mkdir -p "$dir" 2>/dev/null || return 0
+
+    # Empty means the write happened outside the vault (sibling repo work):
+    # stay silent there.
+    local rel_path; rel_path="$(_ckpt_rel_path "$file_path" || true)"
+    if [ -z "$rel_path" ]; then return 0; fi
+
+    printf '%s\n' "$rel_path" >> "$dir/files" 2>/dev/null || true
+
+    case "$rel_path" in
+        workspace/*/*|tasks/*/*)
+            # Reset both counters. Clearing `turns` alone would leave the last
+            # nudge's turn number behind, so the next nudge would wait two
+            # thresholds instead of one, and drift further with every nudge.
+            printf '0' > "$dir/turns" 2>/dev/null || true
+            printf '0' > "$dir/nudged" 2>/dev/null || true
+            # PostToolUse and Stop both fire within the same assistant turn,
+            # so without this marker the Stop that closes a turn containing a
+            # write would immediately count that turn as idle, and the
+            # threshold would effectively be one turn short.
+            : > "$dir/wrote_this_turn" 2>/dev/null || true
+            ;;
+    esac
+    return 0
+}
+
+_ckpt_on_stop() {
+    # Stop. Counts turns since the last artifact write. Side effects only:
+    # anything this hook prints on Stop is treated as feedback and continues
+    # the conversation, which would spend an extra model turn every time the
+    # counter crossed the threshold. The reminder is delivered from
+    # `on-prompt` instead, where it rides along with a turn the user asked
+    # for anyway.
+    local json; json="$(cat)"
+    local session_id
+    session_id="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
+    if [ -z "$session_id" ]; then return 0; fi
+
+    local dir; dir="$(_ckpt_state_dir "$session_id" || true)"
+    if [ -z "$dir" ] || [ ! -d "$dir" ]; then return 0; fi
+
+    # A turn that contained a write is not idle. Consume the marker instead of
+    # counting this Stop, so counting starts from the next turn.
+    if [ -f "$dir/wrote_this_turn" ]; then
+        rm -f "$dir/wrote_this_turn" 2>/dev/null || true
+        printf '0' > "$dir/turns" 2>/dev/null || true
+        return 0
+    fi
+
+    local turns=0
+    if [ -f "$dir/turns" ]; then turns="$(cat "$dir/turns" 2>/dev/null || echo 0)"; fi
+    case "$turns" in ''|*[!0-9]*) turns=0 ;; esac
+    turns=$((turns + 1))
+    printf '%s' "$turns" > "$dir/turns" 2>/dev/null || true
+    return 0
+}
+
+_ckpt_on_prompt() {
+    # UserPromptSubmit. Carries the reminder when the conversation has been
+    # running without leaving a trace. This event injects context alongside a
+    # prompt the user just sent, so it costs no extra turn and interrupts
+    # nothing — the property the Stop event does not offer.
+    local json; json="$(cat)"
+    local session_id
+    session_id="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
+    if [ -z "$session_id" ]; then return 0; fi
+
+    local dir; dir="$(_ckpt_state_dir "$session_id" || true)"
+    if [ -z "$dir" ] || [ ! -d "$dir" ]; then return 0; fi
+
+    local unit; unit="$(_ckpt_work_unit "$dir/files" || true)"
+    if [ -z "$unit" ]; then return 0; fi
+
+    local threshold="${RILL_CKPT_NUDGE_AFTER:-5}"
+    case "$threshold" in ''|*[!0-9]*) threshold=5 ;; esac
+
+    local turns=0
+    if [ -f "$dir/turns" ]; then turns="$(cat "$dir/turns" 2>/dev/null || echo 0)"; fi
+    case "$turns" in ''|*[!0-9]*) turns=0 ;; esac
+
+    local nudged=0
+    if [ -f "$dir/nudged" ]; then nudged="$(cat "$dir/nudged" 2>/dev/null || echo 0)"; fi
+    case "$nudged" in ''|*[!0-9]*) nudged=0 ;; esac
+
+    if [ "$turns" -lt "$threshold" ]; then return 0; fi
+    if [ $((turns - nudged)) -lt "$threshold" ]; then return 0; fi
+    printf '%s' "$turns" > "$dir/nudged" 2>/dev/null || true
+
+    jq -cn --arg u "$unit" --arg n "$turns" '{
+        hookSpecificOutput: {
+            hookEventName: "UserPromptSubmit",
+            additionalContext: ("Rill: \($n) turns without writing an artifact in \($u). If this conversation produced analysis, decisions, or research worth keeping, write it to a file and update the state file of that work unit, so the next session can pick it up.")
+        }
+    }' 2>/dev/null || true
+    return 0
+}
+
+_ckpt_on_end() {
+    # SessionEnd and PreCompact. Append a mechanical checkpoint, then drop the
+    # session's scratch directory when the session is actually over. Cleanup
+    # runs regardless of which early return the write took, otherwise every
+    # session would leave its path history behind in $TMPDIR forever.
+    local json; json="$(cat)"
+    local sid ev dir
+    sid="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
+    ev="$(printf '%s' "$json" | jq -r '.hook_event_name // empty' 2>/dev/null || true)"
+
+    printf '%s' "$json" | _ckpt_write_checkpoint || true
+
+    if [ "$ev" = "SessionEnd" ] && [ -n "$sid" ]; then
+        dir="$(_ckpt_state_dir "$sid" || true)"
+        case "$dir" in
+            */rill-ckpt-?*) rm -rf "$dir" 2>/dev/null || true ;;
+        esac
+    fi
+    return 0
+}
+
+_ckpt_write_checkpoint() {
+    # Append the checkpoint entry for the active work unit, if there is one.
+    local json; json="$(cat)"
+    local session_id reason event
+    session_id="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
+    if [ -z "$session_id" ] || [ -z "${RILL_HOME:-}" ]; then return 0; fi
+    event="$(printf '%s' "$json" | jq -r '.hook_event_name // "checkpoint"' 2>/dev/null || true)"
+    # SessionEnd carries `reason`; PreCompact carries `trigger`.
+    reason="$(printf '%s' "$json" | jq -r '.reason // .trigger // empty' 2>/dev/null || true)"
+
+    local dir; dir="$(_ckpt_state_dir "$session_id" || true)"
+    if [ -z "$dir" ] || [ ! -d "$dir" ]; then return 0; fi
+
+    local home_phys; home_phys="$(cd "$RILL_HOME" 2>/dev/null && pwd -P || true)"
+    if [ -z "$home_phys" ]; then return 0; fi
+
+    local unit; unit="$(_ckpt_work_unit "$dir/files" || true)"
+    if [ -z "$unit" ] || [ ! -d "$home_phys/$unit" ]; then return 0; fi
+
+    # Only workspaces get a checkpoint file. `_log.md` is part of the
+    # workspace layout; the task layout defines `_task.md` plus numbered
+    # artifacts created through `rill mkfile`, so writing an unnumbered
+    # `_log.md` there would put a file outside the schema. Task continuity
+    # already has a home in `## Current Position` inside `_task.md`. Tasks
+    # still get the on-stop nudge, which writes nothing.
+    case "$unit" in
+        workspace/*) ;;
+        *) return 0 ;;
+    esac
+
+    local touched
+    touched="$(sort -u "$dir/files" 2>/dev/null | tr '\n' ' ' | sed 's/ $//' || true)"
+
+    # PreCompact immediately followed by SessionEnd would otherwise write the
+    # same state twice. Skip when nothing changed since the last checkpoint.
+    #
+    # Three inputs, because each covers a gap the others leave:
+    #   - the unit, so returning to an earlier work unit still checkpoints
+    #   - the write generation (raw line count, not the deduplicated list),
+    #     so re-editing files already listed still counts as progress
+    #   - the touched set, for everything else
+    local generation=0
+    if [ -f "$dir/files" ]; then
+        generation="$(wc -l < "$dir/files" 2>/dev/null || echo 0)"
+    fi
+    generation="${generation// /}"
+    local fingerprint
+    fingerprint="$(printf '%s|%s|%s' "$unit" "$generation" "$touched" | cksum 2>/dev/null | cut -d' ' -f1 || true)"
+    if [ -f "$dir/last" ] && [ "$(cat "$dir/last" 2>/dev/null || true)" = "$fingerprint" ]; then
+        return 0
+    fi
+
+    local log_file="$home_phys/$unit/_log.md"
+    local unit_id; unit_id="$(basename "$unit")"
+    _ckpt_ensure_log "$log_file" "$unit_id" || return 0
+
+    # One entry, one write. Separate echoes are separate writes even under
+    # O_APPEND, so two sessions ending in the same workspace could interleave
+    # a heading with the other's fields.
+    local entry
+    entry="## $(_activity_log_timestamp) — checkpoint (${event}${reason:+: $reason})"
+    entry="${entry}"$'\n\n'"- session: ${session_id}"
+    if [ -n "$touched" ]; then entry="${entry}"$'\n'"- touched: ${touched}"; fi
+    entry="${entry}"$'\n\n'
+
+    if printf '%s' "$entry" >> "$log_file" 2>/dev/null; then
+        # Only now. Recording the fingerprint before the append would let a
+        # transient write failure at PreCompact suppress the SessionEnd
+        # checkpoint as a duplicate, losing the entry for good even though
+        # the second attempt would have succeeded.
+        printf '%s' "$fingerprint" > "$dir/last" 2>/dev/null || true
+    fi
+    return 0
+}
+
+cmd_checkpoint() {
+    local subcmd="${1:-}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        track)     _ckpt_track ;;
+        on-stop)   _ckpt_on_stop ;;
+        on-prompt) _ckpt_on_prompt ;;
+        on-end)    _ckpt_on_end ;;
+        *)
+            echo "Usage: rill checkpoint [track|on-stop|on-prompt|on-end]" >&2
+            return 1
+            ;;
+    esac
+    return 0
+}
+
 cmd_activity_log() {
     local subcmd="${1:-}"
     shift 2>/dev/null || true
@@ -2421,17 +2763,31 @@ cmd_codex_hook() {
                 if [ "$event" = "pre-write" ]; then
                     cmd_guard "$path" || return $?
                 else
-                    synthetic="$(jq -cn --arg p "$path" '{tool_input:{file_path:$p}}')"
+                    # Carry the session id through: `rill checkpoint` keys its
+                    # per-session state on it, and without it the checkpoint
+                    # hooks would silently do nothing under Codex.
+                    local sid
+                    sid="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
+                    synthetic="$(jq -cn --arg p "$path" --arg s "$sid" \
+                        '{session_id: $s, tool_input:{file_path:$p}}')"
                     printf '%s' "$synthetic" | cmd_activity_log on-write
                     printf '%s' "$synthetic" | cmd_touch
+                    printf '%s' "$synthetic" | cmd_checkpoint track
                 fi
             done <<< "$paths"
             ;;
         prompt)
             printf '%s' "$json" | cmd_activity_log on-prompt
+            printf '%s' "$json" | cmd_checkpoint on-prompt
             ;;
         stop)
             printf '%s' "$json" | cmd_activity_log on-stop
+            # Codex exposes no SessionEnd or PreCompact event, so the
+            # checkpoint file itself has no trigger here — only the nudge,
+            # which keeps artifacts getting written while the session runs.
+            # A Codex session's state therefore lands through the artifacts
+            # the model writes, not through _log.md.
+            printf '%s' "$json" | cmd_checkpoint on-stop
             ;;
         *)
             echo "Usage: rill codex-hook [pre-write|post-write|prompt|stop]" >&2
@@ -5390,6 +5746,7 @@ Agent helpers — invoked by skills inside your vault, not typed manually:
   task "title"          Create a task ticket file (ADR-063)
   touch                 Update frontmatter \`updated\` field (PostToolUse hook)
   activity-log          Activity log management (on-write, on-prompt, on-stop, add)
+  checkpoint            Session state durability hooks (track, on-stop, on-prompt, on-end)
   strip-entity-tags     Move entity IDs from tags to mentions (deterministic)
   pages-pending-update  Match new sources to pages via mentions/tags
   context-map           Emit deterministic shared context (entity maps + Tier dict)
@@ -5480,6 +5837,7 @@ case "${1:-help}" in
     open)   shift; cmd_open "$@" ;;
     activity-log) shift; cmd_activity_log "$@" ;;
     touch) shift; cmd_touch "$@" ;;
+    checkpoint) shift; cmd_checkpoint "$@" ;;
     mkfile) shift; cmd_mkfile "$@" ;;
     strip-entity-tags) shift; cmd_strip_entity_tags "$@" ;;
     pages-pending-update) shift; cmd_pages_pending_update "$@" ;;
