@@ -1585,40 +1585,6 @@ _ckpt_work_unit() {
     printf '%s' "$unit"
 }
 
-_ckpt_last_assistant_message() {
-    # Pull the final assistant text turn out of the transcript. Best effort:
-    # the transcript format is the harness's, not ours, so a miss is fine.
-    #
-    # Off unless RILL_CKPT_EXCERPT=1. Contact details belong only in
-    # knowledge/people/ and knowledge/orgs/, and a checkpoint under
-    # workspace/ is neither. Pattern-based redaction of free text cannot
-    # guarantee that: every pass finds another separator or another token
-    # shape it did not know about. So the default carries no free text at
-    # all, which makes the invariant structural rather than best-effort,
-    # and the excerpt is an explicit opt-in for whoever owns the vault.
-    [ "${RILL_CKPT_EXCERPT:-0}" = "1" ] || return 0
-
-    local transcript="$1"
-    [ -f "$transcript" ] || return 0
-    tail -n 400 "$transcript" 2>/dev/null | jq -rs '
-        [ .[]
-          | select(.type? == "assistant")
-          | .message?.content?
-          | if type == "array" then (map(select(.type? == "text") | .text) | join(" ")) else . end
-          | select(type == "string" and length > 0)
-        ] | last // empty
-    ' 2>/dev/null | tr '\n' ' ' | sed -E \
-        -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[redacted-email]/g' \
-        -e 's/(sk|pk|ghp|gho|ghu|ghs|github_pat|glpat|gldt|xoxb|xoxp|xoxa|xoxr|xapp|hf|npm|dckr_pat|shpat|shpss|rk_live|sk_live|pk_live)[-_][A-Za-z0-9_-]{10,}/[redacted-token]/g' \
-        -e 's/(AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA|APKA)[A-Z0-9]{12,}/[redacted-token]/g' \
-        -e 's/AIza[A-Za-z0-9_-]{10,}/[redacted-token]/g' \
-        -e 's/-----BEGIN[A-Z ]*PRIVATE KEY-----/[redacted-token]/g' \
-        -e 's/[A-Za-z0-9_-]{40,}/[redacted-token]/g' \
-        -e 's/\+?[0-9][0-9()._\/-]{8,}[0-9]/[redacted-number]/g' \
-        -e 's/\+?[0-9]([0-9()._\/-]| ){8,}[0-9]/[redacted-number]/g' \
-        | cut -c1-300
-}
-
 _ckpt_ensure_log() {
     # Create {unit}/_log.md with frontmatter when absent. The CLI is the
     # authoritative issuer of `created` (the prohibition is on LLMs writing
@@ -1653,6 +1619,9 @@ _ckpt_ensure_log() {
     } > "$tmp" 2>/dev/null || { rm -f "$tmp" 2>/dev/null || true; return 0; }
     ln "$tmp" "$log_file" 2>/dev/null || true
     rm -f "$tmp" 2>/dev/null || true
+    # A filesystem without hard links leaves the target missing. Report that,
+    # so the caller does not append a body to a file with no frontmatter.
+    [ -f "$log_file" ] || return 1
     return 0
 }
 
@@ -1790,10 +1759,9 @@ _ckpt_on_end() {
 _ckpt_write_checkpoint() {
     # Append the checkpoint entry for the active work unit, if there is one.
     local json; json="$(cat)"
-    local session_id transcript reason event
+    local session_id reason event
     session_id="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
     if [ -z "$session_id" ] || [ -z "${RILL_HOME:-}" ]; then return 0; fi
-    transcript="$(printf '%s' "$json" | jq -r '.transcript_path // empty' 2>/dev/null || true)"
     event="$(printf '%s' "$json" | jq -r '.hook_event_name // "checkpoint"' 2>/dev/null || true)"
     # SessionEnd carries `reason`; PreCompact carries `trigger`.
     reason="$(printf '%s' "$json" | jq -r '.reason // .trigger // empty' 2>/dev/null || true)"
@@ -1818,9 +1786,8 @@ _ckpt_write_checkpoint() {
         *) return 0 ;;
     esac
 
-    local touched last_msg
+    local touched
     touched="$(sort -u "$dir/files" 2>/dev/null | tr '\n' ' ' | sed 's/ $//' || true)"
-    last_msg="$(_ckpt_last_assistant_message "$transcript" || true)"
 
     # PreCompact immediately followed by SessionEnd would otherwise write the
     # same state twice. Skip when nothing changed since the last checkpoint.
@@ -1829,14 +1796,14 @@ _ckpt_write_checkpoint() {
     #   - the unit, so returning to an earlier work unit still checkpoints
     #   - the write generation (raw line count, not the deduplicated list),
     #     so re-editing files already listed still counts as progress
-    #   - the touched set and the excerpt, for everything else
+    #   - the touched set, for everything else
     local generation=0
     if [ -f "$dir/files" ]; then
         generation="$(wc -l < "$dir/files" 2>/dev/null || echo 0)"
     fi
     generation="${generation// /}"
     local fingerprint
-    fingerprint="$(printf '%s|%s|%s|%s' "$unit" "$generation" "$touched" "$last_msg" | cksum 2>/dev/null | cut -d' ' -f1 || true)"
+    fingerprint="$(printf '%s|%s|%s' "$unit" "$generation" "$touched" | cksum 2>/dev/null | cut -d' ' -f1 || true)"
     if [ -f "$dir/last" ] && [ "$(cat "$dir/last" 2>/dev/null || true)" = "$fingerprint" ]; then
         return 0
     fi
@@ -1845,14 +1812,16 @@ _ckpt_write_checkpoint() {
     local unit_id; unit_id="$(basename "$unit")"
     _ckpt_ensure_log "$log_file" "$unit_id" || return 0
 
-    if {
-        echo "## $(_activity_log_timestamp) — checkpoint (${event}${reason:+: $reason})"
-        echo ""
-        echo "- session: ${session_id}"
-        if [ -n "$touched" ]; then echo "- touched: ${touched}"; fi
-        if [ -n "$last_msg" ]; then echo "- last message: ${last_msg}"; fi
-        echo ""
-    } >> "$log_file" 2>/dev/null; then
+    # One entry, one write. Separate echoes are separate writes even under
+    # O_APPEND, so two sessions ending in the same workspace could interleave
+    # a heading with the other's fields.
+    local entry
+    entry="## $(_activity_log_timestamp) — checkpoint (${event}${reason:+: $reason})"
+    entry="${entry}"$'\n\n'"- session: ${session_id}"
+    if [ -n "$touched" ]; then entry="${entry}"$'\n'"- touched: ${touched}"; fi
+    entry="${entry}"$'\n\n'
+
+    if printf '%s' "$entry" >> "$log_file" 2>/dev/null; then
         # Only now. Recording the fingerprint before the append would let a
         # transient write failure at PreCompact suppress the SessionEnd
         # checkpoint as a duplicate, losing the entry for good even though

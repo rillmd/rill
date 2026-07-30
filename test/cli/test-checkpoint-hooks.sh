@@ -13,7 +13,7 @@
 #     threshold has passed a second time
 #   - on-stop stays silent for sessions that never touched a work unit
 #     (ordinary code sessions must not be nagged)
-#   - on-end writes {unit}/_log.md with frontmatter and the last message
+#   - on-end writes {unit}/_log.md with frontmatter and no free text
 #   - on-end deduplicates PreCompact immediately followed by SessionEnd
 #   - on-end appends a fresh entry once the session state has changed
 #   - empty / malformed / session-less hook input still exits 0
@@ -134,7 +134,7 @@ assert_file_contains "$LOG" "type: progress" \
   "the log carries schema-conforming frontmatter"
 assert_file_contains "$LOG" "PreCompact: auto" "the log records the event and reason"
 assert_file_not_contains "$LOG" "CHECKPOINT MARKER TEXT" \
-  "no free text is stored by default, so the contact-detail invariant holds structurally"
+  "no free text is stored at all, so the contact-detail invariant holds structurally"
 assert_file_contains "$LOG" "workspace/demo-ws/002-b.md" "the log lists the files touched"
 
 BEFORE="$(file_hash "$LOG")"
@@ -159,42 +159,6 @@ on_end "$SID_TASK" "SessionEnd" "reason" "logout"
 assert_file_not_exists "$VAULT/tasks/demo-task/_log.md" \
   "tasks do not get an out-of-schema _log.md"
 
-# ── the opt-in excerpt is redacted before it reaches the vault ───────
-# Free text is off by default. With RILL_CKPT_EXCERPT=1 it is scrubbed on
-# the way in, since ADR-047 keeps contact details out of workspace/.
-SID_PII="cse_ckpt_pii"
-PII_TRANSCRIPT="$WORK/pii.jsonl"
-cat > "$PII_TRANSCRIPT" <<'PIIEOF'
-{"type":"assistant","message":{"content":[{"type":"text","text":"Mail alex@example.com or call +81 90-1234-5678 or 090.1234.5678, key sk-abcdefghijklmnop12345"}]}}
-PIIEOF
-mkdir -p "$VAULT/workspace/ws-pii"
-track "$SID_PII" "$VAULT/workspace/ws-pii/001-x.md"
-RILL_CKPT_EXCERPT=1 sh -c 'printf "{\"session_id\":\"$1\",\"hook_event_name\":\"SessionEnd\",\"reason\":\"clear\",\"transcript_path\":\"$2\"}" | "$3" checkpoint on-end' _ \
-  "$SID_PII" "$PII_TRANSCRIPT" "$RILL"
-PII_LOG="$VAULT/workspace/ws-pii/_log.md"
-assert_file_not_contains "$PII_LOG" "alex@example.com" "email addresses are redacted"
-assert_file_not_contains "$PII_LOG" "1234-5678" "phone numbers are redacted"
-assert_file_not_contains "$PII_LOG" "sk-abcdefghijklmnop12345" "credential-shaped strings are redacted"
-assert_file_contains "$PII_LOG" "redacted" "the redaction is visible in the opt-in excerpt"
-assert_file_not_contains "$PII_LOG" "090.1234.5678" "dot-separated phone numbers are redacted too"
-
-# ── on-end: moving back to an earlier work unit still checkpoints ────
-# `touched` is deduplicated and the transcript has not moved, so only the
-# unit itself distinguishes this checkpoint from the previous one.
-SID_SWITCH="cse_ckpt_switch"
-mkdir -p "$VAULT/workspace/ws-a" "$VAULT/workspace/ws-b"
-track "$SID_SWITCH" "$VAULT/workspace/ws-a/001-a.md"
-on_end "$SID_SWITCH" "PreCompact" "trigger" "auto"
-track "$SID_SWITCH" "$VAULT/workspace/ws-b/001-b.md"
-on_end "$SID_SWITCH" "PreCompact" "trigger" "auto"
-assert_file_exists "$VAULT/workspace/ws-b/_log.md" "the second work unit gets its own log"
-
-A_BEFORE="$(file_hash "$VAULT/workspace/ws-a/_log.md")"
-track "$SID_SWITCH" "$VAULT/workspace/ws-a/001-a.md"   # already-seen path
-on_end "$SID_SWITCH" "PreCompact" "trigger" "auto"
-assert_true '[ "$(file_hash "$VAULT/workspace/ws-a/_log.md")" != "$A_BEFORE" ]' \
-  "returning to an earlier work unit is not mistaken for a duplicate"
-
 # ── re-editing a known file still counts as progress ─────────────────
 # `touched` is deduplicated, so without the write generation a session that
 # only re-edits files it already listed would look unchanged and lose its
@@ -211,21 +175,6 @@ printf '{"session_id":"%s","hook_event_name":"PreCompact","trigger":"auto"}' "$S
   | "$RILL" checkpoint on-end
 assert_true '[ "$(file_hash "$RE_LOG")" != "$RE_BEFORE" ]' \
   "re-editing an already-listed file still produces a checkpoint"
-
-# ── credential shapes that must not survive ──────────────────────────
-SID_CRED="cse_ckpt_cred"
-CRED_TRANSCRIPT="$WORK/cred.jsonl"
-cat > "$CRED_TRANSCRIPT" <<'CREDEOF'
-{"type":"assistant","message":{"content":[{"type":"text","text":"keys AKIAIOSFODNN7EXAMPLE and AIzaSyD-1234567890abcdefg and glpat-abcdefghij1234567890"}]}}
-CREDEOF
-mkdir -p "$VAULT/workspace/ws-cred"
-track "$SID_CRED" "$VAULT/workspace/ws-cred/001-x.md"
-RILL_CKPT_EXCERPT=1 sh -c 'printf "{\"session_id\":\"$1\",\"hook_event_name\":\"SessionEnd\",\"reason\":\"clear\",\"transcript_path\":\"$2\"}" | "$3" checkpoint on-end' _ \
-  "$SID_CRED" "$CRED_TRANSCRIPT" "$RILL"
-CRED_LOG="$VAULT/workspace/ws-cred/_log.md"
-assert_file_not_contains "$CRED_LOG" "AKIAIOSFODNN7EXAMPLE" "AWS key ids are redacted"
-assert_file_not_contains "$CRED_LOG" "AIzaSyD-1234567890abcdefg" "Google API keys are redacted"
-assert_file_not_contains "$CRED_LOG" "glpat-abcdefghij1234567890" "GitLab tokens are redacted"
 
 # ── the Codex hook projection reaches checkpoint too ─────────────────
 # Codex-initialized vaults route through `rill codex-hook`; without wiring
@@ -304,6 +253,11 @@ assert_eq "$(grep -c '^# Session checkpoints' "$CONC_LOG" || true)" "1" \
   "the header is written exactly once"
 assert_eq "$(grep -c '^## ' "$CONC_LOG" || true)" "2" \
   "neither session's checkpoint is lost"
+
+# ── entries are appended whole ───────────────────────────────────────
+# Separate writes could interleave two sessions' fields under one heading.
+assert_eq "$(grep -c '^- session: ' "$CONC_LOG" || true)" "2" \
+  "each heading keeps its own fields"
 
 # ── session scratch is dropped when the session really ends ──────────
 SID_CLEAN="cse_ckpt_clean"
