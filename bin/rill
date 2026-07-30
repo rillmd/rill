@@ -1606,7 +1606,10 @@ _ckpt_last_assistant_message() {
         ] | last // empty
     ' 2>/dev/null | tr '\n' ' ' | sed -E \
         -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[redacted-email]/g' \
-        -e 's/(sk|pk|ghp|gho|ghu|ghs|github_pat|xoxb|xoxp|xoxa|xoxr)[-_][A-Za-z0-9_-]{10,}/[redacted-token]/g' \
+        -e 's/(sk|pk|ghp|gho|ghu|ghs|github_pat|glpat|gldt|xoxb|xoxp|xoxa|xoxr|xapp|hf|npm|dckr_pat|shpat|shpss|rk_live|sk_live|pk_live)[-_][A-Za-z0-9_-]{10,}/[redacted-token]/g' \
+        -e 's/(AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA|APKA)[A-Z0-9]{12,}/[redacted-token]/g' \
+        -e 's/AIza[A-Za-z0-9_-]{10,}/[redacted-token]/g' \
+        -e 's/-----BEGIN[A-Z ]*PRIVATE KEY-----/[redacted-token]/g' \
         -e 's/[A-Za-z0-9_-]{40,}/[redacted-token]/g' \
         -e 's/\+?[0-9][0-9()•-]{8,}[0-9]/[redacted-number]/g' \
         -e 's/\+?[0-9]([0-9()-]| ){8,}[0-9]/[redacted-number]/g' \
@@ -1750,11 +1753,19 @@ _ckpt_on_end() {
 
     # PreCompact immediately followed by SessionEnd would otherwise write the
     # same state twice. Skip when nothing changed since the last checkpoint.
-    # The unit is part of the fingerprint: a session that moves back to an
-    # earlier work unit leaves `touched` (deduplicated) and the last message
-    # unchanged, and that unit's log still needs its own checkpoint.
+    #
+    # Three inputs, because each covers a gap the others leave:
+    #   - the unit, so returning to an earlier work unit still checkpoints
+    #   - the write generation (raw line count, not the deduplicated list),
+    #     so re-editing files already listed still counts as progress
+    #   - the touched set and the excerpt, for everything else
+    local generation=0
+    if [ -f "$dir/files" ]; then
+        generation="$(wc -l < "$dir/files" 2>/dev/null || echo 0)"
+    fi
+    generation="${generation// /}"
     local fingerprint
-    fingerprint="$(printf '%s|%s|%s' "$unit" "$touched" "$last_msg" | cksum 2>/dev/null | cut -d' ' -f1 || true)"
+    fingerprint="$(printf '%s|%s|%s|%s' "$unit" "$generation" "$touched" "$last_msg" | cksum 2>/dev/null | cut -d' ' -f1 || true)"
     if [ -f "$dir/last" ] && [ "$(cat "$dir/last" 2>/dev/null || true)" = "$fingerprint" ]; then
         return 0
     fi
@@ -2706,9 +2717,16 @@ cmd_codex_hook() {
                 if [ "$event" = "pre-write" ]; then
                     cmd_guard "$path" || return $?
                 else
-                    synthetic="$(jq -cn --arg p "$path" '{tool_input:{file_path:$p}}')"
+                    # Carry the session id through: `rill checkpoint` keys its
+                    # per-session state on it, and without it the checkpoint
+                    # hooks would silently do nothing under Codex.
+                    local sid
+                    sid="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
+                    synthetic="$(jq -cn --arg p "$path" --arg s "$sid" \
+                        '{session_id: $s, tool_input:{file_path:$p}}')"
                     printf '%s' "$synthetic" | cmd_activity_log on-write
                     printf '%s' "$synthetic" | cmd_touch
+                    printf '%s' "$synthetic" | cmd_checkpoint track
                 fi
             done <<< "$paths"
             ;;
@@ -2717,6 +2735,12 @@ cmd_codex_hook() {
             ;;
         stop)
             printf '%s' "$json" | cmd_activity_log on-stop
+            # Codex exposes no SessionEnd or PreCompact event, so the
+            # checkpoint file itself has no trigger here — only the nudge,
+            # which keeps artifacts getting written while the session runs.
+            # A Codex session's state therefore lands through the artifacts
+            # the model writes, not through _log.md.
+            printf '%s' "$json" | cmd_checkpoint on-stop
             ;;
         *)
             echo "Usage: rill codex-hook [pre-write|post-write|prompt|stop]" >&2

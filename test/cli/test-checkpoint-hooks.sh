@@ -179,6 +179,48 @@ on_end "$SID_SWITCH" "PreCompact" "trigger" "auto"
 assert_true '[ "$(file_hash "$VAULT/workspace/ws-a/_log.md")" != "$A_BEFORE" ]' \
   "returning to an earlier work unit is not mistaken for a duplicate"
 
+# ── re-editing a known file still counts as progress ─────────────────
+# `touched` is deduplicated, so without the write generation a session that
+# only re-edits files it already listed would look unchanged and lose its
+# SessionEnd checkpoint.
+SID_REEDIT="cse_ckpt_reedit"
+mkdir -p "$VAULT/workspace/ws-re"
+track "$SID_REEDIT" "$VAULT/workspace/ws-re/001-a.md"
+printf '{"session_id":"%s","hook_event_name":"SessionEnd","reason":"clear"}' "$SID_REEDIT" \
+  | "$RILL" checkpoint on-end
+RE_LOG="$VAULT/workspace/ws-re/_log.md"
+RE_BEFORE="$(file_hash "$RE_LOG")"
+track "$SID_REEDIT" "$VAULT/workspace/ws-re/001-a.md"   # same path again
+printf '{"session_id":"%s","hook_event_name":"SessionEnd","reason":"clear"}' "$SID_REEDIT" \
+  | "$RILL" checkpoint on-end
+assert_true '[ "$(file_hash "$RE_LOG")" != "$RE_BEFORE" ]' \
+  "re-editing an already-listed file still produces a checkpoint"
+
+# ── credential shapes that must not survive ──────────────────────────
+SID_CRED="cse_ckpt_cred"
+CRED_TRANSCRIPT="$WORK/cred.jsonl"
+cat > "$CRED_TRANSCRIPT" <<'CREDEOF'
+{"type":"assistant","message":{"content":[{"type":"text","text":"keys AKIAIOSFODNN7EXAMPLE and AIzaSyD-1234567890abcdefg and glpat-abcdefghij1234567890"}]}}
+CREDEOF
+mkdir -p "$VAULT/workspace/ws-cred"
+track "$SID_CRED" "$VAULT/workspace/ws-cred/001-x.md"
+printf '{"session_id":"%s","hook_event_name":"SessionEnd","reason":"clear","transcript_path":"%s"}' \
+  "$SID_CRED" "$CRED_TRANSCRIPT" | "$RILL" checkpoint on-end
+CRED_LOG="$VAULT/workspace/ws-cred/_log.md"
+assert_file_not_contains "$CRED_LOG" "AKIAIOSFODNN7EXAMPLE" "AWS key ids are redacted"
+assert_file_not_contains "$CRED_LOG" "AIzaSyD-1234567890abcdefg" "Google API keys are redacted"
+assert_file_not_contains "$CRED_LOG" "glpat-abcdefghij1234567890" "GitLab tokens are redacted"
+
+# ── the Codex hook projection reaches checkpoint too ─────────────────
+# Codex-initialized vaults route through `rill codex-hook`; without wiring
+# there the feature would be Claude-only.
+SID_CODEX="cse_ckpt_codex"
+mkdir -p "$VAULT/workspace/ws-codex"
+printf '{"session_id":"%s","tool_input":{"file_path":"%s"}}' \
+  "$SID_CODEX" "$VAULT/workspace/ws-codex/001-a.md" | "$RILL" codex-hook post-write >/dev/null 2>&1
+assert_file_contains "$STATE_ROOT/rill-ckpt-$SID_CODEX/files" "workspace/ws-codex/001-a.md" \
+  "the Codex post-write hook feeds checkpoint track"
+
 # ── RILL_HOME shapes that must still resolve ─────────────────────────
 # resolve_rill_home returns $RILL_HOME verbatim, so a trailing slash, a
 # relative path or a symlinked vault all reach the hooks as-is. A plain
