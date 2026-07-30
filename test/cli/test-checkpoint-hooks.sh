@@ -117,7 +117,8 @@ assert_eq "$(count_nudges "$SID_NOWORK" 7)" "0" \
 on_end "$SID" "PreCompact" "trigger" "auto"
 LOG="$VAULT/workspace/demo-ws/_log.md"
 assert_file_exists "$LOG" "on-end creates {unit}/_log.md"
-assert_file_contains "$LOG" "type: log" "the log carries frontmatter"
+assert_file_contains "$LOG" "type: progress" \
+  "the log carries schema-conforming frontmatter"
 assert_file_contains "$LOG" "PreCompact: auto" "the log records the event and reason"
 assert_file_contains "$LOG" "CHECKPOINT MARKER TEXT" "the log captures the last assistant message"
 assert_file_contains "$LOG" "workspace/demo-ws/002-b.md" "the log lists the files touched"
@@ -154,6 +155,37 @@ track "$SID_SWITCH" "$VAULT/workspace/ws-a/001-a.md"   # already-seen path
 on_end "$SID_SWITCH" "PreCompact" "trigger" "auto"
 assert_true '[ "$(file_hash "$VAULT/workspace/ws-a/_log.md")" != "$A_BEFORE" ]' \
   "returning to an earlier work unit is not mistaken for a duplicate"
+
+# ── RILL_HOME shapes that must still resolve ─────────────────────────
+# resolve_rill_home returns $RILL_HOME verbatim, so a trailing slash, a
+# relative path or a symlinked vault all reach the hooks as-is. A plain
+# prefix strip would classify every write as external and silence
+# everything, so each shape is pinned here.
+SID_HOME="cse_ckpt_home"
+(
+  export RILL_HOME="$VAULT/"
+  track "$SID_HOME" "$VAULT/workspace/demo-ws/010-slash.md"
+)
+assert_file_contains "$STATE_ROOT/rill-ckpt-$SID_HOME/files" "workspace/demo-ws/010-slash.md" \
+  "a trailing slash in RILL_HOME still resolves in-vault writes"
+
+SID_REL="cse_ckpt_rel"
+(
+  cd "$WORK"
+  export RILL_HOME="vault"
+  track "$SID_REL" "$VAULT/workspace/demo-ws/011-rel.md"
+)
+assert_file_contains "$STATE_ROOT/rill-ckpt-$SID_REL/files" "workspace/demo-ws/011-rel.md" \
+  "a relative RILL_HOME still resolves in-vault writes"
+
+SID_LINK="cse_ckpt_link"
+ln -s "$VAULT" "$WORK/linked-vault"
+(
+  export RILL_HOME="$WORK/linked-vault"
+  track "$SID_LINK" "$VAULT/workspace/demo-ws/012-link.md"
+)
+assert_file_contains "$STATE_ROOT/rill-ckpt-$SID_LINK/files" "workspace/demo-ws/012-link.md" \
+  "a symlinked RILL_HOME still resolves in-vault writes"
 
 # ── on-end: no work unit means no file ───────────────────────────────
 on_end "$SID_NOWORK" "SessionEnd" "reason" "clear"

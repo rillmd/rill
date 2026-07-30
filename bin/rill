@@ -1527,6 +1527,43 @@ _ckpt_state_dir() {
     printf '%s/rill-ckpt-%s' "${TMPDIR:-/tmp}" "$safe"
 }
 
+_ckpt_rel_path() {
+    # Vault-relative path for an absolute hook file_path, or empty when the
+    # write happened outside the vault. `resolve_rill_home` hands back
+    # $RILL_HOME verbatim, so it may carry a trailing slash, be relative, or
+    # reach the vault through a symlink; a plain prefix strip would then treat
+    # every write as external and silence the hooks entirely. Resolve both
+    # sides to physical absolute paths before comparing.
+    local file_path="$1"
+    [ -n "$file_path" ] || return 0
+    [ -n "${RILL_HOME:-}" ] || return 0
+
+    local home_phys file_dir file_dir_phys
+    home_phys="$(cd "$RILL_HOME" 2>/dev/null && pwd -P || true)"
+    [ -n "$home_phys" ] || return 0
+
+    file_dir="$(dirname "$file_path")"
+    file_dir_phys="$(cd "$file_dir" 2>/dev/null && pwd -P || true)"
+    # The file's directory may not exist (a write that failed, or a path the
+    # harness reported without creating). Fall back to a literal comparison.
+    if [ -z "$file_dir_phys" ]; then
+        case "$file_path" in
+            "$home_phys"/*) printf '%s' "${file_path#"$home_phys"/}" ;;
+        esac
+        return 0
+    fi
+
+    local base; base="$(basename "$file_path")"
+    if [ "$file_dir_phys" = "$home_phys" ]; then
+        printf '%s' "$base"
+        return 0
+    fi
+    case "$file_dir_phys" in
+        "$home_phys"/*) printf '%s/%s' "${file_dir_phys#"$home_phys"/}" "$base" ;;
+    esac
+    return 0
+}
+
 _ckpt_work_unit() {
     # Resolve the active work unit from files written this session: the most
     # recent path under workspace/{id}/ or tasks/{slug}/. Empty when the
@@ -1567,12 +1604,17 @@ _ckpt_ensure_log() {
     # Create {unit}/_log.md with frontmatter when absent. The CLI is the
     # authoritative issuer of `created` (the prohibition is on LLMs writing
     # it by hand, not on rill).
+    #
+    # `type: progress` rather than a new `log` type: the data model admits
+    # research | progress | analysis | decision | review for artifacts, and a
+    # checkpoint trail is a progress record. Inventing a type here would put
+    # vault frontmatter outside the schema.
     local log_file="$1" unit_id="$2"
     if [ -f "$log_file" ]; then return 0; fi
     {
         echo "---"
         echo "created: $(_activity_log_timestamp)"
-        echo "type: log"
+        echo "type: progress"
         echo "topic: ${unit_id}"
         echo "---"
         echo ""
@@ -1598,12 +1640,10 @@ _ckpt_track() {
     if [ -z "$dir" ]; then return 0; fi
     mkdir -p "$dir" 2>/dev/null || return 0
 
-    local rel_path="${file_path#"$RILL_HOME"/}"
-    # Still absolute means the write happened outside the vault (sibling repo
-    # work): stay silent there.
-    case "$rel_path" in
-        /*) return 0 ;;
-    esac
+    # Empty means the write happened outside the vault (sibling repo work):
+    # stay silent there.
+    local rel_path; rel_path="$(_ckpt_rel_path "$file_path" || true)"
+    if [ -z "$rel_path" ]; then return 0; fi
 
     printf '%s\n' "$rel_path" >> "$dir/files" 2>/dev/null || true
 
@@ -1674,8 +1714,11 @@ _ckpt_on_end() {
     local dir; dir="$(_ckpt_state_dir "$session_id" || true)"
     if [ -z "$dir" ] || [ ! -d "$dir" ]; then return 0; fi
 
+    local home_phys; home_phys="$(cd "$RILL_HOME" 2>/dev/null && pwd -P || true)"
+    if [ -z "$home_phys" ]; then return 0; fi
+
     local unit; unit="$(_ckpt_work_unit "$dir/files" || true)"
-    if [ -z "$unit" ] || [ ! -d "$RILL_HOME/$unit" ]; then return 0; fi
+    if [ -z "$unit" ] || [ ! -d "$home_phys/$unit" ]; then return 0; fi
 
     local touched last_msg
     touched="$(sort -u "$dir/files" 2>/dev/null | tr '\n' ' ' | sed 's/ $//' || true)"
@@ -1693,7 +1736,7 @@ _ckpt_on_end() {
     fi
     printf '%s' "$fingerprint" > "$dir/last" 2>/dev/null || true
 
-    local log_file="$RILL_HOME/$unit/_log.md"
+    local log_file="$home_phys/$unit/_log.md"
     local unit_id; unit_id="$(basename "$unit")"
     _ckpt_ensure_log "$log_file" "$unit_id" || return 0
 
