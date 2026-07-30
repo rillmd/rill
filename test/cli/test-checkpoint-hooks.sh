@@ -133,11 +133,34 @@ on_end "$SID" "SessionEnd" "reason" "clear"
 assert_true '[ "$(file_hash "$LOG")" != "$BEFORE" ]' \
   "a changed session state appends a new entry"
 
-# ── on-end: task work units ──────────────────────────────────────────
+# ── task work units: nudged, but no file written ─────────────────────
+# `_log.md` belongs to the workspace layout. The task layout defines
+# `_task.md` plus numbered artifacts, so a checkpoint file there would sit
+# outside the schema; task continuity lives in `## Current Position`.
 SID_TASK="cse_ckpt_task"
 track "$SID_TASK" "$VAULT/tasks/demo-task/_task.md"
 on_end "$SID_TASK" "SessionEnd" "reason" "logout"
-assert_file_exists "$VAULT/tasks/demo-task/_log.md" "task directories get checkpoints too"
+assert_file_not_exists "$VAULT/tasks/demo-task/_log.md" \
+  "tasks do not get an out-of-schema _log.md"
+assert_eq "$(count_nudges "$SID_TASK" 5)" "1" "tasks still get the on-stop nudge"
+
+# ── the excerpt is redacted before it reaches the vault ──────────────
+# ADR-047 keeps contact details out of workspace/, so the last message is
+# scrubbed on the way in.
+SID_PII="cse_ckpt_pii"
+PII_TRANSCRIPT="$WORK/pii.jsonl"
+cat > "$PII_TRANSCRIPT" <<'PIIEOF'
+{"type":"assistant","message":{"content":[{"type":"text","text":"Mail alex@example.com or call +81 90-1234-5678, key sk-abcdefghijklmnop12345"}]}}
+PIIEOF
+mkdir -p "$VAULT/workspace/ws-pii"
+track "$SID_PII" "$VAULT/workspace/ws-pii/001-x.md"
+printf '{"session_id":"%s","hook_event_name":"SessionEnd","reason":"clear","transcript_path":"%s"}' \
+  "$SID_PII" "$PII_TRANSCRIPT" | "$RILL" checkpoint on-end
+PII_LOG="$VAULT/workspace/ws-pii/_log.md"
+assert_file_not_contains "$PII_LOG" "alex@example.com" "email addresses are redacted"
+assert_file_not_contains "$PII_LOG" "1234-5678" "phone numbers are redacted"
+assert_file_not_contains "$PII_LOG" "sk-abcdefghijklmnop12345" "credential-shaped strings are redacted"
+assert_file_contains "$PII_LOG" "redacted" "the redaction is visible in the log"
 
 # ── on-end: moving back to an earlier work unit still checkpoints ────
 # `touched` is deduplicated and the transcript has not moved, so only the

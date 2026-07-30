@@ -1588,6 +1588,13 @@ _ckpt_work_unit() {
 _ckpt_last_assistant_message() {
     # Pull the final assistant text turn out of the transcript. Best effort:
     # the transcript format is the harness's, not ours, so a miss is fine.
+    #
+    # The excerpt is redacted before it lands in the vault. ADR-047 keeps
+    # contact details to knowledge/people/ and knowledge/orgs/ only, and a
+    # checkpoint under workspace/ is neither; credential-shaped strings are
+    # dropped for the same reason. Redaction is pattern-based and therefore
+    # best-effort, so the excerpt is also kept short: it is a reminder of
+    # what was in flight, not a transcript.
     local transcript="$1"
     [ -f "$transcript" ] || return 0
     tail -n 400 "$transcript" 2>/dev/null | jq -rs '
@@ -1597,7 +1604,13 @@ _ckpt_last_assistant_message() {
           | if type == "array" then (map(select(.type? == "text") | .text) | join(" ")) else . end
           | select(type == "string" and length > 0)
         ] | last // empty
-    ' 2>/dev/null | tr '\n' ' ' | cut -c1-400
+    ' 2>/dev/null | tr '\n' ' ' | sed -E \
+        -e 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/[redacted-email]/g' \
+        -e 's/(sk|pk|ghp|gho|ghu|ghs|github_pat|xoxb|xoxp|xoxa|xoxr)[-_][A-Za-z0-9_-]{10,}/[redacted-token]/g' \
+        -e 's/[A-Za-z0-9_-]{40,}/[redacted-token]/g' \
+        -e 's/\+?[0-9][0-9()•-]{8,}[0-9]/[redacted-number]/g' \
+        -e 's/\+?[0-9]([0-9()-]| ){8,}[0-9]/[redacted-number]/g' \
+        | cut -c1-300
 }
 
 _ckpt_ensure_log() {
@@ -1719,6 +1732,17 @@ _ckpt_on_end() {
 
     local unit; unit="$(_ckpt_work_unit "$dir/files" || true)"
     if [ -z "$unit" ] || [ ! -d "$home_phys/$unit" ]; then return 0; fi
+
+    # Only workspaces get a checkpoint file. `_log.md` is part of the
+    # workspace layout; the task layout defines `_task.md` plus numbered
+    # artifacts created through `rill mkfile`, so writing an unnumbered
+    # `_log.md` there would put a file outside the schema. Task continuity
+    # already has a home in `## Current Position` inside `_task.md`. Tasks
+    # still get the on-stop nudge, which writes nothing.
+    case "$unit" in
+        workspace/*) ;;
+        *) return 0 ;;
+    esac
 
     local touched last_msg
     touched="$(sort -u "$dir/files" 2>/dev/null | tr '\n' ' ' | sed 's/ $//' || true)"
