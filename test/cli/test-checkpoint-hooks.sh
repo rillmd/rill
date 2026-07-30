@@ -59,18 +59,24 @@ EOF
 track() { # session_id, absolute file path
   printf '{"session_id":"%s","tool_input":{"file_path":"%s"}}' "$1" "$2" | "$RILL" checkpoint track
 }
-on_stop() { # session_id -> prints hook JSON when it nudges, empty otherwise
+on_stop() { # session_id -> side effects only, never prints
   printf '{"session_id":"%s"}' "$1" | "$RILL" checkpoint on-stop
+}
+on_prompt() { # session_id -> prints hook JSON when it nudges, empty otherwise
+  printf '{"session_id":"%s","prompt":"next"}' "$1" | "$RILL" checkpoint on-prompt
 }
 on_end() { # session_id, event, reason_key, reason
   printf '{"session_id":"%s","hook_event_name":"%s","%s":"%s","transcript_path":"%s"}' \
     "$1" "$2" "$3" "$4" "$TRANSCRIPT" | "$RILL" checkpoint on-end
 }
-count_nudges() { # session_id, turns -> number of turns that produced a nudge
+count_nudges() { # session_id, turns -> nudges seen across that many turns
+  # One turn is a prompt followed by a Stop, so the reminder is checked on the
+  # way in and the idle counter advances on the way out.
   local sid="$1" turns="$2" i out n=0
   for ((i = 0; i < turns; i++)); do
-    out="$(on_stop "$sid")"
+    out="$(on_prompt "$sid")"
     if [ -n "$out" ]; then n=$((n + 1)); fi
+    on_stop "$sid"
   done
   printf '%s' "$n"
 }
@@ -85,22 +91,24 @@ track "$SID" "/somewhere/else/main.go"
 assert_file_not_contains "$STATE_ROOT/rill-ckpt-$SID/files" "main.go" \
   "track ignores writes outside the vault"
 
-# ── on-stop: nudge threshold (default 5) ─────────────────────────────
+# ── the reminder: threshold (default 5), delivered on UserPromptSubmit ──
 # The first Stop is consumed by the write above, so the threshold is reached
 # on the sixth Stop, not the fifth.
 assert_eq "$(count_nudges "$SID" 5)" "0" "on-stop stays quiet below the threshold"
 
-NUDGE="$(on_stop "$SID")"
-assert_true '[ -n "$NUDGE" ]' "on-stop nudges once the threshold is reached"
+assert_eq "$(on_stop "$SID")" "" "Stop itself never prints, so it cannot continue the turn"
+NUDGE="$(on_prompt "$SID")"
+assert_true '[ -n "$NUDGE" ]' "the reminder arrives on the next prompt once the threshold is reached"
 
 NAMED=no
 if printf '%s' "$NUDGE" | jq -e '.hookSpecificOutput.additionalContext
       | test("workspace/demo-ws")' >/dev/null 2>&1; then
   NAMED=yes
 fi
-assert_eq "$NAMED" "yes" "the nudge names the active work unit"
+assert_eq "$NAMED" "yes" "the reminder names the active work unit"
 
-assert_eq "$(on_stop "$SID")" "" "on-stop does not nudge again on the very next turn"
+on_stop "$SID"
+assert_eq "$(on_prompt "$SID")" "" "the reminder does not repeat on the very next turn"
 
 # A write into the work unit resets the idle counter, and the nudge window
 # with it: the next nudge is one threshold away, not two. Clearing only the
@@ -110,9 +118,9 @@ track "$SID" "$VAULT/workspace/demo-ws/002-b.md"
 # and Stop both fire inside the same assistant turn, so counting it would make
 # the threshold one turn short.
 assert_eq "$(count_nudges "$SID" 5)" "0" "the turn containing the write is not counted as idle"
-assert_eq "$(count_nudges "$SID" 1)" "1" "the nudge window resets with it, rather than doubling"
+assert_eq "$(count_nudges "$SID" 2)" "1" "the reminder window resets with it, rather than doubling"
 
-# ── on-stop: sessions with no work unit stay silent ──────────────────
+# ── sessions with no work unit stay silent ───────────────────────────
 SID_NOWORK="cse_ckpt_none"
 track "$SID_NOWORK" "$VAULT/README.md"
 assert_eq "$(count_nudges "$SID_NOWORK" 7)" "0" \
@@ -125,7 +133,8 @@ assert_file_exists "$LOG" "on-end creates {unit}/_log.md"
 assert_file_contains "$LOG" "type: progress" \
   "the log carries schema-conforming frontmatter"
 assert_file_contains "$LOG" "PreCompact: auto" "the log records the event and reason"
-assert_file_contains "$LOG" "CHECKPOINT MARKER TEXT" "the log captures the last assistant message"
+assert_file_not_contains "$LOG" "CHECKPOINT MARKER TEXT" \
+  "no free text is stored by default, so the contact-detail invariant holds structurally"
 assert_file_contains "$LOG" "workspace/demo-ws/002-b.md" "the log lists the files touched"
 
 BEFORE="$(file_hash "$LOG")"
@@ -145,28 +154,29 @@ assert_true '[ "$(file_hash "$LOG")" != "$BEFORE" ]' \
 SID_TASK="cse_ckpt_task"
 track "$SID_TASK" "$VAULT/tasks/demo-task/_task.md"
 # Nudges first: SessionEnd drops the session scratch, and with it the counter.
-assert_eq "$(count_nudges "$SID_TASK" 6)" "1" "tasks still get the on-stop nudge"
+assert_eq "$(count_nudges "$SID_TASK" 7)" "1" "tasks still get the reminder"
 on_end "$SID_TASK" "SessionEnd" "reason" "logout"
 assert_file_not_exists "$VAULT/tasks/demo-task/_log.md" \
   "tasks do not get an out-of-schema _log.md"
 
-# ── the excerpt is redacted before it reaches the vault ──────────────
-# ADR-047 keeps contact details out of workspace/, so the last message is
-# scrubbed on the way in.
+# ── the opt-in excerpt is redacted before it reaches the vault ───────
+# Free text is off by default. With RILL_CKPT_EXCERPT=1 it is scrubbed on
+# the way in, since ADR-047 keeps contact details out of workspace/.
 SID_PII="cse_ckpt_pii"
 PII_TRANSCRIPT="$WORK/pii.jsonl"
 cat > "$PII_TRANSCRIPT" <<'PIIEOF'
-{"type":"assistant","message":{"content":[{"type":"text","text":"Mail alex@example.com or call +81 90-1234-5678, key sk-abcdefghijklmnop12345"}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Mail alex@example.com or call +81 90-1234-5678 or 090.1234.5678, key sk-abcdefghijklmnop12345"}]}}
 PIIEOF
 mkdir -p "$VAULT/workspace/ws-pii"
 track "$SID_PII" "$VAULT/workspace/ws-pii/001-x.md"
-printf '{"session_id":"%s","hook_event_name":"SessionEnd","reason":"clear","transcript_path":"%s"}' \
-  "$SID_PII" "$PII_TRANSCRIPT" | "$RILL" checkpoint on-end
+RILL_CKPT_EXCERPT=1 sh -c 'printf "{\"session_id\":\"$1\",\"hook_event_name\":\"SessionEnd\",\"reason\":\"clear\",\"transcript_path\":\"$2\"}" | "$3" checkpoint on-end' _ \
+  "$SID_PII" "$PII_TRANSCRIPT" "$RILL"
 PII_LOG="$VAULT/workspace/ws-pii/_log.md"
 assert_file_not_contains "$PII_LOG" "alex@example.com" "email addresses are redacted"
 assert_file_not_contains "$PII_LOG" "1234-5678" "phone numbers are redacted"
 assert_file_not_contains "$PII_LOG" "sk-abcdefghijklmnop12345" "credential-shaped strings are redacted"
-assert_file_contains "$PII_LOG" "redacted" "the redaction is visible in the log"
+assert_file_contains "$PII_LOG" "redacted" "the redaction is visible in the opt-in excerpt"
+assert_file_not_contains "$PII_LOG" "090.1234.5678" "dot-separated phone numbers are redacted too"
 
 # ── on-end: moving back to an earlier work unit still checkpoints ────
 # `touched` is deduplicated and the transcript has not moved, so only the
@@ -210,8 +220,8 @@ cat > "$CRED_TRANSCRIPT" <<'CREDEOF'
 CREDEOF
 mkdir -p "$VAULT/workspace/ws-cred"
 track "$SID_CRED" "$VAULT/workspace/ws-cred/001-x.md"
-printf '{"session_id":"%s","hook_event_name":"SessionEnd","reason":"clear","transcript_path":"%s"}' \
-  "$SID_CRED" "$CRED_TRANSCRIPT" | "$RILL" checkpoint on-end
+RILL_CKPT_EXCERPT=1 sh -c 'printf "{\"session_id\":\"$1\",\"hook_event_name\":\"SessionEnd\",\"reason\":\"clear\",\"transcript_path\":\"$2\"}" | "$3" checkpoint on-end' _ \
+  "$SID_CRED" "$CRED_TRANSCRIPT" "$RILL"
 CRED_LOG="$VAULT/workspace/ws-cred/_log.md"
 assert_file_not_contains "$CRED_LOG" "AKIAIOSFODNN7EXAMPLE" "AWS key ids are redacted"
 assert_file_not_contains "$CRED_LOG" "AIzaSyD-1234567890abcdefg" "Google API keys are redacted"
@@ -284,7 +294,7 @@ assert_true '[ ! -d "$STATE_ROOT/rill-ckpt-$SID_CLEAN2" ]' \
   "SessionEnd cleans up even when nothing was written"
 
 # ── malformed input must never fail the session ──────────────────────
-for sub in track on-stop on-end; do
+for sub in track on-stop on-prompt on-end; do
   rc=0
   echo '' | "$RILL" checkpoint "$sub" >/dev/null 2>&1 || rc=$?
   assert_eq "$rc" "0" "checkpoint $sub exits 0 on empty input"

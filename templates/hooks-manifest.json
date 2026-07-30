@@ -65,5 +65,10 @@
     "event": "PreCompact",
     "command": "rill checkpoint on-end",
     "timeout": 10
+  },
+  {
+    "event": "UserPromptSubmit",
+    "command": "rill checkpoint on-prompt",
+    "timeout": 5
   }
 ]
