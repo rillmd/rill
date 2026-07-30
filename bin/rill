@@ -1670,6 +1670,11 @@ _ckpt_track() {
             # thresholds instead of one, and drift further with every nudge.
             printf '0' > "$dir/turns" 2>/dev/null || true
             printf '0' > "$dir/nudged" 2>/dev/null || true
+            # PostToolUse and Stop both fire within the same assistant turn,
+            # so without this marker the Stop that closes a turn containing a
+            # write would immediately count that turn as idle, and the
+            # threshold would effectively be one turn short.
+            : > "$dir/wrote_this_turn" 2>/dev/null || true
             ;;
     esac
     return 0
@@ -1689,6 +1694,14 @@ _ckpt_on_stop() {
     local unit; unit="$(_ckpt_work_unit "$dir/files" || true)"
     if [ -z "$unit" ]; then return 0; fi
 
+    # A turn that contained a write is not idle. Consume the marker instead of
+    # counting this Stop, so counting starts from the next turn.
+    if [ -f "$dir/wrote_this_turn" ]; then
+        rm -f "$dir/wrote_this_turn" 2>/dev/null || true
+        printf '0' > "$dir/turns" 2>/dev/null || true
+        return 0
+    fi
+
     local threshold="${RILL_CKPT_NUDGE_AFTER:-5}"
     case "$threshold" in ''|*[!0-9]*) threshold=5 ;; esac
 
@@ -1706,6 +1719,13 @@ _ckpt_on_stop() {
     if [ $((turns - nudged)) -lt "$threshold" ]; then return 0; fi
     printf '%s' "$turns" > "$dir/nudged" 2>/dev/null || true
 
+    # `additionalContext` on Stop, deliberately without a `decision: block`.
+    # Per the hooks reference, Stop supports additionalContext and delivers it
+    # on the next model request while letting the stop proceed; blocking would
+    # instead cancel the stop and drive another turn. This is a reminder, not
+    # an interruption: hijacking the turn to force a write would be worse than
+    # the missed artifact it prevents, and the mechanical checkpoint in
+    # `on-end` already covers the case where the session simply ends here.
     jq -cn --arg u "$unit" --arg n "$turns" '{
         hookSpecificOutput: {
             hookEventName: "Stop",
@@ -1716,8 +1736,28 @@ _ckpt_on_stop() {
 }
 
 _ckpt_on_end() {
-    # SessionEnd and PreCompact. Append a mechanical checkpoint to the work
-    # unit's _log.md. This is the entry that survives /clear and compaction.
+    # SessionEnd and PreCompact. Append a mechanical checkpoint, then drop the
+    # session's scratch directory when the session is actually over. Cleanup
+    # runs regardless of which early return the write took, otherwise every
+    # session would leave its path history behind in $TMPDIR forever.
+    local json; json="$(cat)"
+    local sid ev dir
+    sid="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
+    ev="$(printf '%s' "$json" | jq -r '.hook_event_name // empty' 2>/dev/null || true)"
+
+    printf '%s' "$json" | _ckpt_write_checkpoint || true
+
+    if [ "$ev" = "SessionEnd" ] && [ -n "$sid" ]; then
+        dir="$(_ckpt_state_dir "$sid" || true)"
+        case "$dir" in
+            */rill-ckpt-?*) rm -rf "$dir" 2>/dev/null || true ;;
+        esac
+    fi
+    return 0
+}
+
+_ckpt_write_checkpoint() {
+    # Append the checkpoint entry for the active work unit, if there is one.
     local json; json="$(cat)"
     local session_id transcript reason event
     session_id="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"

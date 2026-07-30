@@ -86,7 +86,9 @@ assert_file_not_contains "$STATE_ROOT/rill-ckpt-$SID/files" "main.go" \
   "track ignores writes outside the vault"
 
 # ── on-stop: nudge threshold (default 5) ─────────────────────────────
-assert_eq "$(count_nudges "$SID" 4)" "0" "on-stop stays quiet below the threshold"
+# The first Stop is consumed by the write above, so the threshold is reached
+# on the sixth Stop, not the fifth.
+assert_eq "$(count_nudges "$SID" 5)" "0" "on-stop stays quiet below the threshold"
 
 NUDGE="$(on_stop "$SID")"
 assert_true '[ -n "$NUDGE" ]' "on-stop nudges once the threshold is reached"
@@ -104,7 +106,10 @@ assert_eq "$(on_stop "$SID")" "" "on-stop does not nudge again on the very next 
 # with it: the next nudge is one threshold away, not two. Clearing only the
 # turn counter would let the quiet period grow with every nudge.
 track "$SID" "$VAULT/workspace/demo-ws/002-b.md"
-assert_eq "$(count_nudges "$SID" 4)" "0" "writing an artifact resets the idle counter"
+# The Stop that closes the writing turn is consumed, not counted: PostToolUse
+# and Stop both fire inside the same assistant turn, so counting it would make
+# the threshold one turn short.
+assert_eq "$(count_nudges "$SID" 5)" "0" "the turn containing the write is not counted as idle"
 assert_eq "$(count_nudges "$SID" 1)" "1" "the nudge window resets with it, rather than doubling"
 
 # ── on-stop: sessions with no work unit stay silent ──────────────────
@@ -139,10 +144,11 @@ assert_true '[ "$(file_hash "$LOG")" != "$BEFORE" ]' \
 # outside the schema; task continuity lives in `## Current Position`.
 SID_TASK="cse_ckpt_task"
 track "$SID_TASK" "$VAULT/tasks/demo-task/_task.md"
+# Nudges first: SessionEnd drops the session scratch, and with it the counter.
+assert_eq "$(count_nudges "$SID_TASK" 6)" "1" "tasks still get the on-stop nudge"
 on_end "$SID_TASK" "SessionEnd" "reason" "logout"
 assert_file_not_exists "$VAULT/tasks/demo-task/_log.md" \
   "tasks do not get an out-of-schema _log.md"
-assert_eq "$(count_nudges "$SID_TASK" 5)" "1" "tasks still get the on-stop nudge"
 
 # ── the excerpt is redacted before it reaches the vault ──────────────
 # ADR-047 keeps contact details out of workspace/, so the last message is
@@ -168,9 +174,9 @@ assert_file_contains "$PII_LOG" "redacted" "the redaction is visible in the log"
 SID_SWITCH="cse_ckpt_switch"
 mkdir -p "$VAULT/workspace/ws-a" "$VAULT/workspace/ws-b"
 track "$SID_SWITCH" "$VAULT/workspace/ws-a/001-a.md"
-on_end "$SID_SWITCH" "SessionEnd" "reason" "clear"
+on_end "$SID_SWITCH" "PreCompact" "trigger" "auto"
 track "$SID_SWITCH" "$VAULT/workspace/ws-b/001-b.md"
-on_end "$SID_SWITCH" "SessionEnd" "reason" "clear"
+on_end "$SID_SWITCH" "PreCompact" "trigger" "auto"
 assert_file_exists "$VAULT/workspace/ws-b/_log.md" "the second work unit gets its own log"
 
 A_BEFORE="$(file_hash "$VAULT/workspace/ws-a/_log.md")"
@@ -186,12 +192,12 @@ assert_true '[ "$(file_hash "$VAULT/workspace/ws-a/_log.md")" != "$A_BEFORE" ]' 
 SID_REEDIT="cse_ckpt_reedit"
 mkdir -p "$VAULT/workspace/ws-re"
 track "$SID_REEDIT" "$VAULT/workspace/ws-re/001-a.md"
-printf '{"session_id":"%s","hook_event_name":"SessionEnd","reason":"clear"}' "$SID_REEDIT" \
+printf '{"session_id":"%s","hook_event_name":"PreCompact","trigger":"auto"}' "$SID_REEDIT" \
   | "$RILL" checkpoint on-end
 RE_LOG="$VAULT/workspace/ws-re/_log.md"
 RE_BEFORE="$(file_hash "$RE_LOG")"
 track "$SID_REEDIT" "$VAULT/workspace/ws-re/001-a.md"   # same path again
-printf '{"session_id":"%s","hook_event_name":"SessionEnd","reason":"clear"}' "$SID_REEDIT" \
+printf '{"session_id":"%s","hook_event_name":"PreCompact","trigger":"auto"}' "$SID_REEDIT" \
   | "$RILL" checkpoint on-end
 assert_true '[ "$(file_hash "$RE_LOG")" != "$RE_BEFORE" ]' \
   "re-editing an already-listed file still produces a checkpoint"
@@ -255,6 +261,27 @@ assert_file_contains "$STATE_ROOT/rill-ckpt-$SID_LINK/files" "workspace/demo-ws/
 # ── on-end: no work unit means no file ───────────────────────────────
 on_end "$SID_NOWORK" "SessionEnd" "reason" "clear"
 assert_file_not_exists "$VAULT/_log.md" "no work unit means nothing is written"
+
+# ── session scratch is dropped when the session really ends ──────────
+SID_CLEAN="cse_ckpt_clean"
+mkdir -p "$VAULT/workspace/ws-clean"
+track "$SID_CLEAN" "$VAULT/workspace/ws-clean/001-a.md"
+printf '{"session_id":"%s","hook_event_name":"PreCompact","trigger":"auto"}' "$SID_CLEAN" \
+  | "$RILL" checkpoint on-end
+assert_true '[ -d "$STATE_ROOT/rill-ckpt-$SID_CLEAN" ]' \
+  "PreCompact keeps the session scratch, since the session continues"
+printf '{"session_id":"%s","hook_event_name":"SessionEnd","reason":"clear"}' "$SID_CLEAN" \
+  | "$RILL" checkpoint on-end
+assert_true '[ ! -d "$STATE_ROOT/rill-ckpt-$SID_CLEAN" ]' \
+  "SessionEnd drops the session scratch"
+
+# ... including when there was no work unit to write for.
+SID_CLEAN2="cse_ckpt_clean2"
+track "$SID_CLEAN2" "$VAULT/README.md"
+printf '{"session_id":"%s","hook_event_name":"SessionEnd","reason":"clear"}' "$SID_CLEAN2" \
+  | "$RILL" checkpoint on-end
+assert_true '[ ! -d "$STATE_ROOT/rill-ckpt-$SID_CLEAN2" ]' \
+  "SessionEnd cleans up even when nothing was written"
 
 # ── malformed input must never fail the session ──────────────────────
 for sub in track on-stop on-end; do
