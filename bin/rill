@@ -1608,7 +1608,13 @@ _ckpt_track() {
     printf '%s\n' "$rel_path" >> "$dir/files" 2>/dev/null || true
 
     case "$rel_path" in
-        workspace/*/*|tasks/*/*) printf '0' > "$dir/turns" 2>/dev/null || true ;;
+        workspace/*/*|tasks/*/*)
+            # Reset both counters. Clearing `turns` alone would leave the last
+            # nudge's turn number behind, so the next nudge would wait two
+            # thresholds instead of one, and drift further with every nudge.
+            printf '0' > "$dir/turns" 2>/dev/null || true
+            printf '0' > "$dir/nudged" 2>/dev/null || true
+            ;;
     esac
     return 0
 }
@@ -1677,8 +1683,11 @@ _ckpt_on_end() {
 
     # PreCompact immediately followed by SessionEnd would otherwise write the
     # same state twice. Skip when nothing changed since the last checkpoint.
+    # The unit is part of the fingerprint: a session that moves back to an
+    # earlier work unit leaves `touched` (deduplicated) and the last message
+    # unchanged, and that unit's log still needs its own checkpoint.
     local fingerprint
-    fingerprint="$(printf '%s|%s' "$touched" "$last_msg" | cksum 2>/dev/null | cut -d' ' -f1 || true)"
+    fingerprint="$(printf '%s|%s|%s' "$unit" "$touched" "$last_msg" | cksum 2>/dev/null | cut -d' ' -f1 || true)"
     if [ -f "$dir/last" ] && [ "$(cat "$dir/last" 2>/dev/null || true)" = "$fingerprint" ]; then
         return 0
     fi

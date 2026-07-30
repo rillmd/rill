@@ -100,9 +100,12 @@ assert_eq "$NAMED" "yes" "the nudge names the active work unit"
 
 assert_eq "$(on_stop "$SID")" "" "on-stop does not nudge again on the very next turn"
 
-# A write into the work unit resets the idle counter.
+# A write into the work unit resets the idle counter, and the nudge window
+# with it: the next nudge is one threshold away, not two. Clearing only the
+# turn counter would let the quiet period grow with every nudge.
 track "$SID" "$VAULT/workspace/demo-ws/002-b.md"
 assert_eq "$(count_nudges "$SID" 4)" "0" "writing an artifact resets the idle counter"
+assert_eq "$(count_nudges "$SID" 1)" "1" "the nudge window resets with it, rather than doubling"
 
 # ── on-stop: sessions with no work unit stay silent ──────────────────
 SID_NOWORK="cse_ckpt_none"
@@ -134,6 +137,23 @@ SID_TASK="cse_ckpt_task"
 track "$SID_TASK" "$VAULT/tasks/demo-task/_task.md"
 on_end "$SID_TASK" "SessionEnd" "reason" "logout"
 assert_file_exists "$VAULT/tasks/demo-task/_log.md" "task directories get checkpoints too"
+
+# ── on-end: moving back to an earlier work unit still checkpoints ────
+# `touched` is deduplicated and the transcript has not moved, so only the
+# unit itself distinguishes this checkpoint from the previous one.
+SID_SWITCH="cse_ckpt_switch"
+mkdir -p "$VAULT/workspace/ws-a" "$VAULT/workspace/ws-b"
+track "$SID_SWITCH" "$VAULT/workspace/ws-a/001-a.md"
+on_end "$SID_SWITCH" "SessionEnd" "reason" "clear"
+track "$SID_SWITCH" "$VAULT/workspace/ws-b/001-b.md"
+on_end "$SID_SWITCH" "SessionEnd" "reason" "clear"
+assert_file_exists "$VAULT/workspace/ws-b/_log.md" "the second work unit gets its own log"
+
+A_BEFORE="$(file_hash "$VAULT/workspace/ws-a/_log.md")"
+track "$SID_SWITCH" "$VAULT/workspace/ws-a/001-a.md"   # already-seen path
+on_end "$SID_SWITCH" "PreCompact" "trigger" "auto"
+assert_true '[ "$(file_hash "$VAULT/workspace/ws-a/_log.md")" != "$A_BEFORE" ]' \
+  "returning to an earlier work unit is not mistaken for a duplicate"
 
 # ── on-end: no work unit means no file ───────────────────────────────
 on_end "$SID_NOWORK" "SessionEnd" "reason" "clear"
