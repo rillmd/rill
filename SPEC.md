@@ -1148,6 +1148,8 @@ Implements data ingestion from external services as interchangeable "plugins."
 
 Tier 1-2 skills are distributed from the source repository (`~/.rill/source/`) to vaults. Initial copy via `rill init`, sync to latest via `rill update`. Distribution targets are recorded in the vault's `.rill/managed-files.txt` (Category A: managed). User-created skills (`personal-*.md`, `my-*.md`) are unmanaged and untouched by `rill update`.
 
+**Managed files and git** — by default, managed files (and `.rill/`) are listed in the auto-generated section of the vault's `.gitignore`, so the vault repository carries only user content. Setting `"track_managed": true` in `.rill/config.json` removes them from that section: managed files and `.rill/` become git-tracked, so a bare clone of the vault carries the full Rill runtime (rules, skills, hooks config) with no `rill update` step. This is the supported mode for cloud harness execution (Claude Code on the web, Codex cloud, Cursor cloud agents), where the platform clones the repository and nothing runs before the session starts. Trade-off: each `rill update` produces git diffs for managed files, committed by the vault owner like any other change. Derived index files (`inbox/*/.index`) stay ignored in both modes.
+
 **3 Tier classification**:
 
 | Tier | Description | Examples | Distribution Method |
