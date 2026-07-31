@@ -2105,9 +2105,18 @@ _crypt_install_hook() {
     # shares the script name must not be replaced. A broken link (e.g. the
     # source repo moved) is also refused, with the fix shown.
     if [ -L "$hook_target" ]; then
-        local existing resolved_source
-        existing="$(readlink -f "$hook_target" 2>/dev/null || true)"
-        resolved_source="$(readlink -f "$hook_source" 2>/dev/null || echo "$hook_source")"
+        # Resolve the link chain portably (readlink -f is not available on
+        # all BSD userlands — same approach as _resolve_rill_source).
+        local existing="$hook_target" link_dir resolved_source
+        while [ -L "$existing" ]; do
+            link_dir="$(cd -P "$(dirname "$existing")" && pwd)"
+            existing="$(readlink "$existing")"
+            [[ "$existing" != /* ]] && existing="$link_dir/$existing"
+        done
+        if [ -e "$existing" ]; then
+            existing="$(cd -P "$(dirname "$existing")" && pwd)/$(basename "$existing")"
+        fi
+        resolved_source="$(cd -P "$(dirname "$hook_source")" && pwd)/$(basename "$hook_source")"
         if [ "$existing" != "$resolved_source" ]; then
             echo "⚠️  Existing pre-commit hook found. Manual installation needed:"
             echo "    ln -sf $hook_source $hook_target"
