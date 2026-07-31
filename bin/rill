@@ -2090,10 +2090,22 @@ _crypt_install_hook() {
         echo "⚠️  Not a git repository: $RILL_HOME"
         return 1
     fi
-    local hook_target="$hooks_dir/pre-commit"
     local rill_source
     rill_source="$(_resolve_rill_source)"
     local hook_source="$rill_source/bin/hooks/pre-commit-pii-check.sh"
+    # A configured core.hooksPath (often global, shared by every repo the
+    # user owns) must not be modified by a vault-scoped command — a hook
+    # planted there would scan and potentially block commits in unrelated
+    # repositories. Ask for manual wiring instead.
+    local hooks_path_cfg
+    hooks_path_cfg="$(git config core.hooksPath 2>/dev/null || true)"
+    if [ -n "$hooks_path_cfg" ]; then
+        echo "⚠️  core.hooksPath is set ($hooks_path_cfg) — refusing to modify a shared hooks directory."
+        echo "    Wire this script into your hooks framework manually:"
+        echo "    $hook_source"
+        return 1
+    fi
+    local hook_target="$hooks_dir/pre-commit"
     if [ ! -f "$hook_source" ]; then
         echo "⚠️  Hook not found: $hook_source"
         echo "    Skipping pre-commit hook installation."

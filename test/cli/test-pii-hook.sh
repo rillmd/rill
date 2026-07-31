@@ -206,6 +206,16 @@ RILL_HOME="$FOREIGNLINK" "$RILL" crypt hook > "$WORK/out.txt" 2>&1 || rc=$?
 assert_true "[ $rc -ne 0 ]" "symlink to another tool's hook is not overwritten"
 assert_true "[ \"\$(readlink '$FOREIGNLINK/.git/hooks/pre-commit')\" = '/usr/bin/true' ]" "foreign symlink left untouched"
 
+HOOKSPATH="$WORK/hookspath"
+mkdir -p "$HOOKSPATH" "$WORK/sharedhooks"
+git -C "$HOOKSPATH" init -q
+git -C "$HOOKSPATH" config core.hooksPath "$WORK/sharedhooks"
+rc=0
+RILL_HOME="$HOOKSPATH" "$RILL" crypt hook > "$WORK/out.txt" 2>&1 || rc=$?
+assert_true "[ $rc -ne 0 ]" "configured core.hooksPath is refused (shared hooks dir untouched)"
+assert_file_contains "$WORK/out.txt" "core.hooksPath" "refusal names core.hooksPath"
+assert_file_not_exists "$WORK/sharedhooks/pre-commit" "no hook planted in the shared directory"
+
 SAMENAME="$WORK/samename"
 mkdir -p "$SAMENAME/othertool"
 cp /usr/bin/true "$SAMENAME/othertool/pre-commit-pii-check.sh" 2>/dev/null || echo '#!/bin/sh' > "$SAMENAME/othertool/pre-commit-pii-check.sh"
