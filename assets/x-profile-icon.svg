@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Rill X (Twitter) profile icon — circular, essence-dot style -->
+  <defs>
+    <radialGradient id="sphere" cx="50%" cy="38%" r="58%" fx="50%" fy="30%">
+      <stop offset="0%" stop-color="#FFB97F"/>
+      <stop offset="45%" stop-color="#F27030"/>
+      <stop offset="100%" stop-color="#A04510"/>
+    </radialGradient>
+    <radialGradient id="highlight" cx="50%" cy="28%" r="22%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="512" cy="512" r="512" fill="#0A0A0A"/>
+  <circle cx="512" cy="512" r="305" fill="url(#sphere)"/>
+  <circle cx="512" cy="512" r="305" fill="url(#highlight)"/>
+</svg>

@@ -1060,7 +1060,7 @@ Grouped by audience, matching `rill help`'s own grouping: commands you type your
 | `rill vault <sub>` | Vault registry: list \| current \| use \| add \| remove \| edit |
 | `rill plugin <sub>` | Plugin management (list, install, enable, disable, uninstall, status; bundled + local tracks) |
 | `rill sync [name]` | Run a plugin's adapter to sync external sources |
-| `rill crypt <sub>` | Encryption management: crypt init \| crypt doctor |
+| `rill crypt <sub>` | Encryption management: crypt init \| crypt hook \| crypt doctor |
 | `rill doctor [codex]` | Check encryption health or Codex installation status |
 | `rill help` | Show the help message |
 
@@ -1403,7 +1403,9 @@ Binary files containing PII (e.g., business card images) must not be committed t
 
 ### 14.4 Pre-commit PII Detection
 
-A pre-commit hook detects and warns when phone number or email address patterns are committed to non-encrypted files. The hook script is stored in the source repository at `bin/hooks/pre-commit-pii-check.sh` and installed to the vault's `.git/hooks/pre-commit` via `rill crypt init`.
+A pre-commit hook detects and warns when phone number or email address patterns are committed to non-encrypted files. The hook script is stored in the source repository at `bin/hooks/pre-commit-pii-check.sh` and installed to the vault's `.git/hooks/pre-commit` via `rill crypt init`, or standalone via `rill crypt hook` (no git-crypt required — detection is useful before, and regardless of, the encryption decision).
+
+Vault-local allowlist: `.rill/pii-allowlist.txt` (one value per line, `#` comments). Values listed there — typically the vault owner's own addresses, which are tool configuration rather than third-party contact PII — are skipped by both the pre-commit hook and the `rill crypt doctor` PII scan. The allowlist lives in the vault, never in the public hook script.
 
 ### 14.5 Key Management
 

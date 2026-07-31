@@ -7,9 +7,27 @@ set -euo pipefail
 #
 # Phone detection: broad global patterns + LLM verification to reduce false positives.
 # Email detection: regex with known-safe exclusions.
+#
+# Vault-local allowlist: .rill/pii-allowlist.txt (one value per line, # comments).
+# Values listed there are treated as not-protected (e.g. the vault owner's own
+# addresses, which are tool configuration rather than third-party contact PII —
+# same reasoning as the identifier sets kept vault-side per ADR-081 D81-7).
+# The allowlist lives in the vault, never in this public script.
 
 STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.md$' || true)
 [ -z "$STAGED_FILES" ] && exit 0
+
+# Load the vault-local allowlist (hook runs with CWD = repo root)
+ALLOWLIST=$(grep -Ev '^[[:space:]]*(#|$)' .rill/pii-allowlist.txt 2>/dev/null || true)
+
+# Filter stdin: drop lines containing any allowlisted value (fixed-string match)
+filter_allowlist() {
+  if [ -n "$ALLOWLIST" ]; then
+    grep -Fv -f <(printf '%s\n' "$ALLOWLIST") || true
+  else
+    cat
+  fi
+}
 
 # Filter out encrypted directories and non-PKM files
 CHECK_FILES=$(echo "$STAGED_FILES" | grep -v \
@@ -40,7 +58,7 @@ while IFS= read -r file; do
     -e '\+[0-9]{1,3}[- .][0-9]{1,4}[- .][0-9]{3,4}' \
     -e '0[0-9]{1,4}-[0-9]{1,4}-[0-9]{3,4}' \
     -e '\([0-9]{2,4}\) ?[0-9]{3,4}[- .][0-9]{3,4}' \
-    || true)
+    | filter_allowlist || true)
 
   if [ -n "$PHONE_LINES" ]; then
     while IFS= read -r line; do
@@ -51,7 +69,8 @@ while IFS= read -r file; do
   # --- Email detection ---
   EMAILS=$(echo "$CONTENT" | grep -Eo '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' || true)
   if [ -n "$EMAILS" ]; then
-    CLEAN=$(echo "$EMAILS" | grep -Ev 'noreply@|example\.|@anthropic\.com|^git@' || true)
+    CLEAN=$(echo "$EMAILS" | grep -Ev 'noreply@|example\.|@anthropic\.com|^git@' \
+      | filter_allowlist || true)
     if [ -n "$CLEAN" ]; then
       echo "⚠️  Email address pattern in: $file"
       echo "    $CLEAN"
