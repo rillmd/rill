@@ -37,14 +37,8 @@ WORK="$(mktemp -d)"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 
-# Same temporary gate as test-cli-smoke.sh: rill init still uses the
-# BSD/macOS-only `sed -i ''` form. Skip loudly on GNU sed platforms.
-probe="$WORK/sed-probe"
-echo x > "$probe"
-if ! sed -i '' -e 's/x/y/' "$probe" 2>/dev/null; then
-  echo "SKIP: rill init is not yet GNU-sed portable (CLI Linux portability task)."
-  exit 0
-fi
+# No sed gate: bin/rill routes all in-place edits through sed_inplace
+# (GNU/BSD probe), so this suite runs on Linux CI as well.
 
 # Hermetic environment (same pattern as test-cli-smoke.sh)
 export HOME="$WORK/home"

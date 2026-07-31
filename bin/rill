@@ -2379,10 +2379,11 @@ _resolve_rill_source() {
     candidate="$(dirname "$bin_dir")"
 
     # The projected copy (a vault's .rill/bin/rill) is not a distribution
-    # root — it has no templates/ or skills/. Fall back to the installed
-    # source clone so `rill update` run from a clone-local CLI resolves a
-    # real source instead of mistaking .rill/ for one.
-    if [ ! -d "$candidate/templates" ] && [ -d "$HOME/.rill/source/templates" ]; then
+    # root. Detect it by location (the derived root is the vault's .rill/
+    # directory), not by content — content checks like "has skills/" would
+    # also reject old source checkouts that need `rill update`'s git pull
+    # to acquire the newer layout, bricking self-update.
+    if [ "$(basename "$candidate")" = ".rill" ] && [ -f "$HOME/.rill/source/bin/rill" ]; then
         echo "$HOME/.rill/source"
         return 0
     fi
@@ -3710,13 +3711,13 @@ EOF
     local rill_source
     rill_source="$(_resolve_rill_source)"
 
-    # Refuse to reproject from something that is not a distribution root
-    # (e.g. a vault's projected .rill/bin/rill with no installed source to
-    # fall back to). Bail before touching any vault state — the first
-    # destructive step below clears managed-files.txt.
-    if [ ! -d "$rill_source/templates" ] || [ ! -d "$rill_source/skills" ]; then
-        echo "Error: resolved source ($rill_source) is not a Rill distribution root." >&2
-        echo "       Install the source clone (git clone rillmd/rill ~/.rill/source) or set RILL_SOURCE." >&2
+    # A vault-projected CLI (.rill/bin/rill) with no installed source to
+    # fall back to must not be treated as a distribution root. Location
+    # check only at this point — content checks come after the pull, so an
+    # old source checkout can still self-update into the newer layout.
+    if [ "$(basename "$rill_source")" = ".rill" ]; then
+        echo "Error: running from a vault-projected CLI with no installed source." >&2
+        echo "       Install: git clone https://github.com/rillmd/rill ~/.rill/source (or set RILL_SOURCE)." >&2
         return 1
     fi
 
@@ -3733,6 +3734,15 @@ EOF
     if [ "$global_only" = true ]; then
         echo "✓ Source updated (--global-only, skipping vault reprojection)"
         return 0
+    fi
+
+    # Post-pull layout check: refuse to reproject from a source that still
+    # lacks the distribution layout. Runs before any vault state is touched
+    # (the per-vault pass clears managed-files.txt as its first step).
+    if [ ! -d "$rill_source/templates" ] || [ ! -d "$rill_source/skills" ]; then
+        echo "Error: source at $rill_source lacks the distribution layout (templates/, skills/)." >&2
+        echo "       Not reprojecting. Check the checkout or set RILL_SOURCE." >&2
+        return 1
     fi
 
     # Step 2: Reproject into vaults
