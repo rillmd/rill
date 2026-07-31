@@ -34,6 +34,7 @@ run_test() {
 run_test "CLI smoke"    "$SCRIPT_DIR/cli/test-cli-smoke.sh"
 run_test "checkpoint hooks" "$SCRIPT_DIR/cli/test-checkpoint-hooks.sh"
 run_test "PII hook + allowlist" "$SCRIPT_DIR/cli/test-pii-hook.sh"
+run_test "track_managed gitignore" "$SCRIPT_DIR/cli/test-track-managed-gitignore.sh"
 run_test "context-map + processed" "$SCRIPT_DIR/cli/test-context-map-processed.sh"
 
 # Static consistency checks: pure shell, no claude required
