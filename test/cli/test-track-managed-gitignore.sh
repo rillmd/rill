@@ -95,13 +95,17 @@ assert_eq "$rc" "0" "projected CLI runs from inside the vault"
 
 echo ""
 echo "=== reversible: back to default ==="
+git -C "$VAULT" add -A >/dev/null 2>&1
+git -C "$VAULT" -c user.email=t@t -c user.name=t commit -qm "track managed" >/dev/null 2>&1
 tmp="$(mktemp)"
 jq '.track_managed = false' "$VAULT/.rill/config.json" > "$tmp" && mv "$tmp" "$VAULT/.rill/config.json"
-rc=0; "$RILL" update --vault tracktest >/dev/null 2>&1 || rc=$?
+rc=0; "$RILL" update --vault tracktest > "$WORK/revert-out.txt" 2>&1 || rc=$?
 assert_eq "$rc" "0" "rill update exits 0 with track_managed=false"
 assert_true "section | grep -qx '.rill/'" "revert: .rill/ ignored again"
 assert_true "section | grep -q 'rill-core.md'" "revert: managed rules ignored again"
 assert_file_contains "$VAULT/.gitignore" "my-personal-ignore/" "user-added line still present after revert"
+assert_file_contains "$WORK/revert-out.txt" "still tracked" "flip-to-false warns that committed managed files stay tracked"
+assert_file_contains "$WORK/revert-out.txt" "git rm -r -q --cached" "untrack guidance is shown"
 
 echo ""
 echo "=== malformed config falls back to default ==="

@@ -2722,6 +2722,22 @@ _generate_vault_gitignore() {
         fi
     fi
 
+    # Reversibility guard: .gitignore has no effect on files already in the
+    # index. If the flag was flipped back to false after managed files were
+    # committed, say so and show the untrack commands — the index is the
+    # user's to modify, never this function's (destructive-op boundary).
+    if [ "$track_managed" = false ] && git -C "$vault" rev-parse --git-dir >/dev/null 2>&1; then
+        local tracked_probe
+        tracked_probe="$(git -C "$vault" ls-files -- .rill/ 2>/dev/null | head -1 || true)"
+        if [ -n "$tracked_probe" ]; then
+            echo "  ⚠ track_managed is off, but previously committed managed files are still tracked."
+            echo "    .gitignore does not untrack them. To untrack (files stay on disk):"
+            echo "      git rm -r -q --cached .rill/"
+            echo "      tr '\\n' '\\0' < .rill/managed-files.txt | xargs -0 git rm -q --cached --"
+            echo "      git commit -m 'stop tracking managed files'"
+        fi
+    fi
+
     # Build the managed section
     local section
     section="$marker_start"$'\n'
