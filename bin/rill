@@ -5816,7 +5816,7 @@ System & setup — low-frequency administrative commands:
   vault <sub>           Vault registry: list | current | use | add | remove | edit
   plugin <sub>          Plugin management (list, install, enable, disable, uninstall, status; bundled + local tracks)
   sync [name]           Run adapter to sync external sources
-  crypt <sub>           Encryption management: crypt init | crypt doctor
+  crypt <sub>           Encryption management: crypt init | crypt hook | crypt doctor
   doctor [codex]        Check encryption health or Codex installation status
   help                  Show this help message
 
