@@ -45,7 +45,7 @@ filter_phone_lines() {
   while IFS= read -r pline; do
     [ -z "$pline" ] && continue
     vals=$(printf '%s\n' "${pline#*:}" | grep -Eo \
-      -e '\+[0-9]{1,3}([- .][0-9]{1,4}){2,4}' \
+      -e '\+[0-9]{1,3}([- .][0-9]{1,4}){1,3}[- .][0-9]{3,4}' \
       -e '0[0-9]{1,4}-[0-9]{1,4}-[0-9]{3,4}' \
       -e '\([0-9]{2,4}\) ?[0-9]{3,4}[- .][0-9]{3,4}' || true)
     remaining=$(printf '%s\n' "$vals" | filter_allowlist_values)
@@ -74,14 +74,15 @@ while IFS= read -r file; do
 
   # --- Phone number detection (global) ---
   # Broad patterns:
-  #   +XX-XX-XXXX-XXXX (international; 2-4 separator+digit groups so the
-  #   whole number is one match — extraction must equal detection for the
-  #   allowlist's exact-value comparison to hold)
+  #   +XX-XX-XXXX-XXXX (international; consumes 2-4 separator+digit groups
+  #   so the whole number is one match — extraction must equal detection for
+  #   the allowlist's exact-value comparison to hold. The final group keeps
+  #   the 3-4 digit floor so version strings like +1.2.3 don't match)
   #   0X0-XXXX-XXXX (Japanese mobile)
   #   0X-XXXX-XXXX / 0XX-XXX-XXXX (Japanese landline)
   #   (XXX) XXX-XXXX (US/CA)
   PHONE_LINES=$(echo "$CONTENT" | grep -En \
-    -e '\+[0-9]{1,3}([- .][0-9]{1,4}){2,4}' \
+    -e '\+[0-9]{1,3}([- .][0-9]{1,4}){1,3}[- .][0-9]{3,4}' \
     -e '0[0-9]{1,4}-[0-9]{1,4}-[0-9]{3,4}' \
     -e '\([0-9]{2,4}\) ?[0-9]{3,4}[- .][0-9]{3,4}' \
     | filter_phone_lines || true)

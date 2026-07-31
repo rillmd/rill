@@ -149,6 +149,12 @@ rc="$(run_hook)"
 assert_eq "$rc" "0" "space-separated international number matches whole"
 
 reset_tree
+echo "upgraded from +1.2.3 to +1.2.34 (see notes)" > "$VAULT/knowledge/notes/versions.md"
+stage
+rc="$(run_hook)"
+assert_eq "$rc" "0" "plus-prefixed version strings are not phone candidates"
+
+reset_tree
 echo "created: 2026-07-31T10:00+09:00" > "$VAULT/knowledge/notes/dated.md"
 stage
 rc="$(run_hook)"
