@@ -107,6 +107,13 @@ stage
 rc="$(run_hook)"
 assert_eq "$rc" "1" "non-allowlisted address still blocks alongside an allowlisted one"
 
+reset_tree
+printf '# allow\nann@corp-x.jp\n' > "$VAULT/.rill/pii-allowlist.txt"
+echo "cc: joann@corp-x.jp" > "$VAULT/knowledge/notes/super.md"
+stage
+rc="$(run_hook)"
+assert_eq "$rc" "1" "allowlist is whole-value: ann@ does not suppress joann@"
+
 echo ""
 echo "=== phone detection (no LLM in PATH) ==="
 reset_tree
@@ -119,6 +126,11 @@ assert_file_contains "$WORK/out.txt" "LLM unavailable" "fallback message says LL
 printf '# own numbers\n090-1234-5678\n' > "$VAULT/.rill/pii-allowlist.txt"
 rc="$(run_hook)"
 assert_eq "$rc" "0" "allowlisted phone number passes without invoking an LLM"
+
+echo "own 090-1234-5678 / their 080-9999-8888" > "$VAULT/knowledge/notes/contact-note.md"
+stage
+rc="$(run_hook)"
+assert_eq "$rc" "1" "allowlisted phone does not hide a second phone on the same line"
 
 reset_tree
 echo "created: 2026-07-31T10:00+09:00" > "$VAULT/knowledge/notes/dated.md"

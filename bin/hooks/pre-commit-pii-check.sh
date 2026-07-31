@@ -12,7 +12,8 @@ set -euo pipefail
 # Values listed there are treated as not-protected (e.g. the vault owner's own
 # addresses, which are tool configuration rather than third-party contact PII —
 # same reasoning as the identifier sets kept vault-side per ADR-081 D81-7).
-# The allowlist lives in the vault, never in this public script.
+# The allowlist lives in the vault, never in this public script. Entries match
+# the exact detected value (whole-string) — never a line, never a substring.
 
 STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.md$' || true)
 [ -z "$STAGED_FILES" ] && exit 0
@@ -20,13 +21,37 @@ STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.md$' ||
 # Load the vault-local allowlist (hook runs with CWD = repo root)
 ALLOWLIST=$(grep -Ev '^[[:space:]]*(#|$)' .rill/pii-allowlist.txt 2>/dev/null || true)
 
-# Filter stdin: drop lines containing any allowlisted value (fixed-string match)
-filter_allowlist() {
+# Drop extracted values that exactly match an allowlist entry. Whole-value
+# fixed-string comparison (-Fx): allowing ann@example.com must not also
+# suppress joann@example.com, and an allowlisted value must never hide a
+# different value that happens to share a line with it.
+filter_allowlist_values() {
   if [ -n "$ALLOWLIST" ]; then
-    grep -Fv -f <(printf '%s\n' "$ALLOWLIST") || true
+    grep -Fxv -f <(printf '%s\n' "$ALLOWLIST") || true
   else
     cat
   fi
+}
+
+# Keep only numbered lines ("N:content") that still contain at least one
+# phone value NOT allowlisted. Line context is preserved for the LLM step;
+# the allowlist decision is made per extracted value, never per line.
+filter_phone_lines() {
+  if [ -z "$ALLOWLIST" ]; then
+    cat
+    return
+  fi
+  local pline vals remaining out=""
+  while IFS= read -r pline; do
+    [ -z "$pline" ] && continue
+    vals=$(printf '%s\n' "${pline#*:}" | grep -Eo \
+      -e '\+[0-9]{1,3}[- .][0-9]{1,4}[- .][0-9]{3,4}' \
+      -e '0[0-9]{1,4}-[0-9]{1,4}-[0-9]{3,4}' \
+      -e '\([0-9]{2,4}\) ?[0-9]{3,4}[- .][0-9]{3,4}' || true)
+    remaining=$(printf '%s\n' "$vals" | filter_allowlist_values)
+    [ -n "$remaining" ] && out+="$pline"$'\n'
+  done
+  printf '%s' "$out"
 }
 
 # Filter out encrypted directories and non-PKM files
@@ -58,7 +83,7 @@ while IFS= read -r file; do
     -e '\+[0-9]{1,3}[- .][0-9]{1,4}[- .][0-9]{3,4}' \
     -e '0[0-9]{1,4}-[0-9]{1,4}-[0-9]{3,4}' \
     -e '\([0-9]{2,4}\) ?[0-9]{3,4}[- .][0-9]{3,4}' \
-    | filter_allowlist || true)
+    | filter_phone_lines || true)
 
   if [ -n "$PHONE_LINES" ]; then
     while IFS= read -r line; do
@@ -70,7 +95,7 @@ while IFS= read -r file; do
   EMAILS=$(echo "$CONTENT" | grep -Eo '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' || true)
   if [ -n "$EMAILS" ]; then
     CLEAN=$(echo "$EMAILS" | grep -Ev 'noreply@|example\.|@anthropic\.com|^git@' \
-      | filter_allowlist || true)
+      | filter_allowlist_values || true)
     if [ -n "$CLEAN" ]; then
       echo "⚠️  Email address pattern in: $file"
       echo "    $CLEAN"

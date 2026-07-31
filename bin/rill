@@ -2189,8 +2189,21 @@ _crypt_doctor() {
         -e '0[0-9]{1,4}-[0-9]{1,4}-[0-9]{3,4}' \
         -e '\([0-9]{2,4}\) ?[0-9]{3,4}[- .][0-9]{3,4}' \
         inbox/ knowledge/notes/ knowledge/self/ workspace/ tasks/ projects/ reports/ pages/ 2>/dev/null || true)
+    # Allowlist decision is per extracted value, never per line: an
+    # allowlisted value must not hide a different value sharing its line,
+    # and entries match the whole value (-Fx), not substrings.
     if [ -n "$pii_allow" ] && [ -n "$phone_hits" ]; then
-        phone_hits=$(echo "$phone_hits" | grep -Fv -f <(printf '%s\n' "$pii_allow") || true)
+        local _hit _vals _rem _kept=""
+        while IFS= read -r _hit; do
+            [ -z "$_hit" ] && continue
+            _vals=$(printf '%s\n' "${_hit#*:*:}" | grep -Eo \
+                -e '\+[0-9]{1,3}[- .][0-9]{1,4}[- .][0-9]{3,4}' \
+                -e '0[0-9]{1,4}-[0-9]{1,4}-[0-9]{3,4}' \
+                -e '\([0-9]{2,4}\) ?[0-9]{3,4}[- .][0-9]{3,4}' || true)
+            _rem=$(printf '%s\n' "$_vals" | grep -Fxv -f <(printf '%s\n' "$pii_allow") || true)
+            [ -n "$_rem" ] && _kept+="$_hit"$'\n'
+        done <<< "$phone_hits"
+        phone_hits="${_kept%$'\n'}"
     fi
     if [ -n "$phone_hits" ]; then
         # LLM verification to reduce false positives
@@ -2265,8 +2278,16 @@ Reply ONLY with:
     email_hits=$(grep -rn -Eo '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' \
         inbox/ knowledge/notes/ knowledge/self/ workspace/ tasks/ projects/ reports/ pages/ 2>/dev/null \
         | grep -Ev 'noreply@|example\.|@anthropic\.com|(:|/)git@' || true)
+    # -rn -Eo output is path:lineno:value — compare the value exactly
     if [ -n "$pii_allow" ] && [ -n "$email_hits" ]; then
-        email_hits=$(echo "$email_hits" | grep -Fv -f <(printf '%s\n' "$pii_allow") || true)
+        local _ehit _ekept=""
+        while IFS= read -r _ehit; do
+            [ -z "$_ehit" ] && continue
+            if ! printf '%s\n' "${_ehit##*:}" | grep -Fxq -f <(printf '%s\n' "$pii_allow"); then
+                _ekept+="$_ehit"$'\n'
+            fi
+        done <<< "$email_hits"
+        email_hits="${_ekept%$'\n'}"
     fi
     if [ -n "$email_hits" ]; then
         echo "⚠️  Email address patterns found:"

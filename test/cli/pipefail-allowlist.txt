@@ -1,3 +1,4 @@
+_vals=$(printf '%s\n' "${_hit#*:*:}" | grep -Eo \
 after="$(awk '!/^#/ && NF>0' "$tmp" | wc -l | tr -d ' ')"
 before="$(awk '!/^#/ && NF>0' "$pending_file" | wc -l | tr -d ' ')"
 body="$(sed '/^---$/,/^---$/d' "$tmpfile" | sed '/^[[:space:]]*$/d')"
