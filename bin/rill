@@ -2100,12 +2100,15 @@ _crypt_install_hook() {
         return 1
     fi
     # Refuse to replace a hook we did not install: a plain file, or a
-    # symlink that points at some other tool's hook. Our own link (same
-    # script name, wherever the source repo lives) is refreshed in place.
+    # symlink that does not resolve to this exact hook script. Ownership
+    # is decided on the fully resolved target — a foreign hook that merely
+    # shares the script name must not be replaced. A broken link (e.g. the
+    # source repo moved) is also refused, with the fix shown.
     if [ -L "$hook_target" ]; then
-        local existing_base
-        existing_base="$(basename "$(readlink "$hook_target")")"
-        if [ "$existing_base" != "$(basename "$hook_source")" ]; then
+        local existing resolved_source
+        existing="$(readlink -f "$hook_target" 2>/dev/null || true)"
+        resolved_source="$(readlink -f "$hook_source" 2>/dev/null || echo "$hook_source")"
+        if [ "$existing" != "$resolved_source" ]; then
             echo "⚠️  Existing pre-commit hook found. Manual installation needed:"
             echo "    ln -sf $hook_source $hook_target"
             return 1
@@ -2205,7 +2208,7 @@ _crypt_doctor() {
     # allowlisted value must not hide a different value sharing its line,
     # and entries match the whole value (-Fx), not substrings.
     if [ -n "$pii_allow" ] && [ -n "$phone_hits" ]; then
-        local _hit _vals _rem _kept=""
+        local _hit _vals _rem _masked _allowed _kept=""
         while IFS= read -r _hit; do
             [ -z "$_hit" ] && continue
             _vals=$(printf '%s\n' "${_hit#*:*:}" | grep -Eo \
@@ -2213,7 +2216,17 @@ _crypt_doctor() {
                 -e '0[0-9]{1,4}-[0-9]{1,4}-[0-9]{3,4}' \
                 -e '\([0-9]{2,4}\) ?[0-9]{3,4}[- .][0-9]{3,4}' || true)
             _rem=$(printf '%s\n' "$_vals" | grep -Fxv -f <(printf '%s\n' "$pii_allow") || true)
-            [ -n "$_rem" ] && _kept+="$_hit"$'\n'
+            if [ -n "$_rem" ]; then
+                # Mask allowlisted values out of the kept line — same
+                # reasoning as the pre-commit hook: the LLM must never see
+                # an allowlisted (real) number, or it reports FOUND for it.
+                _masked="$_hit"
+                while IFS= read -r _allowed; do
+                    [ -z "$_allowed" ] && continue
+                    _masked="${_masked//"$_allowed"/[allowlisted]}"
+                done <<< "$pii_allow"
+                _kept+="$_masked"$'\n'
+            fi
         done <<< "$phone_hits"
         phone_hits="${_kept%$'\n'}"
     fi

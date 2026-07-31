@@ -206,6 +206,15 @@ RILL_HOME="$FOREIGNLINK" "$RILL" crypt hook > "$WORK/out.txt" 2>&1 || rc=$?
 assert_true "[ $rc -ne 0 ]" "symlink to another tool's hook is not overwritten"
 assert_true "[ \"\$(readlink '$FOREIGNLINK/.git/hooks/pre-commit')\" = '/usr/bin/true' ]" "foreign symlink left untouched"
 
+SAMENAME="$WORK/samename"
+mkdir -p "$SAMENAME/othertool"
+cp /usr/bin/true "$SAMENAME/othertool/pre-commit-pii-check.sh" 2>/dev/null || echo '#!/bin/sh' > "$SAMENAME/othertool/pre-commit-pii-check.sh"
+git -C "$SAMENAME" init -q
+ln -s "$SAMENAME/othertool/pre-commit-pii-check.sh" "$SAMENAME/.git/hooks/pre-commit"
+rc=0
+RILL_HOME="$SAMENAME" "$RILL" crypt hook > "$WORK/out.txt" 2>&1 || rc=$?
+assert_true "[ $rc -ne 0 ]" "foreign hook sharing our script name is not overwritten (resolved-path check)"
+
 echo ""
 echo "=== installed hook fires on a real commit ==="
 echo "call me: someone@real-client.org" > "$VAULT/knowledge/notes/leak.md"
