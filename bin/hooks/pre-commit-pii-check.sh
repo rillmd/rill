@@ -34,14 +34,17 @@ filter_allowlist_values() {
 }
 
 # Keep only numbered lines ("N:content") that still contain at least one
-# phone value NOT allowlisted. Line context is preserved for the LLM step;
-# the allowlist decision is made per extracted value, never per line.
+# phone value NOT allowlisted. Line context is preserved for the LLM step,
+# but allowlisted values are masked out of it first — otherwise the LLM
+# sees the allowlisted (real) number and answers FOUND because of it,
+# blocking a line whose only non-allowlisted candidate is a false positive.
+# The allowlist decision is made per extracted value, never per line.
 filter_phone_lines() {
   if [ -z "$ALLOWLIST" ]; then
     cat
     return
   fi
-  local pline vals remaining out=""
+  local pline vals remaining masked allowed out=""
   while IFS= read -r pline; do
     [ -z "$pline" ] && continue
     vals=$(printf '%s\n' "${pline#*:}" | grep -Eo \
@@ -49,7 +52,14 @@ filter_phone_lines() {
       -e '0[0-9]{1,4}-[0-9]{1,4}-[0-9]{3,4}' \
       -e '\([0-9]{2,4}\) ?[0-9]{3,4}[- .][0-9]{3,4}' || true)
     remaining=$(printf '%s\n' "$vals" | filter_allowlist_values)
-    [ -n "$remaining" ] && out+="$pline"$'\n'
+    if [ -n "$remaining" ]; then
+      masked="$pline"
+      while IFS= read -r allowed; do
+        [ -z "$allowed" ] && continue
+        masked="${masked//"$allowed"/[allowlisted]}"
+      done <<< "$ALLOWLIST"
+      out+="$masked"$'\n'
+    fi
   done
   printf '%s' "$out"
 }

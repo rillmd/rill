@@ -2098,7 +2098,19 @@ _crypt_install_hook() {
         echo "⚠️  Hook not found: $hook_source"
         echo "    Skipping pre-commit hook installation."
         return 1
-    elif [ -f "$hook_target" ] && [ ! -L "$hook_target" ]; then
+    fi
+    # Refuse to replace a hook we did not install: a plain file, or a
+    # symlink that points at some other tool's hook. Our own link (same
+    # script name, wherever the source repo lives) is refreshed in place.
+    if [ -L "$hook_target" ]; then
+        local existing_base
+        existing_base="$(basename "$(readlink "$hook_target")")"
+        if [ "$existing_base" != "$(basename "$hook_source")" ]; then
+            echo "⚠️  Existing pre-commit hook found. Manual installation needed:"
+            echo "    ln -sf $hook_source $hook_target"
+            return 1
+        fi
+    elif [ -f "$hook_target" ]; then
         echo "⚠️  Existing pre-commit hook found. Manual installation needed:"
         echo "    ln -sf $hook_source $hook_target"
         return 1

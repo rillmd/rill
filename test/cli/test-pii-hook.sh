@@ -155,6 +155,15 @@ rc="$(run_hook)"
 assert_eq "$rc" "0" "plus-prefixed version strings are not phone candidates"
 
 reset_tree
+printf '090-1234-5678\n' > "$VAULT/.rill/pii-allowlist.txt"
+echo "own 090-1234-5678 / build +1.2.345" > "$VAULT/knowledge/notes/mixed.md"
+stage
+rc="$(run_hook)"
+assert_eq "$rc" "1" "non-allowlisted candidate on a mixed line still blocks (no-LLM fail-safe)"
+assert_file_contains "$WORK/out.txt" "allowlisted" "allowlisted value is masked in the candidate line"
+assert_file_not_contains "$WORK/out.txt" "090-1234-5678" "allowlisted value itself never reaches the report or LLM"
+
+reset_tree
 echo "created: 2026-07-31T10:00+09:00" > "$VAULT/knowledge/notes/dated.md"
 stage
 rc="$(run_hook)"
@@ -187,6 +196,15 @@ rc=0
 RILL_HOME="$FOREIGN" "$RILL" crypt hook > "$WORK/out.txt" 2>&1 || rc=$?
 assert_true "[ $rc -ne 0 ]" "existing non-symlink pre-commit hook is not overwritten"
 assert_file_contains "$WORK/out.txt" "Manual installation needed" "manual-install guidance shown"
+
+FOREIGNLINK="$WORK/foreignlink"
+mkdir -p "$FOREIGNLINK"
+git -C "$FOREIGNLINK" init -q
+ln -s /usr/bin/true "$FOREIGNLINK/.git/hooks/pre-commit"
+rc=0
+RILL_HOME="$FOREIGNLINK" "$RILL" crypt hook > "$WORK/out.txt" 2>&1 || rc=$?
+assert_true "[ $rc -ne 0 ]" "symlink to another tool's hook is not overwritten"
+assert_true "[ \"\$(readlink '$FOREIGNLINK/.git/hooks/pre-commit')\" = '/usr/bin/true' ]" "foreign symlink left untouched"
 
 echo ""
 echo "=== installed hook fires on a real commit ==="
