@@ -7,9 +7,62 @@ set -euo pipefail
 #
 # Phone detection: broad global patterns + LLM verification to reduce false positives.
 # Email detection: regex with known-safe exclusions.
+#
+# Vault-local allowlist: .rill/pii-allowlist.txt (one value per line, # comments).
+# Values listed there are treated as not-protected (e.g. the vault owner's own
+# addresses, which are tool configuration rather than third-party contact PII —
+# same reasoning as the identifier sets kept vault-side per ADR-081 D81-7).
+# The allowlist lives in the vault, never in this public script. Entries match
+# the exact detected value (whole-string) — never a line, never a substring.
 
 STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.md$' || true)
 [ -z "$STAGED_FILES" ] && exit 0
+
+# Load the vault-local allowlist (hook runs with CWD = repo root)
+ALLOWLIST=$(grep -Ev '^[[:space:]]*(#|$)' .rill/pii-allowlist.txt 2>/dev/null || true)
+
+# Drop extracted values that exactly match an allowlist entry. Whole-value
+# fixed-string comparison (-Fx): allowing ann@example.com must not also
+# suppress joann@example.com, and an allowlisted value must never hide a
+# different value that happens to share a line with it.
+filter_allowlist_values() {
+  if [ -n "$ALLOWLIST" ]; then
+    grep -Fxv -f <(printf '%s\n' "$ALLOWLIST") || true
+  else
+    cat
+  fi
+}
+
+# Keep only numbered lines ("N:content") that still contain at least one
+# phone value NOT allowlisted. Line context is preserved for the LLM step,
+# but allowlisted values are masked out of it first — otherwise the LLM
+# sees the allowlisted (real) number and answers FOUND because of it,
+# blocking a line whose only non-allowlisted candidate is a false positive.
+# The allowlist decision is made per extracted value, never per line.
+filter_phone_lines() {
+  if [ -z "$ALLOWLIST" ]; then
+    cat
+    return
+  fi
+  local pline vals remaining masked allowed out=""
+  while IFS= read -r pline; do
+    [ -z "$pline" ] && continue
+    vals=$(printf '%s\n' "${pline#*:}" | grep -Eo \
+      -e '\+[0-9]{1,3}([- .][0-9]{1,4}){1,3}[- .][0-9]{3,4}' \
+      -e '0[0-9]{1,4}-[0-9]{1,4}-[0-9]{3,4}' \
+      -e '\([0-9]{2,4}\) ?[0-9]{3,4}[- .][0-9]{3,4}' || true)
+    remaining=$(printf '%s\n' "$vals" | filter_allowlist_values)
+    if [ -n "$remaining" ]; then
+      masked="$pline"
+      while IFS= read -r allowed; do
+        [ -z "$allowed" ] && continue
+        masked="${masked//"$allowed"/[allowlisted]}"
+      done <<< "$ALLOWLIST"
+      out+="$masked"$'\n'
+    fi
+  done
+  printf '%s' "$out"
+}
 
 # Filter out encrypted directories and non-PKM files
 CHECK_FILES=$(echo "$STAGED_FILES" | grep -v \
@@ -31,16 +84,18 @@ while IFS= read -r file; do
 
   # --- Phone number detection (global) ---
   # Broad patterns:
-  #   +XX-XXXX-XXXX (international)
+  #   +XX-XX-XXXX-XXXX (international; consumes 2-4 separator+digit groups
+  #   so the whole number is one match — extraction must equal detection for
+  #   the allowlist's exact-value comparison to hold. The final group keeps
+  #   the 3-4 digit floor so version strings like +1.2.3 don't match)
   #   0X0-XXXX-XXXX (Japanese mobile)
   #   0X-XXXX-XXXX / 0XX-XXX-XXXX (Japanese landline)
   #   (XXX) XXX-XXXX (US/CA)
-  #   XXX-XXX-XXXX, XXX.XXX.XXXX (US/CA without parens)
   PHONE_LINES=$(echo "$CONTENT" | grep -En \
-    -e '\+[0-9]{1,3}[- .][0-9]{1,4}[- .][0-9]{3,4}' \
+    -e '\+[0-9]{1,3}([- .][0-9]{1,4}){1,3}[- .][0-9]{3,4}' \
     -e '0[0-9]{1,4}-[0-9]{1,4}-[0-9]{3,4}' \
     -e '\([0-9]{2,4}\) ?[0-9]{3,4}[- .][0-9]{3,4}' \
-    || true)
+    | filter_phone_lines || true)
 
   if [ -n "$PHONE_LINES" ]; then
     while IFS= read -r line; do
@@ -51,7 +106,8 @@ while IFS= read -r file; do
   # --- Email detection ---
   EMAILS=$(echo "$CONTENT" | grep -Eo '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' || true)
   if [ -n "$EMAILS" ]; then
-    CLEAN=$(echo "$EMAILS" | grep -Ev 'noreply@|example\.|@anthropic\.com|^git@' || true)
+    CLEAN=$(echo "$EMAILS" | grep -Ev 'noreply@|example\.|@anthropic\.com|^git@' \
+      | filter_allowlist_values || true)
     if [ -n "$CLEAN" ]; then
       echo "⚠️  Email address pattern in: $file"
       echo "    $CLEAN"

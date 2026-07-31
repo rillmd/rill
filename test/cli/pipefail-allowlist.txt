@@ -1,3 +1,4 @@
+_vals=$(printf '%s\n' "${_hit#*:*:}" | grep -Eo \
 after="$(awk '!/^#/ && NF>0' "$tmp" | wc -l | tr -d ' ')"
 before="$(awk '!/^#/ && NF>0' "$pending_file" | wc -l | tr -d ' ')"
 body="$(sed '/^---$/,/^---$/d' "$tmpfile" | sed '/^[[:space:]]*$/d')"
@@ -5,6 +6,7 @@ candidates=$(echo "$phone_hits" | head -20)
 count="$(jq -r '.vaults | length' "$registry")"
 display_name="$(sed -n '/^name:/s/^name: *//p' "$file_path" | head -1)"
 display_name="$(sed -n '/^name:/s/^name: *//p' "$ws_file" | head -1)"
+hook_path="$(printf '%s' "$hook_json" | jq -r \
 m="$(echo "$m" | sed 's/^ *//;s/ *$//')"
 managed_count="$(wc -l < "$vault_dir/.rill/managed-files.txt" | tr -d ' ')"
 mentions_content="$(echo "$mentions_line" | sed 's/^mentions: *\[//;s/\] *$//')"
