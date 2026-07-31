@@ -93,6 +93,23 @@ assert_true "git -C '$VAULT' check-ignore -q .rill/bin/rill; [ \$? -ne 0 ]" "pro
 rc=0; RILL_HOME="$VAULT" "$VAULT/.rill/bin/rill" guard --help >/dev/null 2>&1 || rc=$?
 assert_eq "$rc" "0" "projected CLI runs from inside the vault"
 
+# The PII allowlist must stay out of git even in track mode
+echo "owner@example-own.jp" > "$VAULT/.rill/pii-allowlist.txt"
+rc=0; "$RILL" update --vault tracktest >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "0" "update succeeds with an allowlist present"
+assert_true "git -C '$VAULT' check-ignore -q .rill/pii-allowlist.txt" "pii-allowlist stays git-ignored in track mode"
+
+# A clone-local CLI must never treat .rill/ as a distribution source:
+# with no installed source to fall back to, update refuses before
+# touching managed-files.txt.
+managed_before="$(wc -l < "$VAULT/.rill/managed-files.txt" | tr -d ' ')"
+rc=0
+env -u RILL_SOURCE HOME="$WORK/home" RILL_HOME="$VAULT" \
+  "$VAULT/.rill/bin/rill" update --vault tracktest >/dev/null 2>&1 || rc=$?
+assert_true "[ $rc -ne 0 ]" "clone-local CLI refuses to update without a real source"
+managed_after="$(wc -l < "$VAULT/.rill/managed-files.txt" | tr -d ' ')"
+assert_eq "$managed_after" "$managed_before" "managed-files.txt untouched by the refused update"
+
 echo ""
 echo "=== reversible: back to default ==="
 git -C "$VAULT" add -A >/dev/null 2>&1
