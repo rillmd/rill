@@ -133,6 +133,22 @@ rc="$(run_hook)"
 assert_eq "$rc" "1" "allowlisted phone does not hide a second phone on the same line"
 
 reset_tree
+echo "intl: +81-90-1234-5678" > "$VAULT/knowledge/notes/intl.md"
+stage
+rc="$(run_hook)"
+assert_eq "$rc" "1" "international number blocks when not allowlisted"
+
+printf '+81-90-1234-5678\n' > "$VAULT/.rill/pii-allowlist.txt"
+rc="$(run_hook)"
+assert_eq "$rc" "0" "full international number in the allowlist matches (no truncation)"
+
+printf '+81 80 4232 1097\n' > "$VAULT/.rill/pii-allowlist.txt"
+echo "cell: +81 80 4232 1097" > "$VAULT/knowledge/notes/intl.md"
+stage
+rc="$(run_hook)"
+assert_eq "$rc" "0" "space-separated international number matches whole"
+
+reset_tree
 echo "created: 2026-07-31T10:00+09:00" > "$VAULT/knowledge/notes/dated.md"
 stage
 rc="$(run_hook)"
