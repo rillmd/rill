@@ -2683,6 +2683,22 @@ _ensure_permissions() {
     ' "$settings_file" > "$tmp" && mv "$tmp" "$settings_file"
 }
 
+# Project the CLI itself into the vault (.rill/bin/rill) so a clone carries
+# a runnable copy. In track_managed mode this is what makes a bare clone
+# self-sufficient: hooks and AGENTS.md call `rill`, so cloud environments
+# only add the clone-local copy to PATH (one line, no network fetch).
+# Deliberately not listed in managed-files.txt: .rill/ is ignored wholesale
+# in default mode, and must be tracked wholesale in track_managed mode.
+_project_cli_into_vault() {
+    local vault="$1"
+    local rill_source
+    rill_source="$(_resolve_rill_source)"
+    [ -f "$rill_source/bin/rill" ] || return 0
+    mkdir -p "$vault/.rill/bin"
+    cp "$rill_source/bin/rill" "$vault/.rill/bin/rill"
+    chmod +x "$vault/.rill/bin/rill"
+}
+
 _generate_vault_gitignore() {
     local vault="$1"
     local gitignore="$vault/.gitignore"
@@ -3593,6 +3609,7 @@ LANG
     _ensure_codex_deny_rules "$vault_dir" "$vault_dir/.rill/managed-files.txt"
 
     # ── Phase 7: .gitignore for managed files (D009-6) ────────────────
+    _project_cli_into_vault "$vault_dir"
     _generate_vault_gitignore "$vault_dir"
     echo "  ✓ .gitignore updated (managed files excluded from git)"
 
@@ -3932,6 +3949,7 @@ EOF
         fi
 
         # Regenerate .gitignore for this vault (D009-6)
+        _project_cli_into_vault "$vpath"
         _generate_vault_gitignore "$vpath"
 
         # Ensure Claude Code hooks + permissions in settings.json (ADR-074)

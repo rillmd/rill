@@ -86,6 +86,13 @@ assert_true "git -C '$VAULT' check-ignore -q .rill/version; [ \$? -ne 0 ]" "git 
 assert_true "git -C '$VAULT' check-ignore -q .claude/rules/rill-core.md; [ \$? -ne 0 ]" "git does not ignore managed rules in track mode"
 assert_true "git -C '$VAULT' check-ignore -q inbox/tweets/.index" "git still ignores the derived index in track mode"
 
+# The CLI itself is projected into the clone-able runtime
+assert_file_exists "$VAULT/.rill/bin/rill" "CLI projected to .rill/bin/rill"
+assert_true "[ -x '$VAULT/.rill/bin/rill' ]" "projected CLI is executable"
+assert_true "git -C '$VAULT' check-ignore -q .rill/bin/rill; [ \$? -ne 0 ]" "projected CLI is git-visible in track mode"
+rc=0; RILL_HOME="$VAULT" "$VAULT/.rill/bin/rill" guard --help >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "0" "projected CLI runs from inside the vault"
+
 echo ""
 echo "=== reversible: back to default ==="
 tmp="$(mktemp)"
