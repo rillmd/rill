@@ -92,6 +92,18 @@ assert_true "grep -qx '.rill/bin/rill' '$VAULT/.rill/managed-files.txt'" "projec
 rc=0; RILL_HOME="$VAULT" "$RILL" guard ".rill/bin/rill" >/dev/null 2>&1 || rc=$?
 assert_true "[ $rc -ne 0 ]" "rill guard blocks edits to the projected CLI"
 
+# A second update must not falsely report the projected CLI as retired
+rc=0; "$RILL" update --vault tracktest > "$WORK/second-update.txt" 2>&1 || rc=$?
+assert_eq "$rc" "0" "second update exits 0"
+assert_file_not_contains "$WORK/second-update.txt" "'.rill/bin/rill' is no longer managed" "no false stale report for the projected CLI"
+
+# init from a projected CLI with no installed source is refused before writes
+rc=0
+env -u RILL_SOURCE HOME="$WORK/home" \
+  "$VAULT/.rill/bin/rill" init "$WORK/newvault" --name refused --no-default >/dev/null 2>&1 || rc=$?
+assert_true "[ $rc -ne 0 ]" "clone-local CLI refuses rill init without a real source"
+assert_true "[ ! -d '$WORK/newvault/.rill' ]" "refused init leaves no partial vault behind"
+
 # The PII allowlist must stay out of git even in track mode
 echo "owner@example-own.jp" > "$VAULT/.rill/pii-allowlist.txt"
 rc=0; "$RILL" update --vault tracktest >/dev/null 2>&1 || rc=$?

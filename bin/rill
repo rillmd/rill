@@ -2749,7 +2749,7 @@ _generate_vault_gitignore() {
             echo "  ⚠ track_managed is off, but previously committed managed files are still tracked."
             echo "    .gitignore does not untrack them. To untrack (files stay on disk):"
             echo "      git rm -r -q --cached .rill/"
-            echo "      tr '\\n' '\\0' < .rill/managed-files.txt | xargs -0 git rm -q --cached --"
+            echo "      tr '\\n' '\\0' < .rill/managed-files.txt | xargs -0 git rm -q --cached --ignore-unmatch --"
             echo "      git commit -m 'stop tracking managed files'"
         fi
     fi
@@ -3330,6 +3330,18 @@ EOF
 
     local rill_source
     rill_source="$(_resolve_rill_source)"
+
+    # Same source validation as cmd_update, before any write: a
+    # vault-projected CLI (.rill/bin/rill) with no installed source must
+    # not initialize a vault, and init (which never pulls) needs the full
+    # distribution layout up front — otherwise it dies midway through the
+    # copy phases and leaves an incomplete vault behind.
+    if [ "$(basename "$rill_source")" = ".rill" ] \
+        || [ ! -d "$rill_source/templates" ] || [ ! -d "$rill_source/skills" ]; then
+        echo "Error: resolved source ($rill_source) is not a Rill distribution root." >&2
+        echo "       Install: git clone https://github.com/rillmd/rill ~/.rill/source (or set RILL_SOURCE)." >&2
+        return 1
+    fi
 
     # Ensure vault_dir exists (create if needed)
     mkdir -p "$vault_dir"
@@ -3952,6 +3964,12 @@ EOF
         # loaded by the harness — so upstream deletions would never reach
         # users.
         #
+        # Project the CLI (and register it in managed-files.txt) BEFORE the
+        # stale-cleanup comparison — otherwise .rill/bin/rill sits in the
+        # previous list but not yet in the current one, and every update
+        # falsely reports it as "no longer managed" before re-adding it.
+        _project_cli_into_vault "$vpath"
+
         # Safety: only entries from the previous managed list are candidates
         # (user files are never listed there); entries must be relative
         # paths without ".." components; deletion is restricted to the
@@ -4006,8 +4024,8 @@ EOF
             fi
         fi
 
-        # Regenerate .gitignore for this vault (D009-6)
-        _project_cli_into_vault "$vpath"
+        # Regenerate .gitignore for this vault (D009-6). The CLI projection
+        # already ran before the stale-cleanup pass above.
         _generate_vault_gitignore "$vpath"
 
         # Ensure Claude Code hooks + permissions in settings.json (ADR-074)
