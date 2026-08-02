@@ -87,6 +87,11 @@ assert_true "git -C '$VAULT' check-ignore -q .rill/bin/rill; [ \$? -ne 0 ]" "pro
 rc=0; RILL_HOME="$VAULT" "$VAULT/.rill/bin/rill" guard --help >/dev/null 2>&1 || rc=$?
 assert_eq "$rc" "0" "projected CLI runs from inside the vault"
 
+# The projected CLI is under guard protection (managed file)
+assert_true "grep -qx '.rill/bin/rill' '$VAULT/.rill/managed-files.txt'" "projected CLI registered in managed-files.txt"
+rc=0; RILL_HOME="$VAULT" "$RILL" guard ".rill/bin/rill" >/dev/null 2>&1 || rc=$?
+assert_true "[ $rc -ne 0 ]" "rill guard blocks edits to the projected CLI"
+
 # The PII allowlist must stay out of git even in track mode
 echo "owner@example-own.jp" > "$VAULT/.rill/pii-allowlist.txt"
 rc=0; "$RILL" update --vault tracktest >/dev/null 2>&1 || rc=$?

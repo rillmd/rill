@@ -2698,8 +2698,9 @@ _ensure_permissions() {
 # a runnable copy. In track_managed mode this is what makes a bare clone
 # self-sufficient: hooks and AGENTS.md call `rill`, so cloud environments
 # only add the clone-local copy to PATH (one line, no network fetch).
-# Deliberately not listed in managed-files.txt: .rill/ is ignored wholesale
-# in default mode, and must be tracked wholesale in track_managed mode.
+# Registered in managed-files.txt so `rill guard` blocks agent edits to the
+# projected runtime — a locally patched copy would silently diverge from
+# the source and be overwritten by the next update.
 _project_cli_into_vault() {
     local vault="$1"
     local rill_source
@@ -2708,6 +2709,10 @@ _project_cli_into_vault() {
     mkdir -p "$vault/.rill/bin"
     cp "$rill_source/bin/rill" "$vault/.rill/bin/rill"
     chmod +x "$vault/.rill/bin/rill"
+    local managed="$vault/.rill/managed-files.txt"
+    if [ -f "$managed" ] && ! grep -qx '.rill/bin/rill' "$managed"; then
+        echo ".rill/bin/rill" >> "$managed"
+    fi
 }
 
 _generate_vault_gitignore() {
