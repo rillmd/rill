@@ -36,7 +36,7 @@ gog auth credentials /path/to/client_secret.json
 ### 3. Add Account
 
 ```bash
-gog auth add your-email@gmail.com --services drive,docs
+gog auth add your-email@example.com --services drive,docs
 ```
 
 A browser window will open for Google account authentication.
