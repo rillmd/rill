@@ -247,14 +247,14 @@ A long-running autonomous loop must not be able to pass by **weakening its own g
 
 ## 11. Runner Economics & Concurrency (ADR-082)
 
-**Execution paths** (the 2026-06-15 billing change moved `claude -p` / Agent SDK off the subscription pool into a separate monthly credit — Pro $20 / Max 5x $100 / Max 20x $200; interactive Claude Code is unchanged):
+**Execution paths**. A 2026-06-15 billing change was announced that would move `claude -p` / Agent SDK off the subscription pool into a separate monthly credit, but it was **paused on its effective date and remains paused** (help center, verified 2026-07-30): `claude -p` and Agent SDK usage continue to draw on the subscription pool, and no monthly credit is provisioned. Interactive Claude Code was never affected.
 
 | Path | Mechanism | Billing | Use |
 |---|---|---|---|
 | **Primary** | Interactive terminal session running `/project {slug} run` | Subscription pool | Daytime; 1 project = 1 terminal session |
-| **Secondary** (opt-in) | `claude -p "/project {slug} run --max-tasks 1"` via launchd / cron | Agent SDK credit | Overnight "once-a-night + small merges" |
+| **Secondary** (opt-in) | `claude -p "/project {slug} run --max-tasks 1"` via launchd / cron | Subscription pool today (separate credit only if the announced split is ever enacted) | Overnight "once-a-night + small merges" |
 
-This supersedes the assumption in ADR-068 D68-3 that `claude -p` automation draws on the flat subscription. The CLI-companion model (D68-1) and Agent-SDK-not-adopted (D68-2) are unchanged.
+ADR-068 D68-3's flat-subscription assumption for `claude -p` automation therefore still holds. Do not design against the credit split as a fact; treat it as a paused announcement. The CLI-companion model (D68-1) and Agent-SDK-not-adopted (D68-2) are unchanged.
 
 **Stop-condition trio** (required runner parameters): (1) max tasks / iterations; (2) no-progress detection — a task that returns to Plan-gap twice is isolated and the runner moves on; all-isolated → stop; (3) time / budget ceiling.
 
