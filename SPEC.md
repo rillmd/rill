@@ -1148,6 +1148,12 @@ Implements data ingestion from external services as interchangeable "plugins."
 
 Tier 1-2 skills are distributed from the source repository (`~/.rill/source/`) to vaults. Initial copy via `rill init`, sync to latest via `rill update`. Distribution targets are recorded in the vault's `.rill/managed-files.txt` (Category A: managed). User-created skills (`personal-*.md`, `my-*.md`) are unmanaged and untouched by `rill update`.
 
+**Managed files and git** — by default, managed files (and `.rill/`) are listed in the auto-generated section of the vault's `.gitignore`, so the vault repository carries only user content. Setting `"track_managed": true` in `.rill/config.json` removes them from that section: managed files and `.rill/` become git-tracked, so a bare clone of the vault carries the full Rill runtime (rules, skills, hooks config) with no `rill update` step. This is the supported mode for cloud harness execution (Claude Code on the web, Codex cloud, Cursor cloud agents), where the platform clones the repository and nothing runs before the session starts. Trade-off: each `rill update` produces git diffs for managed files, committed by the vault owner like any other change. Derived index files (`inbox/*/.index`) stay ignored in both modes.
+
+`rill init` / `rill update` also project the CLI itself into the vault at `.rill/bin/rill`. Hooks and `AGENTS.md` invoke `rill` from PATH, so in a track_managed clone the environment setup adds the clone-local copy to PATH (`export PATH="$PWD/.rill/bin:$PATH"`) — one line, no network fetch. Without it the clone still carries all rules and skills; only `rill` subcommand calls (hooks, `rill mkfile`) degrade with command-not-found warnings. The projected copy is not a distribution root: `rill update` run from it resolves the installed source clone (`~/.rill/source`) and refuses to reproject when none exists, so a clone can never wipe its own managed-file list.
+
+Exception: `.rill/pii-allowlist.txt` stays ignored even in track_managed mode. It holds contact-shaped values (the vault owner's own addresses and numbers) and is only read by the locally installed pre-commit hook — git does not carry hooks, so a clone has no use for the file. It is a per-machine file by design.
+
 **3 Tier classification**:
 
 | Tier | Description | Examples | Distribution Method |
