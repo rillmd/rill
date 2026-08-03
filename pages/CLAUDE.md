@@ -4,7 +4,7 @@ Human-facing aggregated documents for repeated reference (wiki page metaphor, AD
 
 ## Structure
 
-**Flat directory**. Each page has a **recipe pair**:
+**Flat directory** for single-file pages. Each page has a **recipe pair**. A page that outgrows one file becomes a **book**: a `pages/{id}/` directory with a `_book.md` spine (`type: book`), `NN-*.md` chapters (`type: chapter`), the recipe at `pages/{id}/_recipe.md`, and a derived `.view/` reading view built by `rill book build {id}` (git-ignored; Markdown stays the source of truth). Single-file pages:
 
 ```
 pages/

@@ -71,7 +71,7 @@ period: weekly-2026-05-04
 
 ## pages/
 
-Flat directory (`pages/{id}.md`). Each page has a **recipe pair** (`{id}.recipe.md`).
+Flat directory (`pages/{id}.md`). Each page has a **recipe pair** (`{id}.recipe.md`). **Exception — books**: a page that outgrows one file becomes a book, a `pages/{id}/` directory holding a `_book.md` spine (`type: book`, `status: living`), `NN-*.md` chapters (`type: chapter`, `book: {id}`, `status`, `reviewed`, optional `public: false`), and its recipe at `pages/{id}/_recipe.md`. The spine's first chapter-link table defines reading order (bold non-link first cells are part labels). `rill book build {id}` renders the derived reading view into `pages/{id}/.view/` (git-ignored sidecar; never edited by hand, excluded from AI search like the rest of pages/). Chapter prose is edited only with the user present; automated flows may only append marked proposal items to the chapter-end receptacle section.
 
 - **Human-facing aggregated documents** (Materialized Views, wiki metaphor, ADR-062)
 - **Excluded from AI search** (`/distill`, `/briefing`, `/eval` do not Grep pages/)

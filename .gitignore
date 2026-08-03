@@ -3,3 +3,6 @@
 
 # Test execution artifacts (timestamp dirs from bash test/skills/test-*.sh)
 test/results/
+
+# Derived reading-view sidecars (regenerable via rill book build)
+**/.view/

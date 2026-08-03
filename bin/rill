@@ -2771,6 +2771,8 @@ _generate_vault_gitignore() {
     section+="# Sync index files (derived state, rebuildable via rill index rebuild)"$'\n'
     section+="inbox/tweets/.index"$'\n'
     section+="inbox/meetings/.index"$'\n'
+    section+="# Derived reading-view sidecars (regenerable via rill book build)"$'\n'
+    section+="**/.view/"$'\n'
     if [ "$track_managed" = false ]; then
         while IFS= read -r rel; do
             [ -z "$rel" ] && continue
@@ -5855,6 +5857,25 @@ cmd_help() {
     # was literally "--help".) Commands not listed here fall through to the
     # full command list below.
     case "${1:-}" in
+        book)
+            cat <<'EOF'
+Usage: rill book build <id> [--out <dir>]
+
+Builds the fixed-style HTML reading view for a book — a pages/<id>/
+directory holding a _book.md spine plus NN-*.md chapter files. Output goes
+to pages/<id>/.view/ (a derived, git-ignored sidecar; the Markdown stays
+the source of truth) unless --out overrides it.
+
+The frame is identical for every book: one left sidebar (chapters, parts,
+pending-proposal badges, current-section accordion), a 720px reading
+column, prev/next chapter navigation, and receptacle proposals projected
+next to their target sections.
+
+Examples:
+  rill book build ai-native-playbook
+  rill book build handbook --out /tmp/preview
+EOF
+            return 0 ;;
         mkfile)
             cat <<'EOF'
 Usage: rill mkfile <directory> [--slug <slug>] [--type <type>] [--field key=value ...]
@@ -5953,6 +5974,7 @@ User commands — quick capture from outside Claude Code:
   status [n]            Show recent journal entries (default: 10)
   edit                  Open the latest journal entry in editor
   open <path>           Open a file in the Rill GUI (--highlight for emphasis)
+  book build <id>       Build a book's fixed-style HTML reading view (pages/<id>/.view/)
 
 Agent helpers — invoked by skills inside your vault, not typed manually:
   mkfile <dir>          Create file with correct timestamp + frontmatter
@@ -6017,6 +6039,84 @@ EOF
 # it. Commands with their own `-h|--help|help` handler (vault, init, update,
 # crypt, config, migrate-projects, guard, pages-pending-update) and unknown /
 # mistyped commands are deliberately NOT listed, so they fall through to the
+# ── book: Fixed-style HTML reading view for a book directory ──
+#
+# Usage: rill book build <id> [--out <dir>]
+#
+# A book is pages/<id>/ with a _book.md spine and NN-*.md chapters. The
+# builder renders a derived, non-committed reading view into
+# pages/<id>/.view/ (the Markdown stays the source of truth).
+# Implementation: lib/book/build.mjs + vendored markdown-it (no npm
+# install needed). Ships with the rill source; not reprojected into vaults.
+cmd_book() {
+    local sub="${1:-}"
+    case "$sub" in
+        build) shift ;;
+        -h|--help|help|"") cmd_help book; return 0 ;;
+        *) echo "Error: unknown book subcommand: $sub (expected: build)" >&2; return 1 ;;
+    esac
+    local id="${1:-}"
+    case "$id" in
+        -h|--help|help) cmd_help book; return 0 ;;
+    esac
+    if [ -z "$id" ] || [ "${id#-}" != "$id" ]; then
+        echo "Error: book id required. Usage: rill book build <id> [--out <dir>]" >&2
+        return 1
+    fi
+    case "$id" in
+        *[!a-z0-9-]*|-*|*-)
+            echo "Error: book id must be kebab-case ([a-z0-9-], no leading/trailing '-'): $id" >&2
+            return 1 ;;
+    esac
+    shift
+    local out=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --out)
+                out="${2:-}"
+                [ -n "$out" ] || { echo "Error: --out requires a directory" >&2; return 1; }
+                shift 2 ;;
+            *) echo "Error: unknown option: $1" >&2; return 1 ;;
+        esac
+    done
+
+    # Dependency diagnosis (plugin-style: name the missing piece and the fix)
+    if ! command -v node >/dev/null 2>&1; then
+        echo "Error: 'rill book build' needs node (>= 18). Install Node.js and retry." >&2
+        return 1
+    fi
+    if [ -z "${RILL_HOME:-}" ] || [ ! -d "$RILL_HOME" ]; then
+        echo "Error: no vault resolved — run inside a vault or set RILL_HOME." >&2
+        return 1
+    fi
+
+    # Resolve the distribution via the canonical helper (honors $RILL_SOURCE,
+    # then this script's physical location, then ~/.rill/source).
+    local source_root
+    source_root="$(_resolve_rill_source)" || source_root=""
+    local builder="$source_root/lib/book/build.mjs"
+    if [ -z "$source_root" ] || [ ! -f "$builder" ] || [ ! -f "$source_root/lib/book/vendor/markdown-it.min.js" ]; then
+        echo "Error: book builder not found under ${source_root:-<unresolved source>}/lib/book/ — update the rill source (rill update --global-only) or set RILL_SOURCE." >&2
+        return 1
+    fi
+
+    local book_dir="$RILL_HOME/pages/$id"
+    if [ ! -d "$book_dir" ]; then
+        echo "Error: no such book: pages/$id (vault: $RILL_HOME)" >&2
+        return 1
+    fi
+    if [ ! -f "$book_dir/_book.md" ]; then
+        echo "Error: pages/$id has no _book.md spine — not a book directory." >&2
+        return 1
+    fi
+
+    if [ -n "$out" ]; then
+        node "$builder" --src "$book_dir" --out "$out"
+    else
+        node "$builder" --src "$book_dir"
+    fi
+}
+
 # dispatch below — which shows their own help, or reports "Unknown command"
 # and exits non-zero for a typo. Keep this list in sync with the file-creating
 # / side-effecting commands in the dispatch.
@@ -6027,7 +6127,7 @@ if [ "$#" -ge 2 ]; then
         open)
             [ "$2" = "--help" ] && { cmd_help open; exit 0; }
             ;;
-        log|interactive|i|clip|push|status|edit|plugin|sync|index|task|activity-log|touch|mkfile|strip-entity-tags|context-map|processed)
+        log|interactive|i|clip|push|status|edit|plugin|sync|index|task|activity-log|touch|mkfile|strip-entity-tags|context-map|processed|book)
             case "$2" in
                 -h|--help) cmd_help "$1"; exit 0 ;;
             esac
@@ -6056,6 +6156,7 @@ case "${1:-help}" in
     pages-pending-update) shift; cmd_pages_pending_update "$@" ;;
     context-map) shift; cmd_context_map "$@" ;;
     processed) shift; cmd_processed "$@" ;;
+    book)   shift; cmd_book "$@" ;;
 
     init)   shift; cmd_init "$@" ;;
     update) shift; cmd_update "$@" ;;
