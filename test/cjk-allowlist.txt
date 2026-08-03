@@ -16,3 +16,6 @@ bin/rill	^- (本文|技術用語|ファイル名・ディレクトリ名|frontma
 bin/rill	sub\(/\^## (ゴール|現在のフォーカス|キーファクト|リポジトリ)\$/	legacy ja->en heading migration awk in the _project.md normalizer (reads old Japanese headings to translate them)
 plugins/google-meet/commands/sync-google-meet.md	Gemini によるメモ	Japanese-locale Gemini Notes search string (Google product string, quoted verbatim)
 test/cjk-allowlist.txt	.	this allowlist itself quotes the allowed Japanese strings
+lib/book/build.mjs	新着の学び \(未統合\)	book receptacle heading token (ja vault content convention v1) parsed and re-rendered by the book builder
+lib/book/build.mjs	〔AI 起草・未統合〕	receptacle item mark parsed from vault chapter files (the same line carries the target/kind field labels)
+lib/book/build.mjs	【MTI 適用 — 非公開】	private-application callout marker (vault content convention) that the builder styles

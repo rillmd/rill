@@ -39,6 +39,7 @@ run_test "context-map + processed" "$SCRIPT_DIR/cli/test-context-map-processed.s
 
 # Static consistency checks: pure shell, no claude required
 run_test "Skill preamble" "$SCRIPT_DIR/cli/test-skill-preamble.sh"
+run_test "book build"    "$SCRIPT_DIR/cli/test-book-build.sh"
 
 run_test "/distill"     "$SCRIPT_DIR/skills/test-distill.sh"
 run_test "/briefing"    "$SCRIPT_DIR/skills/test-briefing.sh"

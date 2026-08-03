@@ -91,6 +91,8 @@ A personal information management system that distills fragmented thoughts enter
 | Ad-hoc Report | `reports/` subdirectories | Generated output (updatable) | frontmatter `type` + `title` |
 | Page | `pages/` | Materialized View (updatable) | frontmatter `updated` |
 | Recipe | `pages/*.recipe.md` | Page generation definition | None (existence = valid) |
+| Book | `pages/{id}/` | Directory-form original: `_book.md` spine + chapter files | frontmatter `updated` |
+| Chapter | `pages/{id}/NN-*.md` | Book chapter (`type: chapter`, belongs to its spine) | frontmatter `reviewed` |
 | Taxonomy | `taxonomy.md` | Master data | None (single file) |
 
 ### 2.2 Immutability Rules
@@ -783,6 +785,12 @@ type: recipe                           # Required: fixed value
 
 Recipe is a file that describes page generation/update definitions in natural language. Includes sources, aggregation rules, structure, and notes. `/page update` and `/page rebuild` always read the recipe before updating pages. The recipe governs which sections receive what data in what format.
 
+### 4.18 Books — pages/{id}/ directory originals
+
+A page that outgrows a single file becomes a book: a `pages/{id}/` directory holding a `_book.md` spine (`type: book`, `status: living`, `name`, `description`) plus `NN-*.md` chapters (`type: chapter`, `book: {id}`, `status`, `reviewed`, optional `public: false` for private chapters). The spine is the single backbone: the first table in `_book.md` whose first column links to chapter `.md` files defines the reading order, and a bold non-link first cell is a part label. Chapters may end with a receptacle section (heading token defined by the vault's content convention; see `lib/book/build.mjs`) holding pull-request-shaped proposal items — each with a target section and an integration kind — that are merged into the prose only by the human. The book's recipe lives at `pages/{id}/_recipe.md`.
+
+`rill book build <id>` renders the fixed-style HTML reading view into `pages/{id}/.view/` (a derived, git-ignored sidecar, excluded from AI search like all dot-directories). The frame is identical for every book: one left sidebar (chapters, parts, pending-proposal badges, current-section accordion with a deterministic scroll highlight), a 720px single-measure reading column, prev/next chapter navigation, and receptacle proposals projected into the right margin next to their target sections (end-of-chapter fallback below 1440px and in print). Implementation: `lib/book/build.mjs` with a vendored `markdown-it` (`lib/book/vendor/`, provenance in `LICENSE-markdown-it`).
+
 ---
 
 ## 5. Processing Pipelines
@@ -1045,6 +1053,7 @@ Grouped by audience, matching `rill help`'s own grouping: commands you type your
 | `rill activity-log` | Activity log management (on-write, on-prompt, on-stop, add) |
 | `rill strip-entity-tags` | Move entity IDs from tags to mentions (deterministic) |
 | `rill pages-pending-update` | Match new sources to pages via mentions/tags |
+| `rill book build <id>` | Build a book's fixed-style HTML reading view into `pages/<id>/.view/` |
 | `rill context-map` | Emit deterministic shared context — people/orgs/projects one-line mappings, entity-ID list, Tier dict (frontmatter-only, 0 LLM tokens). Used by `/distill` Step 1 and `/close` Phase 1 |
 | `rill processed <sub>` | `.processed` state management: `set` / `count` / `list --status` / `normalize` (last-wins, one line per file; preserves bare journal-style and `filename:status` forms) |
 | `rill guard <path>` | Check if a file is managed (used by agent hooks) |
