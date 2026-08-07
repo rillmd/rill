@@ -1,0 +1,21 @@
+# shellcheck policy for this repo (initial adoption, task rill-ci-guards).
+#
+# Gate tiering:
+#   - CI (and the documented local command) runs `shellcheck --severity=warning`:
+#     warning-and-above findings BLOCK, note/style findings do not.
+#     `severity` is a command-line-only option (not honored in this rc file,
+#     verified against shellcheck v0.11.0), so the threshold lives in
+#     .github/workflows/ci.yml, not here.
+#   - A bare local `shellcheck <file>` intentionally still shows note/style
+#     findings (SC2001/SC2005/SC2012/SC2295/SC1091 class): visible for cleanup,
+#     but not enforced. Fix them opportunistically; do not scatter silent
+#     per-line disables to hide them.
+#
+# Per-line disables are allowed only with a reason comment at the call site
+# (current inventory: SC2088 in plugins/twitter/requires.sh and
+# plugins/voice-memo/requires.sh -- require_dir expands ~ itself).
+#
+# Local parity command (pin v0.11.0, same as CI):
+#   git ls-files 'bin/rill' 'bin/rill-inbox-process' 'bin/hooks/*.sh' \
+#     'plugins/_lib.sh' 'plugins/*/*.sh' 'plugins/*/lib/*.sh' \
+#     | xargs shellcheck -x --severity=warning

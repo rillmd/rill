@@ -9,7 +9,7 @@
 #   git ls-files -z | xargs -0 rg -n --no-messages '[\p{Hiragana}\p{Katakana}\p{Han}]'
 #   ... then drop hits whose (path, line) match an entry here; remaining hits fail.
 #
-# Format: <path><TAB><line-regex (rg -e compatible)><TAB><reason>
+# Format: <path><TAB><line-regex (Python re syntax; compiled by test/cli/cjk-guard.py)><TAB><reason>
 # Entries are line-scoped, not file-scoped: new CJK in these files outside the
 # matching lines still fails the gate.
 bin/rill	^- (本文|技術用語|ファイル名・ディレクトリ名|frontmatter のキー|コミットメッセージ):	`rill init --lang ja` seed template for personal-language.md (deliberate Japanese for ja-locale vaults)

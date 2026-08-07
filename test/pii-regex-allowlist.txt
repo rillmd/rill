@@ -1,0 +1,21 @@
+# PII regex allowlist -- the only places where email/phone/secret-shaped strings are deliberate.
+#
+# Contract (same as test/cjk-allowlist.txt): a tracked text line matching the
+# generic email/phone/secret patterns in test/cli/pii-regex-guard.sh is allowed
+# iff some entry below has (1) a path equal to the file AND (2) an ERE matching
+# the line. Any other hit is a violation. Entries are line-scoped, not file-scoped.
+#
+# Format: <path><TAB><line-regex (ERE)><TAB><reason>
+bin/hooks/pre-commit-pii-check.sh	(ann|joann)@example\.com	comment example explaining the -Fx allowlist matching semantics
+knowledge/orgs/CLAUDE.md	info@example\.com	entity template placeholder address
+knowledge/people/CLAUDE.md	alex\.chen@example\.com	entity template placeholder address
+plugins/google-meet/plugin.md	your-email@example\.com	setup doc placeholder address
+test/cli/test-cli-smoke.sh	smoke@example\.com	test fixture git identity
+test/cli/test-pii-hook.sh	@(example\.com|client-corp\.co\.jp|service\.io|partner-firm\.com|real-company\.net|my-own-domain\.jp|corp-x\.jp|real-client\.org)	PII-hook suite synthetic email fixtures the tests assert on
+test/cli/test-pii-hook.sh	(090-1234-5678|080-9999-8888|\+81[- ]90-1234-5678|\+81 80 4232 1097|\+1\.2\.345)	PII-hook suite synthetic phone/version fixtures the tests assert on
+test/cli/test-track-managed-gitignore.sh	owner@example-own\.jp	test fixture allowlist content
+.claude/rules/rill-workspace.md	[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}\.md	journal timestamp filename (YYYY-MM-DD-HHMM.md), not a phone number
+SPEC.md	[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}\.md	journal timestamp filename examples, not phone numbers
+skills/distill/SKILL.md	[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}\.md	journal timestamp filename example, not a phone number
+skills/focus/SKILL.md	[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}\.md	journal timestamp filename example, not a phone number
+test/pii-regex-allowlist.txt	(090-1234-5678|080-9999-8888|90-1234-5678|\+81[- ]90-1234-5678|\+81 80 4232 1097)	self-reference: only the synthetic phone fixtures quoted above may appear here unescaped; any other email/phone/secret in this file still fails the scan

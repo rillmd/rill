@@ -107,7 +107,6 @@ JOURNAL_DIR="$RILL_HOME/inbox/journal"
 WEBCLIPS_DIR="$RILL_HOME/inbox/web-clips"
 TWEETS_DIR="$RILL_HOME/inbox/tweets"
 MEETINGS_DIR="$RILL_HOME/inbox/meetings"
-SOURCES_DIR="$RILL_HOME/inbox/sources"
 PLUGINS_DIR="$RILL_HOME/plugins"
 COMMANDS_DIR="$RILL_HOME/.claude/commands"
 EDITOR="${EDITOR:-vim}"
@@ -1030,7 +1029,8 @@ _plugin_status() {
                 [ -f "$cmd" ] || continue
                 [[ "$(basename "$cmd")" == _* ]] && continue
                 cmd_total=$((cmd_total + 1))
-                local target="$COMMANDS_DIR/$(basename "$cmd")"
+                local target
+                target="$COMMANDS_DIR/$(basename "$cmd")"
                 if [ -L "$target" ]; then
                     cmd_linked=$((cmd_linked + 1))
                     echo "  ✓ $(basename "$cmd")"

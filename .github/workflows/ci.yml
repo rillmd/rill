@@ -1,0 +1,101 @@
+# CI guards for rillmd/rill (PUBLIC repo).
+#
+# Three jobs, all claude-free:
+#   lint  -- bash -n syntax check + pinned shellcheck (severity=warning)
+#   test  -- the pure-shell test/cli/ suites on ubuntu + macos
+#   guard -- CJK allowlist scan + email/phone/secrets regex scan, each run
+#           twice: over the full tree and over the PR's commit messages
+#
+# The private-vocabulary PII scan is deliberately NOT here: that vocabulary
+# cannot live in a public repo. It runs locally via
+# bin/hooks/pre-push-pii-mapping-check.sh (terms read from an out-of-repo
+# file). CI covers only vocabulary-independent checks.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n (syntax) over bin/, plugins/, test/ shell files
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git ls-files \
+            'bin/rill' 'bin/rill-inbox-process' 'bin/hooks/*.sh' \
+            'plugins/*.sh' 'plugins/*/*.sh' 'plugins/*/lib/*.sh' \
+            'test/*.sh' 'test/*/*.sh')
+          echo "bash -n over ${#files[@]} files"
+          [ "${#files[@]}" -gt 0 ]
+          for f in "${files[@]}"; do bash -n "$f"; done
+
+      - name: shellcheck v0.11.0 (pinned) at severity=warning
+        run: |
+          set -euo pipefail
+          url="https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz"
+          sha256="8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+          curl -fsSL "$url" -o /tmp/shellcheck.tar.xz
+          echo "$sha256  /tmp/shellcheck.tar.xz" | sha256sum -c -
+          tar -xf /tmp/shellcheck.tar.xz -C /tmp
+          sc=/tmp/shellcheck-v0.11.0/shellcheck
+          "$sc" --version
+          mapfile -t files < <(git ls-files \
+            'bin/rill' 'bin/rill-inbox-process' 'bin/hooks/*.sh' \
+            'plugins/_lib.sh' 'plugins/*/*.sh' 'plugins/*/lib/*.sh')
+          echo "shellcheck over ${#files[@]} files"
+          [ "${#files[@]}" -gt 0 ]
+          "$sc" -x --severity=warning "${files[@]}"
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: pure-shell suites (test/cli/, no claude CLI)
+        run: |
+          set -euo pipefail
+          fail=0
+          for t in test/cli/test-*.sh; do
+            echo "== $t"
+            if ! bash "$t"; then
+              echo "== $t: FAILED"
+              fail=1
+            fi
+          done
+          exit "$fail"
+
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # commit-message scans need base..head history
+
+      - name: CJK guard -- full tree (allowlisted)
+        run: python3 test/cli/cjk-guard.py
+
+      - name: CJK guard -- PR commit messages (no allowlist)
+        run: |
+          set -euo pipefail
+          git log --format=%B \
+            "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" \
+            | python3 test/cli/cjk-guard.py --stdin
+
+      - name: PII regex guard -- full tree (allowlisted)
+        run: bash test/cli/pii-regex-guard.sh
+
+      - name: PII regex guard -- PR commit messages (no allowlist)
+        run: |
+          set -euo pipefail
+          git log --format=%B \
+            "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" \
+            | bash test/cli/pii-regex-guard.sh --stdin
