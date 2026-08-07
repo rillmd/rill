@@ -99,13 +99,13 @@ while IFS=$'\t' read -r doc_id doc_name doc_modified; do
 
     # Defense-in-depth: check meetings index first
     if grep -q "^${doc_id}	" "$MEETINGS_DIR/.index" 2>/dev/null; then
-        ((skipped++))
+        skipped=$((skipped + 1))
         continue
     fi
 
     # Primary check: plugin sync state
     if is_already_synced "$doc_id"; then
-        ((skipped++))
+        skipped=$((skipped + 1))
         continue
     fi
 
@@ -165,7 +165,7 @@ print(f'{local_date}\t{created_ts}\t{slug_text}')
     if [ -f "$MEETINGS_DIR/$filename" ]; then
         counter=2
         while [ -f "$MEETINGS_DIR/${local_date}-${slug}-${counter}.md" ]; do
-            ((counter++))
+            counter=$((counter + 1))
         done
         filename="${local_date}-${slug}-${counter}.md"
     fi
@@ -177,7 +177,7 @@ google-doc-id: \"$doc_id\""
     if create_source_file "$filename" "meeting" "$created_ts" "$extra_fm" "$doc_text"; then
         mark_synced "$doc_id" "$filename"
         echo -e "${doc_id}\t${filename}" >> "$MEETINGS_DIR/.index"
-        ((count++))
+        count=$((count + 1))
     fi
 
 done < <(printf '%s\n' "$docs_tsv")

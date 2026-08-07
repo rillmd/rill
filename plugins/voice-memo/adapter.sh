@@ -38,7 +38,7 @@ for file in "$ICLOUD_DIR"/*.md "$ICLOUD_DIR"/*.txt; do
 
     # Check if already synced
     if is_already_synced "$filename"; then
-        ((skipped++))
+        skipped=$((skipped + 1))
         continue
     fi
 
@@ -49,7 +49,7 @@ for file in "$ICLOUD_DIR"/*.md "$ICLOUD_DIR"/*.txt; do
     if [ -f "$JOURNAL_DIR/$local_filename" ]; then
         echo "SKIP: $local_filename already exists in journal"
         mark_synced "$filename" "skipped:exists:$local_filename"
-        ((skipped++))
+        skipped=$((skipped + 1))
         continue
     fi
 
@@ -57,7 +57,7 @@ for file in "$ICLOUD_DIR"/*.md "$ICLOUD_DIR"/*.txt; do
     echo "Created: inbox/journal/$local_filename"
 
     mark_synced "$filename" "$local_filename"
-    ((count++))
+    count=$((count + 1))
 done
 
 echo ""
