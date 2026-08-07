@@ -51,7 +51,9 @@ scan_stdin() {
 scan_tree() {
   local raw allowed apath aregex areason hit_path hit_line violations=0
   # -I skips binary files; git ls-files scopes to tracked files only.
-  raw="$(git ls-files -z | xargs -0 grep -nHEI "$PATTERN" 2>/dev/null || true)"
+  # -e/-- keep a pattern or filename starting with '-' from being parsed as
+  # an option; grep errors go to stderr (visible in CI) instead of /dev/null.
+  raw="$(git ls-files -z | xargs -0 grep -nHEI -e "$PATTERN" -- || true)"
   [ -z "$raw" ] && return 0
 
   # Load allowlist entries into parallel arrays (skip comments / blanks).
