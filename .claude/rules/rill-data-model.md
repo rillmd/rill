@@ -35,6 +35,8 @@ Common frontmatter schema, references, links. Directory-specific rules: `rill-in
 
 Use `rill mkfile` for new files (ADR-060) — ensures timestamp accuracy. LLMs never write `created` directly. See `rill-claude-code-integration.md`.
 
+**HTML exception**: generated HTML files carry no frontmatter and are not created via `rill mkfile` — producing skills write them directly; derived views embed a provenance comment instead. See [rill-html-output.md](rill-html-output.md).
+
 ## `source:` Read Priority
 
 When reading a `source:` file, prefer the same-named file in `_organized/` if present. Example: `source: inbox/meetings/2026-02-16-X.md` → if `inbox/meetings/_organized/2026-02-16-X.md` exists, Read that.

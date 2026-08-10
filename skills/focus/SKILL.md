@@ -114,7 +114,7 @@ After session start (or resume), interact with the following flow:
 
 1. Display the metadata file (`_workspace.md` / `_session.md` / `_project.md`) contents to user (overview, issues, next steps)
 2. On resume, collect additional context:
-   - Read deliverables within the workspace
+   - Read deliverables within the workspace — `.md` files only; skip derived HTML (regenerable from MD sources). Read an HTML file only when it is the canonical artifact the resumed work targets, or the user explicitly points at it (`rill-html-output.md` principle 3)
    - Related information from knowledge/notes/ based on tags
    - Recent relevant entries from inbox/journal/
    - Related reports from reports/ (newsletters, dailies, etc.) (ADR-061)
@@ -163,7 +163,7 @@ type: research
 - `_workspace.md` (or `_session.md`) is continuously updated as the session progresses
 - Once created, deliverable files are generally not modified (additions/corrections go in new files)
 - When active workspaces exist, prioritize proposing resume
-- Include frontmatter in all files
+- Include frontmatter in all files (exception: generated HTML files carry no frontmatter and are written directly, not via `rill mkfile` — see `rill-html-output.md`)
 - Prefer `_organized/` version when same-named file exists
 - **Note metadata correction (ADR-046 D46-7)**: When reading knowledge/notes/ files, handle in two modes:
   **Mode A — Direct fix** (no AI judgment needed, 1-2 Edits per fix, < 100ms):

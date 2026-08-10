@@ -8,6 +8,8 @@ paths:
 
 `reports/` and `pages/` are the **output layer** — Claude Code-generated artifacts and human-facing aggregated documents.
 
+HTML derivatives in this layer (same-basename report twins, book reading views under `.view/`) follow the vault-wide HTML policy in [rill-html-output.md](rill-html-output.md): Markdown stays canonical, derived `.view/` sidecars are gitignored, and the AI reads `.md` only.
+
 ## reports/
 
 ```

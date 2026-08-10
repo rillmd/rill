@@ -99,7 +99,7 @@ By default `/promote` proposes creating a **new project** for the workspace, not
 
 ### Phase 2: Candidate extraction
 
-Read `workspace/{id}/_summary.md` and the workspace directory's artifacts (`NNN-*.md`). Build three candidate lists:
+Read `workspace/{id}/_summary.md` and the workspace directory's artifacts (`NNN-*.md`, plus committed HTML-canonical artifacts — `NNN-*.html` etc. with no same-basename MD source, whose HTML is the only record; skip derived HTML regenerable from MD sources, per `rill-html-output.md` principle 3). Build three candidate lists:
 
 1. **Artifact references** — every artifact file in the workspace, with its `type` (decision / research / analysis / progress / review) and its `# ` heading. These will be linked from the project, not duplicated
 2. **Key findings** (3–5 items) — pull from `_summary.md`'s Decisions / Key Findings section. The user will confirm before they land in `## Key Facts`

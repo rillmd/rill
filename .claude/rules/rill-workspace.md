@@ -78,6 +78,10 @@ Save artifacts to files: analyses, research, comparison tables, decisions, frame
 
 Text-only is fine for: brief confirmations / suggestions (1-2 paragraphs), directional discussion, brainstorming, summary preview before saving. When in doubt, write a file — a workspace's value lives in its accumulated artifacts.
 
+### HTML Artifacts
+
+Workspace HTML follows [rill-html-output.md](rill-html-output.md): mocks and diagrams are committed primary artifacts (the HTML is the deliverable, no MD twin); decision digests and completion handbooks are derived views generated into `workspace/{id}/.view/` (gitignored, regenerable). On resume the AI reads `.md` files only — derived HTML is skipped; an HTML-canonical artifact (mock, diagram) is read only when it is itself the resumed work's target (rill-html-output.md principle 3).
+
 ### Updating `_workspace.md`
 
 At each milestone: add new artifacts to "Related Files (MOC)", update checkboxes, append "Session History", update "Next Steps".

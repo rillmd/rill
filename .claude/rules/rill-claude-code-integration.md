@@ -26,7 +26,7 @@ rill mkfile tasks --slug review-contract --type task
 rill mkfile pages --slug rill-roadmap --type page
 ```
 
-Exceptions: system files without frontmatter (`.claude/rules/*.md`, subdirectory `CLAUDE.md`); editing existing files (use Edit tool).
+Exceptions: system files without frontmatter (`.claude/rules/*.md`, subdirectory `CLAUDE.md`); editing existing files (use Edit tool); generated HTML files (no frontmatter — producing skills write them directly, see `rill-html-output.md`).
 
 ## GUI Integration: show paths, don't auto-navigate
 

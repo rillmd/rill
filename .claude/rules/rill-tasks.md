@@ -18,7 +18,7 @@ tasks/
 
 Each task is a directory so /solve can accumulate research notes, plans, decisions under it without spawning a workspace. Simple tasks remain a one-file directory.
 
-Sub-directories under a task are not allowed (flat artifact layout). Binary artifacts (HTML mock, image, PDF) may live at the same level as `_task.md`.
+Sub-directories under a task are not allowed (flat artifact layout), with one exception: a `.view/` sidecar directory for regenerable derived renders (gitignored, per [rill-html-output.md](rill-html-output.md) principle 5). Binary artifacts (HTML mock, image, PDF) may live at the same level as `_task.md`. HTML artifacts follow the class rules in [rill-html-output.md](rill-html-output.md) — on resume the AI reads `.md` only, except an HTML-canonical artifact that is itself the resumed work's target (principle 3).
 
 ## File Names
 
