@@ -107,7 +107,6 @@ JOURNAL_DIR="$RILL_HOME/inbox/journal"
 WEBCLIPS_DIR="$RILL_HOME/inbox/web-clips"
 TWEETS_DIR="$RILL_HOME/inbox/tweets"
 MEETINGS_DIR="$RILL_HOME/inbox/meetings"
-SOURCES_DIR="$RILL_HOME/inbox/sources"
 PLUGINS_DIR="$RILL_HOME/plugins"
 COMMANDS_DIR="$RILL_HOME/.claude/commands"
 EDITOR="${EDITOR:-vim}"
@@ -147,7 +146,7 @@ generate_filename() {
         # Collision at second level: append counter
         local counter=1
         while [ -f "$JOURNAL_DIR/${base}-${counter}.md" ]; do
-            ((counter++))
+            counter=$((counter + 1))
         done
         filepath="$JOURNAL_DIR/${base}-${counter}.md"
     fi
@@ -376,7 +375,7 @@ cmd_interactive() {
         # Skip empty entries
         [ -z "$text" ] && continue
 
-        ((count++))
+        count=$((count + 1))
         local created
         created="$(_create_entry "$text")"
         echo "  -> $created (#$count)"
@@ -464,7 +463,7 @@ _clip_tweet() {
     if [ -f "$filepath" ]; then
         local counter=1
         while [ -f "$TWEETS_DIR/${timestamp}-${slug}-${counter}.md" ]; do
-            ((counter++))
+            counter=$((counter + 1))
         done
         filename="${timestamp}-${slug}-${counter}.md"
         filepath="$TWEETS_DIR/$filename"
@@ -545,7 +544,7 @@ _clip_web() {
     if [ -f "$filepath" ]; then
         local counter=1
         while [ -f "$WEBCLIPS_DIR/${timestamp}-${slug}-${counter}.md" ]; do
-            ((counter++))
+            counter=$((counter + 1))
         done
         filename="${timestamp}-${slug}-${counter}.md"
         filepath="$WEBCLIPS_DIR/$filename"
@@ -1030,7 +1029,8 @@ _plugin_status() {
                 [ -f "$cmd" ] || continue
                 [[ "$(basename "$cmd")" == _* ]] && continue
                 cmd_total=$((cmd_total + 1))
-                local target="$COMMANDS_DIR/$(basename "$cmd")"
+                local target
+                target="$COMMANDS_DIR/$(basename "$cmd")"
                 if [ -L "$target" ]; then
                     cmd_linked=$((cmd_linked + 1))
                     echo "  ✓ $(basename "$cmd")"
@@ -1432,7 +1432,7 @@ _index_rebuild_tweets() {
 
         if [ -n "$tid" ]; then
             echo -e "${tid}\t${fname}" >> "$index_file"
-            ((count++))
+            count=$((count + 1))
         fi
     done
 
@@ -1456,7 +1456,7 @@ _index_rebuild_meetings() {
 
         if [ -n "$did" ]; then
             echo -e "${did}\t${fname}" >> "$index_file"
-            ((count++))
+            count=$((count + 1))
         fi
     done
 
@@ -2156,7 +2156,7 @@ _crypt_doctor() {
         echo "✓ git-crypt initialized"
     else
         echo "✗ git-crypt not initialized (run: rill crypt init)"
-        ((issues++))
+        issues=$((issues + 1))
     fi
 
     # 2. Encrypted file count
@@ -2180,7 +2180,7 @@ _crypt_doctor() {
         if [ "$found" = true ]; then
             if [ "$locked" = true ]; then
                 echo "✗ git-crypt is LOCKED (run: git-crypt unlock <key>)"
-                ((issues++))
+                issues=$((issues + 1))
             else
                 echo "✓ git-crypt unlocked (files readable)"
             fi
@@ -2190,7 +2190,7 @@ _crypt_doctor() {
     # 4. Key backup residual check
     if [ -f "$HOME/rill-git-crypt.key" ]; then
         echo "⚠️  Key file found at ~/rill-git-crypt.key — move to secure storage and delete"
-        ((issues++))
+        issues=$((issues + 1))
     else
         echo "✓ No residual key file on disk"
     fi
@@ -2204,7 +2204,7 @@ _crypt_doctor() {
         echo "⚠️  Pre-commit hook exists but is not a symlink to bin/hooks/"
     else
         echo "✗ Pre-commit hook not installed (run: rill crypt hook)"
-        ((issues++))
+        issues=$((issues + 1))
     fi
 
     # 6. PII scan in non-encrypted files
@@ -3788,14 +3788,14 @@ EOF
 
         # Filter by --vault if specified
         if [ -n "$target_vault" ] && [ "$vname" != "$target_vault" ]; then
-            ((i++))
+            i=$((i + 1))
             continue
         fi
 
         if [ ! -d "$vpath/.rill" ]; then
             echo "  ⚠ Skipping '$vname': $vpath/.rill not found" >&2
-            ((skipped++))
-            ((i++))
+            skipped=$((skipped + 1))
+            i=$((i + 1))
             continue
         fi
 
@@ -3821,7 +3821,7 @@ EOF
             mkdir -p "$vpath/$(dirname "$rel")"
             cp "$src" "$vpath/$rel"
             echo "$rel" >> "$managed_file"
-            ((file_count++))
+            file_count=$((file_count + 1))
         done
 
         # Skills: .claude/commands/ (*.md and *.sh)
@@ -3880,7 +3880,7 @@ EOF
                     _install_codex_container_guidance "$vpath" "$rill_source" \
                         "$subdir_claude" "$managed_file"
                 fi
-                ((file_count++))
+                file_count=$((file_count + 1))
             fi
         done
 
@@ -3894,7 +3894,7 @@ EOF
             mkdir -p "$vpath/eval"
             cp "$rill_source/eval/concept.md" "$vpath/eval/concept.md"
             echo "eval/concept.md" >> "$managed_file"
-            ((file_count++))
+            file_count=$((file_count + 1))
         fi
         if [ ! -f "$vpath/eval/queries.yaml" ] && [ -f "$rill_source/eval/queries.yaml" ]; then
             mkdir -p "$vpath/eval"
@@ -3915,7 +3915,7 @@ EOF
             mkdir -p "$vpath/$(dirname "$rel")"
             cp "$src" "$vpath/$rel"
             echo "$rel" >> "$managed_file"
-            ((file_count++))
+            file_count=$((file_count + 1))
         done
 
         # Plugin directories (code only — state lives in plugins/.state/)
@@ -4037,8 +4037,8 @@ EOF
         _ensure_codex_command_skills "$vpath"
 
         echo "  ✓ $vname: $file_count files updated"
-        ((updated++))
-        ((i++))
+        updated=$((updated + 1))
+        i=$((i + 1))
     done
 
     if [ -n "$target_vault" ] && [ "$updated" -eq 0 ] && [ "$skipped" -eq 0 ]; then
@@ -4435,7 +4435,7 @@ cmd_mkfile() {
         local base="${filename%.md}"
         local counter=1
         while [ -f "$abs_dir/${base}-${counter}.md" ]; do
-            ((counter++))
+            counter=$((counter + 1))
         done
         filename="${base}-${counter}.md"
         filepath="$abs_dir/$filename"
@@ -4755,7 +4755,7 @@ cmd_strip_entity_tags() {
 
     for filepath in "${files[@]+"${files[@]}"}"; do
         [ -f "$filepath" ] || continue
-        ((checked++))
+        checked=$((checked + 1))
 
         # Extract tags line from frontmatter (between first --- and second ---)
         local in_frontmatter=false
@@ -4767,7 +4767,7 @@ cmd_strip_entity_tags() {
         local fm_ended=false
 
         while IFS= read -r line; do
-            ((linenum++))
+            linenum=$((linenum + 1))
             if [ "$fm_ended" = true ]; then
                 break
             fi
@@ -4900,7 +4900,7 @@ ${new_mentions_str}
 " "$filepath"
         fi
 
-        ((fixed++))
+        fixed=$((fixed + 1))
         echo "  fixed: $relpath — moved [$(IFS=', '; echo "${moved_entities[*]}")] to mentions (qualified)"
     done
 
@@ -5380,7 +5380,7 @@ EOF
         # ADR-080 D80-4: claude-code-ecosystem migrates to knowledge/self/watches.md manually
         if [ "$slug" = "claude-code-ecosystem" ]; then
             echo "  ⏭  skip (hard-coded): $slug — handled manually (ADR-080 D80-4)"
-            ((skipped_hardcoded++))
+            skipped_hardcoded=$((skipped_hardcoded + 1))
             continue
         fi
 
@@ -5389,13 +5389,13 @@ EOF
 
         if [ -f "$dst_file" ] && [ "$force" = false ]; then
             echo "  ⏭  skip (exists): $slug → already at projects/$slug/_project.md"
-            ((skipped_existing++))
+            skipped_existing=$((skipped_existing + 1))
             continue
         fi
 
         if [ "$dry_run" = true ]; then
             echo "  ✓ would migrate: $slug → projects/$slug/_project.md"
-            ((migrated++))
+            migrated=$((migrated + 1))
             continue
         fi
 
@@ -5469,7 +5469,7 @@ EOF
             }
         ' "$f" > "$dst_file"; then
             echo "  ✗ error: failed to transform $slug" >&2
-            ((errors++))
+            errors=$((errors + 1))
             continue
         fi
 
@@ -5529,7 +5529,7 @@ PY
             echo "  ✗ error: $slug → no status field after transform; reverting" >&2
             rm -f "$dst_file"
             rmdir "$dst_dir" 2>/dev/null || true
-            ((errors++))
+            errors=$((errors + 1))
             continue
         fi
 
@@ -5537,7 +5537,7 @@ PY
         rm -f "$f"
 
         echo "  ✓ migrated: $slug"
-        ((migrated++))
+        migrated=$((migrated + 1))
     done
 
     echo ""

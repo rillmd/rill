@@ -38,7 +38,7 @@ for file in "$ICLOUD_DIR"/*.txt; do
 
     # Check if already synced
     if is_already_synced "$filename"; then
-        ((skipped++))
+        skipped=$((skipped + 1))
         continue
     fi
 
@@ -55,10 +55,10 @@ for file in "$ICLOUD_DIR"/*.txt; do
     echo "Processing: $filename → $url"
     if rill clip "$url"; then
         mark_synced "$filename" "$url"
-        ((count++))
+        count=$((count + 1))
     else
         echo "ERROR: Failed to clip $url from $filename"
-        ((errors++))
+        errors=$((errors + 1))
     fi
 done
 

@@ -41,6 +41,18 @@ run_test "context-map + processed" "$SCRIPT_DIR/cli/test-context-map-processed.s
 run_test "Skill preamble" "$SCRIPT_DIR/cli/test-skill-preamble.sh"
 run_test "book build"    "$SCRIPT_DIR/cli/test-book-build.sh"
 
+# Repo guards (tree mode): CJK + email/phone/secrets, allowlist-filtered.
+# Same checks CI runs per-PR (.github/workflows/ci.yml guard job).
+echo "--- Running: CJK guard (tree) ---"
+if python3 "$SCRIPT_DIR/cli/cjk-guard.py"; then
+  echo "  -> CJK guard: PASSED"
+else
+  echo "  -> CJK guard: FAILED"
+  TOTAL_FAIL=$((TOTAL_FAIL + 1))
+fi
+echo ""
+run_test "PII regex guard" "$SCRIPT_DIR/cli/pii-regex-guard.sh"
+
 run_test "/distill"     "$SCRIPT_DIR/skills/test-distill.sh"
 run_test "/briefing"    "$SCRIPT_DIR/skills/test-briefing.sh"
 run_test "/clip-tweet"  "$SCRIPT_DIR/skills/test-clip-tweet.sh"
