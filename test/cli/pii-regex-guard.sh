@@ -11,7 +11,17 @@
 #              violation unless test/pii-regex-allowlist.txt has an entry with
 #              (1) a path equal to the file AND (2) an ERE matching the line.
 #   --stdin    Read raw text from stdin (e.g. commit messages). ANY hit is a
-#              violation -- no allowlist applies.
+#              violation -- the path allowlist does not apply.
+#
+# Built-in noreply exemption (both modes): an email hit whose FULL match is a
+# known non-personal noreply address is never a violation. Claude Code stamps
+# every commit with "Co-Authored-By: ... <noreply@anthropic.com>", and GitHub
+# squash merges add "Co-authored-by: ... <user@users.noreply.github.com>" --
+# without this exemption every such PR fails the commit-message scan. These
+# addresses are undeliverable by design and identify no mailbox. The check is
+# full-match-anchored, so an address that merely extends a safe local part or
+# puts "noreply" on another domain still fails; phone/secret hits are never
+# exempt, including a phone/secret smuggled inside a safe-shaped address.
 #
 # Allowlist format (same contract as test/cjk-allowlist.txt):
 #   <path><TAB><line-regex (ERE)><TAB><reason>
@@ -34,15 +44,38 @@ PHONE_RE='\b[0-9]{2,4}-[0-9]{2,4}-[0-9]{4}\b|\+[0-9]{1,3}([- .][0-9]{1,4}){1,3}[
 SECRET_RE='AKIA[0-9A-Z]{16}|\bgh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|xox[baprs]-[A-Za-z0-9-]{10,}|\bsk-[A-Za-z0-9_-]{20,}'
 PATTERN="$EMAIL_RE|$PHONE_RE|$SECRET_RE"
 
+# See "Built-in noreply exemption" in the header. Anchored so only a hit that
+# IS one of these addresses in full (not one merely containing/extending one)
+# passes.
+SAFE_NOREPLY_RE='^(noreply@anthropic\.com|[A-Za-z0-9._%+-]+@users\.noreply\.github\.com)$'
+
+# 0 iff every PATTERN match on the line ($1) is a safe noreply address.
+line_all_safe() {
+  local m
+  while IFS= read -r m; do
+    [[ $m =~ $SAFE_NOREPLY_RE ]] || return 1
+    # The combined PATTERN is leftmost-longest, so an email match can shadow
+    # a phone/secret match overlapping it (e.g. a token as the local part of
+    # a users.noreply address). Re-scan the matched address on its own.
+    if grep -qE "$PHONE_RE|$SECRET_RE" <<< "$m"; then return 1; fi
+  done < <(grep -oE "$PATTERN" <<< "$1")
+  return 0
+}
+
 mode="${1:-tree}"
 
 scan_stdin() {
-  local hits
+  local hits line violations=0
   # grep exits 1 on no match; that is the clean case, not an error.
   hits="$(grep -nE "$PATTERN" || true)"
-  if [ -n "$hits" ]; then
-    printf '%s\n' "$hits" | sed 's/^/(stdin):/'
-    echo "pii-regex-guard: email/phone/secret pattern in stdin (no allowlist applies here)" >&2
+  [ -z "$hits" ] && return 0
+  while IFS= read -r line; do
+    line_all_safe "${line#*:}" && continue
+    printf '(stdin):%s\n' "$line"
+    violations=$((violations + 1))
+  done <<< "$hits"
+  if [ "$violations" -gt 0 ]; then
+    echo "pii-regex-guard: email/phone/secret pattern in stdin (only the built-in noreply exemption applies here)" >&2
     return 1
   fi
   return 0
@@ -72,6 +105,8 @@ scan_tree() {
   while IFS= read -r line; do
     hit_path="${line%%:*}"
     hit_line="${line#*:}"; hit_line="${hit_line#*:}"  # strip path: and lineno:
+    # Built-in noreply exemption: value-safe regardless of path.
+    line_all_safe "$hit_line" && continue
     # Per-value allowlisting: strip every allowlisted match from the line,
     # then re-scan the remainder. A real secret sharing a line with an
     # allowlisted placeholder therefore still fails.
@@ -86,7 +121,8 @@ scan_tree() {
         used[i]=1; stripped_any=1
       done
     done
-    if [ "$stripped_any" -eq 1 ] && ! grep -qE "$PATTERN" <<< "$remainder"; then
+    # Clean iff everything left after stripping is at most safe-noreply.
+    if [ "$stripped_any" -eq 1 ] && line_all_safe "$remainder"; then
       allowed=1
     fi
     if [ "$allowed" -eq 0 ]; then
