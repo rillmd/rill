@@ -13,6 +13,8 @@ plugins/google-meet/plugin.md	your-email@example\.com	setup doc placeholder addr
 test/cli/test-cli-smoke.sh	smoke@example\.com	test fixture git identity
 test/cli/test-pii-hook.sh	@(example\.com|client-corp\.co\.jp|service\.io|partner-firm\.com|real-company\.net|my-own-domain\.jp|corp-x\.jp|real-client\.org)	PII-hook suite synthetic email fixtures the tests assert on
 test/cli/test-pii-hook.sh	(090-1234-5678|080-9999-8888|\+81[- ]90-1234-5678|\+81 80 4232 1097|\+1\.2\.345)	PII-hook suite synthetic phone/version fixtures the tests assert on
+test/cli/test-pii-regex-guard.sh	(@fixture\.example|foo\.noreply@anthropic\.com)	guard-suite synthetic email fixtures, incl. lookalikes probing the noreply exemption anchors
+test/cli/test-pii-regex-guard.sh	(090-1234-5678|ghp_[A-Za-z0-9]{20,})	guard-suite synthetic phone/token fixtures the tests assert on
 test/cli/test-track-managed-gitignore.sh	owner@example-own\.jp	test fixture allowlist content
 .claude/rules/rill-workspace.md	[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}\.md	journal timestamp filename (YYYY-MM-DD-HHMM.md), not a phone number
 SPEC.md	[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}\.md	journal timestamp filename examples, not phone numbers

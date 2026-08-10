@@ -52,6 +52,7 @@ else
 fi
 echo ""
 run_test "PII regex guard" "$SCRIPT_DIR/cli/pii-regex-guard.sh"
+run_test "PII regex guard suite" "$SCRIPT_DIR/cli/test-pii-regex-guard.sh"
 
 run_test "/distill"     "$SCRIPT_DIR/skills/test-distill.sh"
 run_test "/briefing"    "$SCRIPT_DIR/skills/test-briefing.sh"
