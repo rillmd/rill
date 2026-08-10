@@ -1,6 +1,6 @@
 ---
 name: retrospective
-description: Generate a weekly retrospective at reports/retrospective/weekly-{YYYY-MM-DD}.md with 5 sections (Cross-WS Themes / Contradictions / Stale Workspaces / Decision Digest / Self Observations) over the prior ISO week. Auto-appends to knowledge/self/decisions.md (3-month window) and surfaces Self Observation candidates for --finalize approval. Primary habit trigger is the Thursday /briefing nudge. Use when the user runs `/retrospective`, asks for a weekly review, or the briefing nudge requests it.
+description: Generate a weekly retrospective at reports/retrospective/weekly-{YYYY-MM-DD}.md with 5 sections (Cross-WS Themes / Contradictions / Stale Workspaces / Decision Digest / Self Observations) over the prior ISO week. Auto-appends to knowledge/self/decisions.md (3-month window); Self Observation candidates are approved interactively via --finalize (the skill asks which to adopt and handles the checkboxes). Primary habit trigger is the Thursday /briefing nudge. Use when the user runs `/retrospective`, asks for a weekly review, or the briefing nudge requests it.
 gui:
   label: "/retrospective"
   hint: "Weekly retrospective generation"
@@ -21,14 +21,14 @@ gui:
 
 > **Tool references in this skill** (`Bash`, `Grep`, `Read`, `Edit`, `Glob`, `Agent`, `Skill`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent.
 
-Aggregates the prior ISO week across `workspace/`, `tasks/`, `inbox/journal/`, and decision artifacts into a 5-section retrospective. Auto-flushes the Decision Digest into `knowledge/self/decisions.md` (3-month window). Self Observation candidates are surfaced for explicit user approval via `--finalize`. Stale Workspace detection runs deterministically (no agent fanout).
+Aggregates the prior ISO week across `workspace/`, `tasks/`, `inbox/journal/`, and decision artifacts into a 5-section retrospective. Auto-flushes the Decision Digest into `knowledge/self/decisions.md` (3-month window). Self Observation candidates are approved through an interactive `--finalize` flow (multi-select questions; the skill writes the checkboxes). Stale Workspace detection runs deterministically (no agent fanout).
 
 Design essence:
 
 - The user's job-to-be-done is a **weekly high-altitude view**: "look down on last week's self, build this week's strategy" — a different time axis from `/briefing` (today) and `/pulse` (this instant). Hence contradictions across workspaces, stale-workspace triage, a curated decision digest, and self-observation patterns, not another activity summary
 - The **5-section output schema is a dependency contract**: `/pulse` Section 7 parses the `## Contradictions` section of the latest retrospective, so section names and order are fixed
 - **Thursday is the primary trigger**, wired as a nudge inside `/briefing` Step E (with a 3-strike auto-skip) rather than a scheduler — the weekly usage-budget reset acts as a psychological deadline
-- Self Observations only ever enter `self/observations.md` through explicit user approval (`--finalize`); decisions flush automatically, observations never do
+- Self Observations only ever enter `self/observations.md` through explicit user approval; decisions flush automatically, observations never do. The approval itself is collected **interactively** — the skill presents the candidates as multi-select questions and writes the `[x]` marks on the user's behalf (editing checkboxes in a report file from a terminal session proved too much friction). The checkbox in the file remains the durable record; manual `[x]` editing stays supported as a fallback
 
 ## Arguments
 
@@ -41,7 +41,7 @@ $ARGUMENTS — one of the following:
 - `monthly YYYY-MM` → same
 - `--view` → display the existing file path (if any) without regenerating
 - `--rerun` → regenerate over an existing file (preserves frontmatter `created`, updates `updated`)
-- `--finalize {period}` → flush user-approved `[x]` Self Observations into `knowledge/self/observations.md`. Does not regenerate the retrospective file
+- `--finalize [{period}]` → collect Self Observation approval and flush approved entries into `knowledge/self/observations.md`. In an interactive session the skill presents unchecked candidates as multi-select questions and marks `[x]` on the user's behalf; pre-marked `[x]` lines are honored as-is. With `{period}` omitted, sweeps every period in the state sidecar's `pending_finalize` (oldest first). Does not regenerate the retrospective file
 
 ## Trigger Model
 
@@ -101,7 +101,7 @@ If the file does not exist, initialize lazily on first successful run. Treat mis
 
 1. Parse arguments. Compute `period_monday := YYYY-MM-DD` of the target ISO week's Monday (default: the prior ISO week, i.e., week before today's week)
 2. **Define the canonical period id once**: `period_id := "weekly-" + period_monday` (e.g. `weekly-2026-05-04`). All later phases, state writes, and provenance strings reference `{period_id}` verbatim — do not re-prepend `weekly-` anywhere downstream
-3. **`--finalize {period}` short-circuits the rest of Phase 0** → jump straight to Phase 6 (finalize necessarily operates on an existing file; do not run any existing-file or `--view` gating before it)
+3. **`--finalize` short-circuits the rest of Phase 0 — with or without a period argument** → jump straight to Phase 6 (finalize operates only on existing files; the bare form resolves its targets from `pending_finalize` there). Do not run any existing-file or `--view` gating before it, and never fall through to weekly generation when `--finalize` is present
 4. Build the output path: `reports/retrospective/{period_id}.md`
 5. If `--view` → print the path and exit
 6. If the file exists and neither `--rerun` nor `--view` is set → display the existing-file message and exit
@@ -312,7 +312,7 @@ Multi-WS:
 
 ## Self Observations
 
-Candidates below — mark `[x]` to approve, then run `/retrospective --finalize {period}`. Unmarked items are dropped at finalize.
+Candidates below. Run `/retrospective --finalize {period}` to review them interactively — the assistant asks which to adopt and handles the checkboxes. (Manual fallback: mark `[x]` yourself, then run the same command.) Unmarked items are dropped at finalize.
 
 - [ ] {observation text} (sources: [{name1}]({path1}); [{name2}]({path2}); …)
 
@@ -353,24 +353,32 @@ write_atomic .claude/state/retrospective.json "$merged"
 
 `{period_id}` here is the canonical `weekly-YYYY-MM-DD` string defined in Phase 0 step 2 — do not re-prepend `weekly-`. The pseudocode helpers (`read_json_or_empty`, `jq_merge`, `write_atomic`) are stand-ins for whatever JSON read-modify-write the harness has on hand; what matters is the **field-level merge semantic**, not the specific implementation.
 
-### Phase 6: --finalize path (separate invocation)
+### Phase 6: --finalize path (separate invocation, or offered right after Phase 4)
 
-When invoked with `--finalize {period_arg}`:
+When invoked with `--finalize [{period_arg}]`:
 
-1. Normalize the period argument into the canonical `period_id`:
-   - If `{period_arg}` already starts with `weekly-` or `monthly-` (the form stored in `last_period` / `pending_finalize`), set `period_id := period_arg` verbatim
-   - Otherwise prepend `weekly-` (e.g. `2026-04-27` → `weekly-2026-04-27`)
-   - Final path: `reports/retrospective/{period_id}.md`. Error if missing
-2. Read the file; find the `## Self Observations` section; for each line of the form `- [x] {text} (sources: {source1}; {source2}; …)` extract `{text}` and the **full** semicolon-separated `sources` list (each entry is itself a Markdown link). Phase 4 always emits the plural `sources:` form (even single-source candidates), so a single regex shape is sufficient
-3. For each `[x]` line, append to `knowledge/self/observations.md`:
+1. Resolve the target periods:
+   - `{period_arg}` given → normalize into the canonical `period_id`: if it already starts with `weekly-` or `monthly-` (the form stored in `last_period` / `pending_finalize`), use it verbatim; otherwise prepend `weekly-` (e.g. `2026-04-27` → `weekly-2026-04-27`). Targets = that one period. Final path: `reports/retrospective/{period_id}.md`. Error if missing
+   - `{period_arg}` omitted → targets = every period in the state sidecar's `pending_finalize`, oldest first (the backlog sweep). If the list is empty, report "no periods pending finalize" and exit
+2. Collect candidates: for each target period, Read the file's `## Self Observations` section; extract both `- [ ]` and `- [x]` lines of the form `{marker} {text} (sources: {source1}; {source2}; …)` — `{text}` plus the **full** semicolon-separated `sources` list (each entry is itself a Markdown link). Phase 4 always emits the plural `sources:` form (even single-source candidates), so a single regex shape is sufficient
+3. Collect approval — **interactive by default**:
+   - In an interactive session, never tell the user to go edit checkboxes in the file. Present the unchecked candidates through the harness's question primitive as **multi-select** questions: group candidates thematically, up to 4 options per question, and run as many question batches as needed to cover every candidate. Each option carries a short label plus the full observation text and its period as the description, written in plain language (no internal IDs)
+   - When targets span multiple periods, first cluster near-duplicate candidates across periods (the same pattern re-observed in consecutive weeks): present the most refined / most recent wording once, noting it subsumes the earlier variant. On adoption, mark only the presented line `[x]`; the subsumed older variants stay unchecked and are dropped
+   - **Fallback when the harness's question primitive cannot express multi-select or 4-option questions** (e.g. Codex CLI's mutually-exclusive single-choice prompt): do not abandon the interactive path. Fall back to either (a) one yes/no question per candidate, or (b) a single free-text prompt that lists the candidates as a numbered list and asks the user to reply with the numbers to adopt (e.g. "1, 3, 5" or "all" / "none"). Parse the reply and proceed identically
+   - Lines the user already marked `[x]` by hand count as approved — exclude them from the questions
+   - After the answers, the skill writes `[x]` into the file(s) on the user's behalf for every adopted candidate. The checkbox in the file stays the durable record; the question flow is merely how approval is collected
+   - **Unattended runs** (`claude -p`, cron, autonomous mode): never block on a question. Process only pre-marked `[x]` lines; if there are none, report the pending candidate count and exit without modifying anything
+4. For each approved `[x]` line, append to `knowledge/self/observations.md`:
    - Format: `- {YYYY-MM-DD finalize date}: {observation text} (sources: {source1}; {source2}; …, retrospective: {period_id})`
    - The provenance carries `{period_id}` verbatim (e.g. `retrospective: weekly-2026-04-27`), regardless of whether the user passed the prefixed or bare form
    - All sources extracted in step 2 are preserved in the appended line (no truncation to a single source)
    - Dedup by `(observation text + sorted sources tuple)` key; skip duplicates silently
-4. Update the retrospective file: change `[x]` → `[X]` (uppercase) so re-finalize is idempotent
-5. Update state sidecar: remove `{period_id}` (from step 1) from `pending_finalize`
+5. Update each processed retrospective file: change `[x]` → `[X]` (uppercase) so re-finalize is idempotent
+6. Update state sidecar: remove every processed `period_id` from `pending_finalize`
 
 Do not regenerate any other section.
+
+**Chaining from Phase 4**: in an interactive session, after a weekly file is generated (Phase 4/5 complete), offer to run this phase for the fresh period immediately — approval is cheapest while the week is still in the user's head. Declining leaves the period in `pending_finalize` for a later `--finalize` sweep.
 
 ### Phase 7: Reporting
 
@@ -378,7 +386,7 @@ Print to stdout:
 
 - Path to the generated file (as a Markdown link) so the user can paste it into the Rill GUI header search
 - Decision Digest line count, Self Observations candidate count, Stale Workspaces count
-- If `--finalize`: count of observations appended to `self/observations.md`
+- If `--finalize`: periods processed, observations adopted (appended to `self/observations.md`), and candidates dropped
 
 Do **not** invoke `rill open`. The user opens files via the GUI header search box (`Cmd+P`).
 
