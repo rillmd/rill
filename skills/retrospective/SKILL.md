@@ -101,7 +101,7 @@ If the file does not exist, initialize lazily on first successful run. Treat mis
 
 1. Parse arguments. Compute `period_monday := YYYY-MM-DD` of the target ISO week's Monday (default: the prior ISO week, i.e., week before today's week)
 2. **Define the canonical period id once**: `period_id := "weekly-" + period_monday` (e.g. `weekly-2026-05-04`). All later phases, state writes, and provenance strings reference `{period_id}` verbatim — do not re-prepend `weekly-` anywhere downstream
-3. **`--finalize {period}` short-circuits the rest of Phase 0** → jump straight to Phase 6 (finalize necessarily operates on an existing file; do not run any existing-file or `--view` gating before it)
+3. **`--finalize` short-circuits the rest of Phase 0 — with or without a period argument** → jump straight to Phase 6 (finalize operates only on existing files; the bare form resolves its targets from `pending_finalize` there). Do not run any existing-file or `--view` gating before it, and never fall through to weekly generation when `--finalize` is present
 4. Build the output path: `reports/retrospective/{period_id}.md`
 5. If `--view` → print the path and exit
 6. If the file exists and neither `--rerun` nor `--view` is set → display the existing-file message and exit
@@ -364,6 +364,7 @@ When invoked with `--finalize [{period_arg}]`:
 3. Collect approval — **interactive by default**:
    - In an interactive session, never tell the user to go edit checkboxes in the file. Present the unchecked candidates through the harness's question primitive as **multi-select** questions: group candidates thematically, up to 4 options per question, and run as many question batches as needed to cover every candidate. Each option carries a short label plus the full observation text and its period as the description, written in plain language (no internal IDs)
    - When targets span multiple periods, first cluster near-duplicate candidates across periods (the same pattern re-observed in consecutive weeks): present the most refined / most recent wording once, noting it subsumes the earlier variant. On adoption, mark only the presented line `[x]`; the subsumed older variants stay unchecked and are dropped
+   - **Fallback when the harness's question primitive cannot express multi-select or 4-option questions** (e.g. Codex CLI's mutually-exclusive single-choice prompt): do not abandon the interactive path. Fall back to either (a) one yes/no question per candidate, or (b) a single free-text prompt that lists the candidates as a numbered list and asks the user to reply with the numbers to adopt (e.g. "1, 3, 5" or "all" / "none"). Parse the reply and proceed identically
    - Lines the user already marked `[x]` by hand count as approved — exclude them from the questions
    - After the answers, the skill writes `[x]` into the file(s) on the user's behalf for every adopted candidate. The checkbox in the file stays the durable record; the question flow is merely how approval is collected
    - **Unattended runs** (`claude -p`, cron, autonomous mode): never block on a question. Process only pre-marked `[x]` lines; if there are none, report the pending candidate count and exit without modifying anything
