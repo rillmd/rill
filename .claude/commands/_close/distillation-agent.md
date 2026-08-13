@@ -99,9 +99,10 @@ This step exists to catch errors propagated from `_summary.md`. Do not skip it.
 1. From `candidate.rationale` and your reading of the source, extract **3-5 key claims** that the note will make
 2. For each key claim, run:
    ```
-   Grep(pattern="{claim-keyword}", path="workspace/{workspace_id}/", glob="*.md", output_mode="files_with_matches")
+   Grep(pattern="{claim-keyword}", path="workspace/{workspace_id}/", glob="*.{md,html}", output_mode="files_with_matches")
    ```
-3. For each deliverable that matches (excluding the source you already read), `Read` up to **2 additional** deliverables
+   An `.html` match counts as a verification source only when it is **HTML-canonical** (no same-basename `.md` — check the deliverable MOC above, which lists them). Ignore matches from derived HTML: anything under `.view/`, and same-basename `.html` twins of an MD file (their MD side is already in scope)
+3. For each deliverable that matches (excluding the source you already read), `Read` up to **2 additional** deliverables — HTML-canonical deliverables included (their HTML is their only record)
 4. Classify what those deliverables say about your claim:
    - **Consistent** (supports or does not contradict) → OK, continue
    - **Not mentioned** → OK, continue
