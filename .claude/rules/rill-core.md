@@ -41,6 +41,7 @@ Personal voice journal + knowledge management system. Core flow: **voice / text 
 - **tasks/**: [rill-tasks.md](rill-tasks.md) — status, due/scheduled, subtasks
 - **projects/**: [rill-projects.md](rill-projects.md) — execution hub layer (ADR-080)
 - **reports/ + pages/**: [rill-outputs.md](rill-outputs.md) — Daily Note, Newsletter, recipe pairs
+- **HTML output**: [rill-html-output.md](rill-html-output.md) — Markdown-canonical doctrine, HTML classes, read-moment generation, commit policy
 - **Claude Code integration**: [rill-claude-code-integration.md](rill-claude-code-integration.md)
 - **Autonomous execution**: [rill-autonomous-execution.md](rill-autonomous-execution.md) — lanes, Plan gate, worktrees, Codex usage, two-channel write, three-tier destructive ops
 

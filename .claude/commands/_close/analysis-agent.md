@@ -12,7 +12,7 @@
 - `output_language` (optional): ISO 639-1 language code for narrative output fields (e.g. `"ja"`, `"en"`); when omitted, default to English
 - `style_guide` (optional): short vocabulary-boundary rules for narrative fields (see Language section); when omitted, write narrative fields in plain English
 
-**Read the metadata file and all numbered deliverables (NNN-*.md) before starting analysis.**
+**Read the metadata file and all numbered deliverables (NNN-*.md) before starting analysis.** Committed HTML-canonical artifacts (e.g. `NNN-*.html` mocks and diagrams with no same-basename MD source — see `rill-html-output.md`) are deliverables too: read their content like any other deliverable, since the HTML is their only record. Skip only derived HTML regenerable from MD sources (`.view/` sidecars, same-basename `.html` twins of an MD file).
 
 ## Language
 
@@ -39,7 +39,8 @@ You MUST NOT:
 
 1. Read the metadata file (`_workspace.md` / `_session.md` / `_project.md`)
 2. Read every `NNN-*.md` file in the workspace directory (in parallel if possible)
-3. Do NOT rely on summaries — read full contents
+3. Read every committed HTML-canonical artifact (`NNN-*.html` etc. with no same-basename MD source) — the HTML is its only record, so analyze it like any other deliverable and carry it into `## Deliverables`. Skip only derived HTML regenerable from MD sources (`.view/` sidecars, same-basename `.html` twins of an MD file) — `rill-html-output.md` principle 3
+4. Do NOT rely on summaries — read full contents
 
 ## Phase 2: Generate _summary.md
 

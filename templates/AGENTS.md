@@ -10,8 +10,10 @@ directory name. Also read the nearest nested `AGENTS.md` for the target path.
 - Original files under `inbox/` are immutable. Only `_organized/` derivatives
   may be created or changed.
 - Create vault content with `rill mkfile`; never write the `created`
-  frontmatter field manually.
-- Frontmatter is required and must follow `.claude/rules/rill-data-model.md`.
+  frontmatter field manually. For the full file-creation and frontmatter
+  conventions — including file types that carry no frontmatter — follow the
+  auto-updated rule files: `.claude/rules/rill-data-model.md` and
+  `.claude/rules/rill-html-output.md`.
 - Email addresses and phone numbers belong only in `knowledge/people/` or
   `knowledge/orgs/`.
 - Do not edit Rill-managed files listed in `.rill/managed-files.txt`. Change

@@ -413,7 +413,7 @@ If the /pulse invocation fails, log a 1-line warning to stdout and treat the /cl
 
 - **Never modify `inbox/journal/` and `inbox/*/` original files** (read-only)
 - Knowledge distillation runs in Distillation sub-agents (ADR-073), NOT in parent context. The parent only orchestrates
-- Include frontmatter in all files
+- Include frontmatter in all files (exception: generated HTML files carry no frontmatter and are written directly, not via `rill mkfile` — see `rill-html-output.md`)
 - **Backward compatibility**: also handle workspaces that only have `_session.md` or `_project.md` (treat as metadata file)
 - **Forbidden justifications**: parent MUST reject `pragmatic scope reduction`, `to save time`, `not novel enough`, `context budget running low`, `already sufficient coverage`, and any unlabeled reason. See `.claude/commands/_close/distillation-agent.md` for the authoritative list
 - `uncovered > 0` must trigger a STOP, not a warning. Do not proceed to Phase 6+ with uncovered candidates
