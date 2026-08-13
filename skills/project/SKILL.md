@@ -131,7 +131,8 @@ Render one project's current state in one screen.
    _Full Key Facts in [_project.md](./_project.md)._
    ```
 
-4. Offer a follow-up choice via the harness's question primitive:
+4. Generate the status-weighted digest per §"Project Digest (read-moment HTML)" — invoke `/refresh-decisions {slug}` first (that section's ordering), then author the snapshot and present its path as the primary reading surface for this overview (the markdown render above stays available beneath it). Skip line and non-fatal failure per the same section
+5. Offer a follow-up choice via the harness's question primitive:
    - "Solve task 1 with /solve" → chain into `/solve {top-1-slug}`
    - "Open `review` mode" → run mode 3
    - "Back to `list`" → run mode 4
@@ -469,7 +470,7 @@ Notes:
    - Input: the project's `## Goal` (DoD) + the list of tasks solved this run + their deliverable paths
    - Output: per-DoD-bullet met / not-met / partial, with a one-line justification each, and an overall "DoD satisfied? yes/no/partial"
    - The runner does **not** set `status: done` on the project — that stays a human call (the digest surfaces the evaluation).
-2. **Run summary** (Phase 1 = markdown; the HTML digest is a separate skill, ADR-082 Phase 2):
+2. **Run summary** (markdown, rendered in conversation):
 
    ```markdown
    # Run summary: {name} ({stop reason})
@@ -493,7 +494,11 @@ Notes:
    _Resolve queued items via the linked tasks, then re-run `/project {slug} run`._
    ```
 
-3. **Persist before releasing**: ensure every `_task.md` the orchestrator itself wrote a `[DECISION-QUEUE]` entry into (the entry-filter isolations of Step 3 — sub-agent `/solve` runs push their own via `rill push`) has been committed with `rill push` from the main worktree. Otherwise those queue entries live only in the local checkout and are invisible to the next run / `/briefing`. Then release the runner lock (`rm -f "$LOCK/owner"; rmdir "$LOCK"`) — on this normal exit and on every error / abort path.
+3. **Persist the run summary as a project artifact** (the MD source that makes the run-end digest a pure derived view — the stop reason and the goal evaluation live nowhere else in MD): create it with `rill mkfile projects/{slug} --slug run-summary --type progress` (the mkfile fallback names it `{YYYY-MM-DD}-run-summary.md`), rename it to the next `NNN-run-summary-{YYYY-MM-DD}.md` (max existing `NNN-` prefix in `projects/{slug}/` + 1, zero-padded to 3 digits — `rill mkfile` does not yet auto-number project artifacts), then write the Step 3.2 summary into its body.
+
+4. **Generate the run-end digest** per §"Project Digest (read-moment HTML)" — invoke `/refresh-project {slug}` and `/refresh-decisions {slug}` first (that section's ordering; the loop's last refresh predates the final task), then author the snapshot with the run-end weighting and present its path at the top of the stop report. Skip line and non-fatal failure per the same section.
+
+5. **Persist before releasing**: ensure every `_task.md` the orchestrator itself wrote a `[DECISION-QUEUE]` entry into (the entry-filter isolations of Step 2 — sub-agent `/solve` runs push their own via `rill push`) has been committed with `rill push` from the main worktree, together with the Step 3.3 run-summary artifact and the `_project.md` sections rewritten by the refreshes (the digest itself lives in gitignored `.view/` and is never committed). Otherwise those queue entries live only in the local checkout and are invisible to the next run / `/briefing`. Then release the runner lock (`rm -f "$LOCK/owner"; rmdir "$LOCK"`) — on this normal exit and on every error / abort path.
 
 ### Safety
 
@@ -501,6 +506,43 @@ Notes:
 - The policy (Step 1) is the only synchronous user gate. Everything inside the loop that would otherwise ask the user is routed to the human-decision queue.
 - Stop conditions are mandatory (defaults applied if flags omitted). The loop cannot run unbounded.
 - `status: done` on the **project** is never set by the runner — DoD judgment stays with the user.
+
+## Project Digest (read-moment HTML)
+
+`/project` is the producer of the "project review" read moment (`.claude/rules/rill-html-output.md`, "When HTML Is Generated"): **`status` mode** (after its overview render) and **`run` mode on stop** (after the run summary) generate a decision-material HTML digest into `projects/{slug}/.view/`. One generator, two section weightings — everything below is shared; only the lead changes per moment. The aim: the user reads one HTML page and can judge the project.
+
+### Ordering — derived views first
+
+Generate only after the project's derived views are current, in this order:
+
+1. Ensure `/refresh-project {slug}` is current at this read moment. `status` mode's Phase 1 refresh qualifies (nothing has run since). At a `run` stop, invoke it again now: the loop's last refresh ran **before** the final task executed, so without a fresh recompute the digest would show a just-completed task as still open.
+2. Invoke `/refresh-decisions {slug}` now (synchronous) so `## Pending Decisions` reflects every queue write and human resolution up to this moment.
+3. Read the refreshed `projects/{slug}/_project.md`, the line-start `[DECISION-QUEUE]` blocks in the task files it points to (the source of truth for decision fields), and — for the run-end weighting — the just-persisted run-summary artifact (Mode 6 Step 3).
+
+If either refresh reports failure or exits on its lock timeout (leaving derived sections stale), **do not generate**: log one warning line and fall back to the markdown render. A snapshot is never overwritten, so freezing known-stale material into one is worse than skipping this read moment.
+
+The digest is a derived view of those MD sources only (`rill-html-output.md` principle 4): it must not carry substantive information absent from them. If something load-bearing exists only in conversation (a stop reason, an evaluation), write it into the run-summary artifact first, then generate.
+
+### Authoring
+
+Read `.claude/commands/_view/design-language.md` first and follow it (message-driven; layer, not delete — digest-scoped: completeness is satisfied by linking the MD sources as the retained full-detail layer; do not replicate whole files into the page).
+
+Section weightings:
+
+- **Run-end digest** (`run` mode stop): lead with why the run stopped (plain language) + what needs the user's decision + the next actions; then what was done (per-task outcome with deliverable / PR links), the goal evaluation, and what is still open.
+- **Status digest** (`status` mode): lead with where the project stands now (goal, state counts, current focus) + the next actions (top unblocked tasks); pending decisions follow, then the rest of the overview.
+
+Decision re-expression contract: every pending decision is re-expressed from its contract-v1.1 fields — Decision / Background / Choices / Default / Blocks / More (ADR-084) — with the recommendation visible and the `More` links kept as the reader's escape hatch to full sources. The MD marker is canonical; the digest is a reading surface — resolution happens in the source file, never on the page (say so on the page next to the decisions).
+
+Consequence-framed, zero-context (ADR-082 D82-8 / ADR-084 D84-7): no internal labels anywhere on the page — no lane letters, tier numbers, review-verdict tokens, phase/step numbers, or status-enum jargon. Translate each to its plain-language outcome. A reader who has never heard of the project must be able to judge every decision from the page alone.
+
+### Snapshot naming and technical constraints
+
+- Write to `projects/{slug}/.view/digest-{YYYY-MM-DD}.html`; append `-2`, `-3`, ... for further digests the same day. Claim the name by **exclusive creation** (create-fails-if-exists — e.g. shell no-clobber redirect — never check-then-write): on "already exists", retry with the next `-N`, so concurrent invocations on the same project cannot claim the same name. **Never regenerate or overwrite an existing snapshot** — a later read moment gets a new file; each snapshot stays correct as the decision material of its moment. `.view/` is gitignored, so snapshots are disposable: everything durable lives in MD.
+- No frontmatter; write the file directly (not via `rill mkfile`). Self-contained: inline styles, no external network dependencies. Open with a provenance comment `<!-- generated from {md_paths} @ {timestamp} by /project -->`.
+- Present the digest path as the primary reading surface; keep the markdown render and the source paths available beneath it.
+- **Skip line**: if the user asks to skip (or says the Markdown is enough), skip generation for the rest of the session unless asked again.
+- **Failure is non-fatal** (`rill-html-output.md` principle 8): on a failed or interrupted generation, delete the partial snapshot file (a partial view must not be left for a reader to open later), log one warning line, and continue — the markdown render is complete on its own.
 
 ## Dependency Resolution Algorithm
 
@@ -547,6 +589,10 @@ A `depends-on` entry whose target `tasks/{slug}/_task.md` is not on disk → the
 
 Called at the top of every mode except `new` (single-slug or `--all` depending on mode). Synchronous wait. See the `/refresh-project` SKILL.md for behaviour.
 
+### `/refresh-decisions`
+
+Invoked synchronously right before digest generation at both read moments (§"Project Digest (read-moment HTML)"), so `## Pending Decisions` is current when its entries are re-expressed. `run` mode's loop also invokes it after entry-filter queue writes (Step 2, loop item 3).
+
 ### `/solve`
 
 `continue` mode chains into `/solve {top-slug}` interactively. Recursion depth is 1 after `/solve` returns successfully — the loop is intentionally finite to keep the conversation steered by the user.
@@ -578,6 +624,7 @@ Reads `knowledge/self/current-state.md` and may include project-level next-actio
 | `run` mode: the global runner lock is already held | Refuse to start a second runner; report the holder (project + start time) and exit (one runner total, §11) |
 | `run` mode: sub-agent spawning unavailable in the harness | Fall back to inline `/solve`, cap `--max-tasks` ≤3, and warn that context isolation is degraded |
 | `new` mode collides with an existing slug | Reject and exit; do not overwrite |
+| Digest generation fails (`status` render / `run` stop) | Delete the partial snapshot file, log one warning line, continue — the markdown render is complete on its own (non-fatal, `rill-html-output.md` principle 8) |
 
 ## Rules
 
@@ -587,13 +634,17 @@ Reads `knowledge/self/current-state.md` and may include project-level next-actio
 - The recursion in `continue` mode is bounded at depth 1; do not auto-loop further. `run` mode is the autonomous loop, and it is bounded by the mandatory stop-condition trio, not by recursion depth
 - `run` mode: acquire the one-runner lock before the loop, release it on every exit; approve the policy once (the only synchronous gate); never set the **project** `status: done` (DoD stays a human call)
 - `new` mode requires a Goal (ADR-080 DoD-required policy); reject silent creation of empty projects
+- **Project digest**: generate at the two read moments only (`status` render, `run` stop), after `/refresh-project` and `/refresh-decisions` have recomputed the derived views; dated snapshots under `projects/{slug}/.view/`, never overwritten; consequence-framed for a zero-context reader; generation failure is non-fatal (§"Project Digest (read-moment HTML)")
 
 ## See also
 
 - `.claude/rules/rill-projects.md` — body structure, section ownership, state values
 - `.claude/rules/rill-tasks.md` — `depends-on` / `blocks` schema
 - `.claude/rules/rill-autonomous-execution.md` — §8 policy gate, §9 human-decision queue, §10 verification immutability, §11 runner economics (the rules `run` mode implements)
+- `.claude/rules/rill-html-output.md` — HTML classes, read moments, `.view/` sidecar policy (the doctrine the project digest implements)
+- `.claude/commands/_view/design-language.md` — authoring checklist the digest follows
 - `/refresh-project` skill — auto-section computation
+- `/refresh-decisions` skill — `## Pending Decisions` recompute, invoked before digest generation
 - `/promote` skill — workspace → project crystallisation
 - `/solve` skill — task execution (chain target of `continue`; autonomous-mode delegate of `run`)
 - `/focus` skill — workspace counterpart (divergent surface)
