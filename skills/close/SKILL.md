@@ -34,6 +34,7 @@ Historically /close ran all phases directly in the parent context (ADR-072). Thi
 1. **Parent session** (this skill): orchestration + user interaction + final phases
 2. **Analysis sub-agent** (fresh context): reads all deliverables, writes `_summary.md`, enumerates distillation candidates
 3. **Distillation sub-agents** (fresh context, launched as one background queue with harness-capped concurrency): one candidate → one atomic note, with mandatory cross-deliverable verification
+4. **Handbook sub-agent** (fresh context, launched into the same background queue): authors the aggregated workspace handbook HTML into `workspace/{id}/.view/` — the "workspace completion" read moment of `rill-html-output.md`. Independent of the distillation pipeline; its failure is non-fatal
 
 The parent session stays lightweight and never runs out of budget regardless of workspace size. Each sub-agent has a fresh context (independent budget). Narrative consistency is preserved because the Analysis sub-agent reads everything in a single fresh context, and each Distillation sub-agent cross-verifies against other deliverables before writing.
 
@@ -73,7 +74,7 @@ This is the same `rill context-map` preparation /distill Step 1 uses. Hold the r
 
 ### Phase 1.5: Build language args
 
-Before launching either the Analysis sub-agent (Phase 2) or the Distillation sub-agents (Phase 4), call `build_language_args()` to decide whether to inject narrative-language args into each sub-agent invocation. The function is intentionally trivial — distribution default is English (sub-agent prompts are written in English), so absence of a personal override means no args are injected and the sub-agent's English default takes over naturally. No fallback logic needed on either side.
+Before launching the Analysis sub-agent (Phase 2), the Distillation sub-agents (Phase 4), or the Handbook sub-agent (Phase 4), call `build_language_args()` to decide whether to inject narrative-language args into each sub-agent invocation. The function is intentionally trivial — distribution default is English (sub-agent prompts are written in English), so absence of a personal override means no args are injected and the sub-agent's English default takes over naturally. No fallback logic needed on either side.
 
 The top-of-file "Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`" instruction governs the orchestrator's (main session's) user-facing utterances; this prologue governs argument injection into sub-agent invocations. They share a trigger file but operate on different surfaces — the user-facing rule has no effect on sub-agent output, which is exactly what this prologue closes.
 
@@ -141,7 +142,7 @@ else
 fi
 ```
 
-When `inject_args` is non-empty, append it as additional YAML lines to **each** sub-agent invocation's prompt in Phase 2 and Phase 4, alongside the existing placeholder substitutions (`{workspace_id}`, `{shared_context_placeholder}`, `{candidate_yaml}`, etc.). The `style_guide` string is hardcoded in English on purpose: the public `rillmd/rill` repo stays ASCII-only, and the string is itself an English instruction. The `output_language` value is the only locale-dependent runtime input; broader-locale support (`ko`, `zh`, `fr`, `de`, `es`, `pt`, `it`) extends the detection branch above (and requires a corresponding bin/rill change to mark `personal-language.md` with the chosen locale) without touching the sub-agent prompts or the `style_guide` content.
+When `inject_args` is non-empty, append it as additional YAML lines to **each** sub-agent invocation's prompt in Phase 2 and Phase 4 (Distillation and Handbook alike), alongside the existing placeholder substitutions (`{workspace_id}`, `{shared_context_placeholder}`, `{candidate_yaml}`, `{deliverable_moc}`, etc.). The `style_guide` string is hardcoded in English on purpose: the public `rillmd/rill` repo stays ASCII-only, and the string is itself an English instruction. The `output_language` value is the only locale-dependent runtime input; broader-locale support (`ko`, `zh`, `fr`, `de`, `es`, `pt`, `it`) extends the detection branch above (and requires a corresponding bin/rill change to mark `personal-language.md` with the chosen locale) without touching the sub-agent prompts or the `style_guide` content.
 
 ### Phase 2: Spawn Analysis Sub-agent
 
@@ -202,7 +203,7 @@ Layer 2 (from per-deliverable scan): {NL2}
 
 Then proceed directly to Phase 4 with the full candidate list from the Analysis report — do not call AskUserQuestion. If the result looks wrong, the user fixes it after the run by editing or `git`-reverting the generated `knowledge/notes/` (distillation is reversible). To re-run the analysis from scratch, reopen the workspace (set its metadata `status` from `completed` back to `active` — an allowed transition) and re-invoke `/close`.
 
-### Phase 4: Spawn Distillation Sub-agents (parallel, harness-capped)
+### Phase 4: Spawn Distillation + Handbook Sub-agents (parallel, harness-capped)
 
 Read `.claude/commands/_close/distillation-agent.md` once. For each candidate from the Analysis report, fill in the placeholders:
 
@@ -224,6 +225,21 @@ After substituting placeholders, append `inject_args` (from Phase 1.5) to the bo
 ```
 candidate_id | status | path_or_justification
 ```
+
+#### Handbook sub-agent (parallel, non-fatal)
+
+**Lifecycle (parent-owned)**: at this step's start — before the skip decision, and regardless of whether a new handbook will be generated — delete any prior handbook output: `workspace/{id}/.view/handbook.html` and/or the `handbook/` directory. A reopened-and-re-closed workspace must not keep the previous close's view (even when the user skips regeneration), and a leftover from an interrupted earlier run is cleared here too.
+
+Then, alongside the distillation queue, spawn **one Handbook sub-agent** into the same background batch (`subagent_type: general-purpose`, `run_in_background: true`). Read `.claude/commands/_close/handbook-agent.md`, fill in `{workspace_id}` and `{deliverable_moc}` (the same MOC built for the Distillation sub-agents, including HTML-canonical artifacts), append `inject_args` when non-empty, and pass the result as the prompt.
+
+The agent authors the aggregated workspace handbook into `workspace/{id}/.view/` — a stable-named view (`handbook.html`, or a `handbook/` directory with a hub `index.html` + detail pages for large workspaces; single vs multi-page is the agent's qualitative call per the design language's "Two document shapes"). The start page re-expresses `_summary.md` with navigation to every artifact. Authoring follows `.claude/commands/_view/design-language.md`.
+
+Operational rules:
+
+- **Stable name, not a dated snapshot.** Unlike /focus decision digests (volatile-phase snapshots, dated, never regenerated), the handbook aggregates content that is final at close time — the staleness problem that forbids in-place regeneration does not arise. It is regenerated (overwritten) only when the workspace is reopened and re-closed
+- **Not `rill book build`.** The handbook is a bespoke authored view generated once at close; `rill book build` is the deterministic reading-view builder for continuously-updated `pages/` books. Do not route the handbook through it
+- **Skip line**: if the user asks to skip the handbook (or says the Markdown summary is enough), do not spawn the agent. `--auto-approve` runs spawn it by default
+- **Result handling**: the agent returns `status: created` (with shape / path / page count) or `status: error`. The handbook result is **excluded from the Phase 5 coverage equation** — it is not a distillation candidate. On `error` (or a malformed return), delete both output paths (`workspace/{id}/.view/handbook.html` and/or the `handbook/` directory — the agent may have written partial pages before failing), log a one-line warning, and continue; handbook generation failure is non-fatal to /close (`rill-html-output.md` principle 8), and a partial view must not be left for a reader to open later
 
 ### Phase 5: Parent-side Aggregation
 
@@ -248,7 +264,7 @@ If two sub-agents happened to `create` notes with similar slugs or overlapping c
 
 #### 5.3 Self-check
 
-Compute coverage:
+Compute coverage over **distillation candidates only** (the Handbook sub-agent's result is tracked separately in Phase 4 and never enters this equation):
 
 ```
 enumerated = candidates_total (from Analysis sub-agent)
@@ -271,6 +287,8 @@ uncovered  = enumerated - (created + updated + skipped + rejected)
 Possible causes: sub-agent timeout, invalid return, race resolution error.
 Not proceeding to Phase 6+. Please investigate.
 ```
+
+**Handbook retraction on an incomplete close**: if the run stops or errors anywhere before Phase 7 sets `status: completed` — the Phase 5 STOP (`uncovered > 0`), a user abort on rejected candidates, or a failure in Phase 5–7 — and the Handbook sub-agent already returned `created`, delete its output (`workspace/{id}/.view/handbook.html` and/or the `handbook/` directory) before exiting. A completion-time view must not survive a close that did not complete; the next successful /close regenerates it. Interruption paths no skill text can catch (a hard crash) are covered by the parent-owned pre-delete at the Phase 4 handbook step, which clears leftovers on the next run. After `status: completed` lands, the handbook is the workspace's legitimate view — later failures do not retract it.
 
 **If `rejected > 0`**: display the rejected candidates and their invalid justifications, ask the user whether to retry, skip them, or abort.
 
@@ -353,6 +371,10 @@ Display the following to the user as the final output of /close:
 ### _summary.md
 workspace/{id}/_summary.md
 
+### Handbook
+{path returned by the Handbook sub-agent — workspace/{id}/.view/handbook.html for single-page, workspace/{id}/.view/handbook/index.html for multi-page} ({shape}, {N} page{s})
+(or: "generation failed — non-fatal; the Markdown summary above is complete" / "skipped at user request")
+
 ### Distillation self-check
 - Candidates enumerated: {N}
 - Atomic notes created: {X}
@@ -417,11 +439,14 @@ If the /pulse invocation fails, log a 1-line warning to stdout and treat the /cl
 - **Backward compatibility**: also handle workspaces that only have `_session.md` or `_project.md` (treat as metadata file)
 - **Forbidden justifications**: parent MUST reject `pragmatic scope reduction`, `to save time`, `not novel enough`, `context budget running low`, `already sufficient coverage`, and any unlabeled reason. See `.claude/commands/_close/distillation-agent.md` for the authoritative list
 - `uncovered > 0` must trigger a STOP, not a warning. Do not proceed to Phase 6+ with uncovered candidates
+- The workspace handbook is a derived `.view/` render (gitignored, regenerable — `rill-html-output.md`); its generation failure never blocks /close, and its result never gates the distillation self-check
 
 ## Related files
 
 - `.claude/commands/_close/analysis-agent.md` — Phase 2 Analysis sub-agent prompt template
 - `.claude/commands/_close/distillation-agent.md` — Phase 4 Distillation sub-agent prompt template
+- `.claude/commands/_close/handbook-agent.md` — Phase 4 Handbook sub-agent prompt template
+- `.claude/commands/_view/design-language.md` — authoring checklist the handbook follows
 - `.claude/commands/_distill/knowledge-agent.md` — referenced by distillation-agent.md for Evergreen check procedure
 - `.claude/commands/_distill/task-extraction.md` — referenced by Phase 8.1 for task extraction rules
 - ADR-073 (private, rill-dev `docs/decisions/`) — two-layer sub-agent delegation rationale

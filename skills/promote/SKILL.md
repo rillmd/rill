@@ -101,7 +101,7 @@ By default `/promote` proposes creating a **new project** for the workspace, not
 
 Read `workspace/{id}/_summary.md` and the workspace directory's artifacts (`NNN-*.md`, plus committed HTML-canonical artifacts — `NNN-*.html` etc. with no same-basename MD source, whose HTML is the only record; skip derived HTML regenerable from MD sources, per `rill-html-output.md` principle 3). Build three candidate lists:
 
-1. **Artifact references** — every artifact file in the workspace, with its `type` (decision / research / analysis / progress / review) and its `# ` heading. These will be linked from the project, not duplicated
+1. **Artifact references** — every artifact file in the workspace, with its `type` (decision / research / analysis / progress / review) and its `# ` heading. HTML-canonical artifacts carry neither frontmatter nor a `# ` heading: take the title from `<title>` or the first `<h1>` (fall back to the filename when both are absent — absence is tolerated, not an error), and in place of `type` label them with their HTML class per `rill-html-output.md` (B primary / C judgment-handoff / D external presentation), judged from content. These will be linked from the project, not duplicated
 2. **Key findings** (3–5 items) — pull from `_summary.md`'s Decisions / Key Findings section. The user will confirm before they land in `## Key Facts`
 3. **Actionable items** — checkbox items in `_workspace.md` or in artifacts that look like committed actions (`- [ ] do X`). Same extraction rules as `/distill`'s `_distill/task-extraction.md` (see that file for the qualitative test of what counts as an action)
 
