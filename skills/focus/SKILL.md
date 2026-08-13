@@ -6,6 +6,7 @@ gui:
   hint: "Start a focus session from this file"
   match:
     - "**/*.md"
+    - "workspace/**/*.html"
   arg: path
   order: 10
   mode: live
@@ -25,6 +26,7 @@ $ARGUMENTS — one of the following:
 - Theme text (e.g., `voice input optimization`) → Start a new workspace
 - Journal file path (e.g., `inbox/journal/2026-02-13-1950.md`) → Start new workspace from that journal
 - workspace/ path or id (e.g., `workspace/2026-02-13-rill-development/` or `rill`) → Resume existing workspace
+- Workspace artifact path — a file inside a workspace, `.md` **or** `.html` (e.g., `workspace/2026-02-13-rill-development/003-analysis.md`, `.../004-ui-mock.html`) → Resume the parent workspace with that artifact as the session's focal target (see Phase 0). An explicit `.html` artifact path is first-class here — never fall through to treating it as theme text
 - Omitted → Propose resuming active workspaces if any, otherwise ask for theme
 
 **Not accepted**: task file paths (`tasks/{slug}/_task.md`, or the legacy `tasks/{slug}.md`). ADR-077 retired task-originated /focus. If the user passes a task path, return an error immediately and suggest `/solve {slug}` instead — tasks are executed in place now, not through a workspace (ADR-076).
@@ -33,7 +35,12 @@ $ARGUMENTS — one of the following:
 
 ### Phase 0: Workspace Identification
 
-1. If argument is a `workspace/` path or an existing workspace id:
+1. If argument is a `workspace/` path (the directory, or a file inside one) or an existing workspace id:
+   - For a file path inside a workspace (`workspace/{id}/...`, `.md` or `.html`), resolve the **parent workspace directory** first (the path segment directly under `workspace/`) and record the named file as the session's focal artifact for Phase 3:
+     - `.md` artifact → Read it on resume as usual
+     - `.html` artifact with a same-basename `.md` twin → the HTML is derived; Read the `.md` twin instead
+     - `.html` artifact with no `.md` twin (HTML-canonical, e.g. a UI mock) → Read the HTML file itself on resume — it is the only record of that artifact's state (`rill-html-output.md` principle 3)
+     - A path under `workspace/{id}/.view/` (derived snapshot) → do not Read it; just resume the workspace (snapshots are disposable read-moment renders regenerable from the MD sources)
    - Read the metadata file in that directory (priority: `_workspace.md` > `_session.md` > `_project.md`)
    - `status: active` → Resume workspace → Go to Phase 3
    - `status: completed` → Ask "This workspace is completed. Would you like to reopen it?" via the harness's question primitive. Yes → Set status back to active, go to Phase 3
@@ -143,6 +150,18 @@ After session start (or resume), interact with the following flow:
    - Append progress to "Session History"
    - Update "Next Steps"
    - **Do NOT change `status`** — never transition the workspace to `completed` from /focus. See the Rules section below for the completion protocol
+
+### Decision digest at judgment points (read-moment HTML)
+
+/focus is the producer of the "decision point during a live session" read moment (`rill-html-output.md`, "When HTML Is Generated"). The trigger is qualitative: **the moment you ask the user to read one or more artifacts and make a judgment** — typically when you would otherwise list several `.md` paths for the user to open and integrate mentally before deciding. Routine confirmations and short single questions are not judgment points.
+
+At a judgment point, generating a decision digest is the default behavior:
+
+1. **Author a one-page decision digest** that re-expresses the relevant artifacts for this one decision, following the shared design language (`.claude/commands/_view/design-language.md`). Structure: what you are asking the user to decide → the argument supporting it → links to the full source artifacts. Layer, not delete, digest-scoped: the page carries the decision-relevant argument; **completeness is satisfied by linking** — the MD sources are the retained full-detail layer, so do not replicate whole artifacts into the page (design language, Authoring Procedure step 2). The digest must not carry substantive information absent from its sources (`rill-html-output.md` principle 4); if a load-bearing explanation is missing from them, write it into an MD artifact first, then generate.
+2. **Write it as a dated snapshot** to `workspace/{id}/.view/decision-{YYYY-MM-DD}.html` (append `-2`, `-3`, ... for further judgment points the same day). The file carries no frontmatter, is written directly (not via `rill mkfile`), is self-contained (inline styles, no external network dependencies), and opens with a provenance comment `<!-- generated from {md_paths} @ {timestamp} by /focus -->`. **Never regenerate or overwrite an existing snapshot** — a later read moment gets a new file; each snapshot stays correct as the decision material of its moment. `.view/` is gitignored, so snapshots are disposable: the judged content and the decision record live in MD.
+3. **Present the digest path as the primary reading surface** instead of enumerating raw `.md` paths; keep the source paths available beneath it (inside the digest, and after it in the conversation).
+4. **Skip line**: if the user says Markdown is fine (or asks to skip), present the `.md` paths directly and stop generating digests for the rest of the session unless asked again.
+5. **Failure is non-fatal** (`rill-html-output.md` principle 8): if generation fails, fall back to presenting the `.md` paths — never block the session on the digest.
 
 ## Deliverable File Frontmatter
 
