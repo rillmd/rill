@@ -83,7 +83,7 @@ Typography (defaults; tune per script):
 - Body 16-18px; line height about 1.6 for Latin-primary text, about 1.8-1.9 for CJK.
 - Prose measure: cap at roughly 40em (roughly 40 full-width characters for CJK), applied to running prose only.
 - `overflow-wrap: break-word` — never `anywhere` (it splits words and code mid-token).
-- Headings bold (700); for CJK headings enable proportional alternates (`font-feature-settings: "palt"`).
+- Headings bold (700); for CJK headings enable proportional alternates (`font-feature-settings: "palt"`) — **headings only, never on body text**: `palt` collapses the space after full-width punctuation (。、) and makes prose read cramped. Check punctuation spacing in the rendered screenshot.
 - Muted text still meets WCAG AA contrast (4.5:1).
 
 Layout — separate the two widths:
