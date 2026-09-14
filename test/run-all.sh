@@ -65,6 +65,7 @@ run_test "/solve"       "$SCRIPT_DIR/skills/test-solve.sh"
 run_test "/inspect"     "$SCRIPT_DIR/skills/test-inspect.sh"
 run_test "/repair"      "$SCRIPT_DIR/skills/test-repair.sh"
 run_test "/eval"        "$SCRIPT_DIR/skills/test-eval.sh"
+run_test "Evaluation foundation" "$SCRIPT_DIR/cli/test-evaluation-foundation.sh"
 run_test "Codex projection" "$SCRIPT_DIR/cli/test-codex-projection.sh"
 run_test "eval distribution" "$SCRIPT_DIR/cli/test-eval-distribution.sh"
 
@@ -75,3 +76,6 @@ else
   echo "  $TOTAL_FAIL test suite(s) failed"
 fi
 echo "============================================"
+
+# The summary must agree with the process status used by CI.
+(( TOTAL_FAIL == 0 ))

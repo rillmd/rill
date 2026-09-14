@@ -99,7 +99,7 @@ echo ""
 
 # 1. Inbox immutability (INV-01)
 echo "=== INV-01: Inbox immutability ==="
-bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE" || true
+run_assertion bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE"
 echo ""
 
 # 2. Newsletter existence and frontmatter (INV-02, INV-04)
@@ -226,7 +226,7 @@ cat > "$RESULTS_DIR/summary.json" <<EOF
 }
 EOF
 
-report_results || true
+report_results
 
 echo ""
 echo "Vault preserved at: $VAULT_DIR"

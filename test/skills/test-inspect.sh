@@ -93,7 +93,7 @@ echo ""
 
 # 1. Inbox + knowledge/notes immutability (INV-01)
 echo "=== INV-01: Inbox + knowledge/notes immutability (/inspect must not edit bodies) ==="
-bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE" || true
+run_assertion bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE"
 echo ""
 
 # 2. .refresh-queue: file created and contains paths
