@@ -2651,7 +2651,8 @@ for source in sorted((vault / ".claude/skills").glob("*/SKILL.md")):
         sources[source.parent.name] = source
 for name, source in sources.items():
     if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name) or len(name) > 64:
-        raise SystemExit("Invalid skill directory name: " + name)
+        print("Warning: skipping Codex projection for unsupported skill name: " + name, file=sys.stderr)
+        continue
     dest = targets / name / "SKILL.md"
     if dest.parent.is_symlink():
         continue  # A user-owned directory must never be written through.

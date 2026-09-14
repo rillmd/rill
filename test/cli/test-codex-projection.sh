@@ -109,6 +109,24 @@ grep -q 'Invalid skill:' "$TMP_ROOT/doctor-invalid.log"
 printf '%s\n' '---' 'name: invalid-fixture' 'description: Repaired fixture' '---' \
   > "$VAULT/.agents/skills/invalid-fixture/SKILL.md"
 
+# Legacy command names unsupported by Codex must not abort unrelated updates
+# or leave plugin lifecycle state half-written. Doctor still reports the gap.
+printf '%s\n' '# Preserve this command' > "$VAULT/.claude/commands/unsupported_name.md"
+"$RILL_BIN" update --vault codex-test > "$TMP_ROOT/unsupported-update.log" 2>&1
+grep -q 'unsupported skill name: unsupported_name' "$TMP_ROOT/unsupported-update.log"
+grep -q 'Preserve this command' "$VAULT/.claude/commands/unsupported_name.md"
+(cd "$VAULT" && "$RILL_BIN" plugin enable foundation >/dev/null 2>&1)
+grep -qx foundation "$VAULT/plugins/.enabled"
+(cd "$VAULT" && "$RILL_BIN" plugin disable foundation >/dev/null 2>&1)
+if grep -qx foundation "$VAULT/plugins/.enabled"; then exit 1; fi
+if (cd "$VAULT" && "$RILL_BIN" doctor codex) > "$TMP_ROOT/unsupported-doctor.log" 2>&1; then
+  echo "doctor failed to report unsupported command projection" >&2
+  exit 1
+fi
+grep -q 'command /unsupported_name has no Codex skill' "$TMP_ROOT/unsupported-doctor.log"
+mv "$VAULT/.claude/commands/unsupported_name.md" "$VAULT/.claude/commands/supported-name.md"
+"$RILL_BIN" update --vault codex-test >/dev/null
+
 # Deny rules must survive reprojection on `rill update` too.
 test -f "$VAULT/.codex/rules/rill-deny.rules"
 grep -Fxq ".codex/rules/rill-deny.rules" "$VAULT/.rill/managed-files.txt"
