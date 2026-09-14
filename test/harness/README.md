@@ -60,8 +60,10 @@ next step before removing more rules or comparing quality statistically.
 ## Isolation and scope
 
 Each harness/case receives a separate copy of the same initialized fixture.
-Only public deployment inputs are copied from the current checkout; source Git
-metadata, worktrees, credentials and real vault contents are excluded. The
+Only allowlisted, Git-tracked deployment inputs are copied from the current checkout; source Git
+metadata, worktrees, credentials and real vault contents are excluded. Local plugins, plugin
+configuration/state and untracked files are excluded even if present in the checkout.
+Symlink deployment inputs fail setup rather than following an external target. The
 initialization registry has a separate home. Child processes use the fixture's
 `RILL_HOME` and projected `rill` executable on PATH. Repositories have no remote.
 

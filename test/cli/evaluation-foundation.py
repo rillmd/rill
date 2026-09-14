@@ -133,6 +133,7 @@ class Foundation(unittest.TestCase):
 class Comparison(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        sys.dont_write_bytecode = True
         spec = importlib.util.spec_from_file_location("comparison", ROOT / "test/harness/compare.py")
         cls.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.module)
@@ -165,6 +166,40 @@ time.sleep(10)
             self.assertTrue((base / "ready").exists())
             time.sleep(0.5)
             self.assertFalse((base / "leaked").exists())
+
+    def test_deployment_excludes_private_and_untracked_files(self):
+        with tempfile.TemporaryDirectory(prefix="rill-copy-test-") as temp:
+            root = Path(temp) / "root"
+            root.mkdir()
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            fixtures = ["plugins/demo/run.sh", "plugins/local/private/run.sh",
+                        "plugins/demo/.config", "plugins/demo/.state/private.txt"]
+            for name in fixtures:
+                p = root / name
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text("synthetic sentinel")
+            subprocess.run(["git", "-C", str(root), "add", "-f", "."], check=True)
+            (root / "plugins/demo/untracked-secret").write_text("synthetic secret")
+            source = Path(temp) / "source"
+            self.module.copy_deployment(root, source)
+            self.assertEqual([str(p.relative_to(source)) for p in source.rglob("*") if p.is_file()],
+                             ["plugins/demo/run.sh"])
+
+    def test_snapshot_tracks_directory_symlink_changes(self):
+        with tempfile.TemporaryDirectory(prefix="rill-watch-test-") as temp:
+            root = Path(temp)
+            (root / "one").mkdir()
+            (root / "two").mkdir()
+            link = root / "alias"
+            before = self.module.snapshot(root)
+            link.symlink_to("one", target_is_directory=True)
+            added = self.module.snapshot(root)
+            self.assertNotEqual(before, added)
+            link.unlink()
+            link.symlink_to("two", target_is_directory=True)
+            self.assertNotEqual(added, self.module.snapshot(root))
+            link.unlink()
+            self.assertEqual(before, self.module.snapshot(root))
 
     def test_fixture_includes_installed_container_schemas(self):
         with tempfile.TemporaryDirectory(prefix="rill-schema-test-") as temp:

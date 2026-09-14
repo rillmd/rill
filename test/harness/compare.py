@@ -25,6 +25,11 @@ def snapshot(root):
     result = {}
     for directory, dirs, files in os.walk(root, followlinks=False):
         dirs[:] = [d for d in dirs if d != ".git"]
+        for name in list(dirs):
+            path = Path(directory) / name
+            if path.is_symlink():
+                result[str(path.relative_to(root))] = "link:" + os.readlink(path)
+                dirs.remove(name)
         for name in files:
             path = Path(directory) / name
             key = str(path.relative_to(root))
@@ -79,30 +84,38 @@ def checked(argv, cwd, env):
     return result.stdout
 
 
+CONTAINERS = ["inbox", "inbox/journal", "inbox/meetings", "inbox/tweets",
+              "inbox/web-clips", "inbox/sources", "knowledge/notes", "knowledge/people",
+              "knowledge/orgs", "knowledge/self", "projects", "workspace", "tasks",
+              "pages", "reports/daily", "reports/newsletter"]
+
+
+def copy_deployment(root, source):
+    """Allowlisted, Git-tracked deployment inputs; never local plugin state."""
+    tracked = checked(["git", "ls-files", "-z"], root, os.environ).split("\0")
+    schemas = {container + "/CLAUDE.md" for container in CONTAINERS}
+    documents = {"SPEC.md", "taxonomy.md", "VERSION", "CLAUDE.md", "AGENTS.md"}
+    prefixes = ("bin/", "lib/", "skills/", "templates/", "plugins/", "eval/",
+                ".claude/rules/", ".claude/commands/", ".claude/agents/")
+    excluded = {".config", ".state", ".env", ".installed", ".enabled", "__pycache__"}
+    for name in tracked:
+        if not name or not (name in schemas or name in documents or name.startswith(prefixes)):
+            continue
+        parts = Path(name).parts
+        if name.startswith("plugins/local/") or any(part in excluded for part in parts):
+            continue
+        original = root / name
+        if original.is_symlink() or any((root / parent).is_symlink() for parent in Path(name).parents):
+            raise RuntimeError("Symlink deployment input is not supported: " + name)
+        destination = source / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(original, destination)
+
+
 def setup(base):
     source = base / "source"
     source.mkdir()
-    # Copy only deployment inputs. No Git directory, real vault, sessions,
-    # worktrees, credentials, test results or user plugin data are copied.
-    for name in ["bin", "lib", "skills", "templates", "plugins", "eval"]:
-        if (ROOT / name).is_dir():
-            shutil.copytree(ROOT / name, source / name)
-    (source / ".claude").mkdir()
-    for name in ["rules", "commands", "agents"]:
-        if (ROOT / ".claude" / name).is_dir():
-            shutil.copytree(ROOT / ".claude" / name, source / ".claude" / name)
-    for name in ["SPEC.md", "taxonomy.md", "VERSION", "CLAUDE.md", "AGENTS.md"]:
-        if (ROOT / name).is_file():
-            shutil.copy2(ROOT / name, source / name)
-    containers = ["inbox", "inbox/journal", "inbox/meetings", "inbox/tweets",
-                  "inbox/web-clips", "inbox/sources", "knowledge/notes", "knowledge/people",
-                  "knowledge/orgs", "knowledge/self", "projects", "workspace", "tasks",
-                  "pages", "reports/daily", "reports/newsletter"]
-    for container in containers:
-        schema = ROOT / container / "CLAUDE.md"
-        destination = source / container / "CLAUDE.md"
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(schema, destination)
+    copy_deployment(ROOT, source)
     home = base / "registry-home"
     home.mkdir()
     env = dict(os.environ, RILL_SOURCE=str(source), HOME=str(home),
@@ -133,7 +146,7 @@ def setup(base):
     welcome = template / "knowledge/notes/welcome-to-rill.md"
     if welcome.exists():
         welcome.unlink()
-    for container in containers:
+    for container in CONTAINERS:
         for filename in ("CLAUDE.md", "AGENTS.md"):
             if not (template / container / filename).is_file():
                 raise RuntimeError("Missing installed container schema: " + container + "/" + filename)
