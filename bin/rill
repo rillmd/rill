@@ -1848,6 +1848,172 @@ cmd_checkpoint() {
     return 0
 }
 
+# ── Session ledger (ADR-087) ─────────────────────────────────────────
+# `rill session-hook <Event>` records Claude Code session events in
+# .rill/state/sessions.jsonl so the GUI can bind sessions to work units and
+# show their state without parsing terminal output. The GUI spawns `claude`
+# with RILL_WORKSPACE / RILL_TAB / RILL_ORIGIN in the environment; hooks
+# inherit them. Sessions started elsewhere record no workspace; readers
+# derive it from file paths, so the ledger never encodes the vault layout.
+#
+# Contract: fast, exit 0 on every path, print nothing except the
+# SessionStart context payload, ignore unknown fields.
+
+_SESS_SCAN_DIRS="workspace tasks projects pages reports knowledge inbox"
+
+_sess_ledger_file() {
+    printf '%s/.rill/state/sessions.jsonl' "$RILL_HOME"
+}
+
+_sess_marker() {
+    # Per-session turn-start marker. Keyed by session id like the
+    # checkpoint scratch dir; shell-safe by parameter expansion.
+    local session_id="$1"
+    [ -n "$session_id" ] || return 1
+    local safe="${session_id//[^A-Za-z0-9_.-]/_}"
+    printf '%s/rill-sess-%s.turn' "${TMPDIR:-/tmp}" "$safe"
+}
+
+_sess_now_iso() {
+    date +%Y-%m-%dT%H:%M:%S%z | sed 's/\([0-9][0-9]\)$/:\1/'
+}
+
+_sess_append() {
+    # Append one JSON line. A single printf of a short line is one write
+    # under O_APPEND, so concurrent sessions do not interleave.
+    local line="$1"
+    [ -n "$line" ] || return 0
+    local ledger; ledger="$(_sess_ledger_file)"
+    mkdir -p "$(dirname "$ledger")" 2>/dev/null || return 0
+    printf '%s\n' "$line" >> "$ledger" 2>/dev/null || true
+}
+
+_sess_turn_files() {
+    # Files under the vault's content directories modified since the turn
+    # marker. A timestamp scan rather than a git comparison: git status misses
+    # re-edits of already-modified files, files inside untracked directories,
+    # changes committed during the turn, and git-ignored .view/ artifacts.
+    local marker="$1"
+    [ -f "$marker" ] || return 0
+    local dirs=() d
+    for d in $_SESS_SCAN_DIRS; do
+        [ -d "$RILL_HOME/$d" ] && dirs+=("$d")
+    done
+    [ "${#dirs[@]}" -gt 0 ] || return 0
+    (cd "$RILL_HOME" && find "${dirs[@]}" -type f -newer "$marker" \
+        ! -name '.DS_Store' ! -name '*.processed' \
+        ! -path '*/node_modules/*' ! -path '*/__pycache__/*' \
+        2>/dev/null | head -n 500) || true
+}
+
+_sess_prune() {
+    # Drop entries older than RILL_SESS_KEEP_DAYS (default 30). Runs on
+    # SessionStart only; status needs recent lines, not history.
+    local ledger; ledger="$(_sess_ledger_file)"
+    [ -f "$ledger" ] || return 0
+    local keep="${RILL_SESS_KEEP_DAYS:-30}"
+    case "$keep" in ''|*[!0-9]*) keep=30 ;; esac
+    local cutoff=$(( $(date +%s) - keep * 86400 ))
+    local first_t
+    first_t="$(head -n 1 "$ledger" 2>/dev/null | jq -r '.t // 0' 2>/dev/null || echo 0)"
+    case "$first_t" in ''|*[!0-9]*) first_t=0 ;; esac
+    [ "$first_t" -lt "$cutoff" ] || return 0
+    local tmp; tmp="$(mktemp 2>/dev/null)" || return 0
+    if jq -c --argjson c "$cutoff" 'select((.t // 0) >= $c)' "$ledger" > "$tmp" 2>/dev/null; then
+        mv "$tmp" "$ledger" 2>/dev/null || rm -f "$tmp"
+    else
+        rm -f "$tmp"
+    fi
+    return 0
+}
+
+cmd_session_hook() {
+    local event="${1:-}"
+    local json; json="$(cat 2>/dev/null || true)"
+    # Only write into a real vault. resolve_rill_home has fallbacks that can
+    # land on a non-vault directory; the ledger must never appear there.
+    [ -n "${RILL_HOME:-}" ] && [ -f "$RILL_HOME/.rill/version" ] || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+
+    case "$event" in
+        SessionStart|UserPromptSubmit|PermissionRequest|PostToolUse|PostToolUseFailure|Stop|StopFailure|SessionEnd) ;;
+        *) event="unknown" ;;
+    esac
+
+    local session_id="" tool_name="" file_path=""
+    if [ -n "$json" ]; then
+        session_id="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
+        tool_name="$(printf '%s' "$json" | jq -r '.tool_name // empty' 2>/dev/null || true)"
+        file_path="$(printf '%s' "$json" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)"
+    fi
+    if [ -z "$session_id" ]; then
+        # Keep a trace instead of failing silently when the input shape changes.
+        local snippet; snippet="$(printf '%s' "$json" | head -c 200)"
+        _sess_append "$(jq -cn --arg ts "$(_sess_now_iso)" --argjson t "$(date +%s)" \
+            --arg e "$event" --arg raw "$snippet" \
+            '{ts:$ts,t:$t,event:"unknown",hook:$e,raw:$raw}' 2>/dev/null || true)"
+        return 0
+    fi
+
+    local rel=""
+    if [ "$event" = "PostToolUse" ]; then
+        case "$tool_name" in
+            Write|Edit|MultiEdit|NotebookEdit) rel="$(_ckpt_rel_path "$file_path" || true)" ;;
+        esac
+    fi
+
+    _sess_append "$(jq -cn \
+        --arg ts "$(_sess_now_iso)" --argjson t "$(date +%s)" \
+        --arg e "$event" --arg sid "$session_id" \
+        --arg tab "${RILL_TAB:-}" --arg ws "${RILL_WORKSPACE:-}" \
+        --arg origin "${RILL_ORIGIN:-}" --arg ver "${RILL_CLAUDE_VERSION:-}" \
+        --arg tool "$tool_name" --arg file "$rel" '
+        {ts:$ts, t:$t, event:$e, session_id:$sid}
+        + (if $tab    != "" then {tab:$tab} else {} end)
+        + (if $ws     != "" then {workspace:$ws} else {} end)
+        + (if $origin != "" then {origin:$origin} else {} end)
+        + (if $ver    != "" then {claude_version:$ver} else {} end)
+        + (if $tool   != "" then {tool:$tool} else {} end)
+        + (if $file   != "" then {file:$file} else {} end)
+    ' 2>/dev/null || true)"
+
+    local marker; marker="$(_sess_marker "$session_id" || true)"
+    case "$event" in
+        UserPromptSubmit)
+            [ -n "$marker" ] && : > "$marker" 2>/dev/null || true
+            ;;
+        Stop|StopFailure)
+            if [ -n "$marker" ] && [ -f "$marker" ]; then
+                local files; files="$(_sess_turn_files "$marker")"
+                if [ -n "$files" ]; then
+                    _sess_append "$(printf '%s\n' "$files" | jq -R . | jq -cs \
+                        --arg ts "$(_sess_now_iso)" --argjson t "$(date +%s)" \
+                        --arg sid "$session_id" --arg tab "${RILL_TAB:-}" '
+                        {ts:$ts, t:$t, event:"TurnFiles", session_id:$sid, files:.}
+                        + (if $tab != "" then {tab:$tab} else {} end)
+                    ' 2>/dev/null || true)"
+                fi
+            fi
+            ;;
+        SessionEnd)
+            [ -n "$marker" ] && rm -f "$marker" 2>/dev/null || true
+            ;;
+        SessionStart)
+            _sess_prune || true
+            local ws="${RILL_WORKSPACE:-}"
+            if [ -n "$ws" ] && [ -d "$RILL_HOME/$ws" ]; then
+                jq -cn --arg w "$ws" '{
+                    hookSpecificOutput: {
+                        hookEventName: "SessionStart",
+                        additionalContext: ("Rill: this conversation was opened from the work unit \($w). Before answering the first message, read its state file (\($w)/_workspace.md, or _task.md / _project.md for other unit types) and skim its latest artifacts, then answer in that context.")
+                    }
+                }' 2>/dev/null || true
+            fi
+            ;;
+    esac
+    return 0
+}
+
 cmd_activity_log() {
     local subcmd="${1:-}"
     shift 2>/dev/null || true
@@ -2773,6 +2939,8 @@ _generate_vault_gitignore() {
     section+="inbox/meetings/.index"$'\n'
     section+="# Derived reading-view sidecars (regenerable via rill book build)"$'\n'
     section+="**/.view/"$'\n'
+    section+="# Machine-local session ledger (ADR-087; session ids are only meaningful on this machine)"$'\n'
+    section+=".rill/state/"$'\n'
     if [ "$track_managed" = false ]; then
         while IFS= read -r rel; do
             [ -z "$rel" ] && continue
@@ -5982,6 +6150,7 @@ Agent helpers — invoked by skills inside your vault, not typed manually:
   touch                 Update frontmatter \`updated\` field (PostToolUse hook)
   activity-log          Activity log management (on-write, on-prompt, on-stop, add)
   checkpoint            Session state durability hooks (track, on-stop, on-prompt, on-end)
+  session-hook          Session ledger hook for the GUI panel (ADR-087; called by Claude Code hooks)
   strip-entity-tags     Move entity IDs from tags to mentions (deterministic)
   pages-pending-update  Match new sources to pages via mentions/tags
   context-map           Emit deterministic shared context (entity maps + Tier dict)
@@ -6151,6 +6320,7 @@ case "${1:-help}" in
     activity-log) shift; cmd_activity_log "$@" ;;
     touch) shift; cmd_touch "$@" ;;
     checkpoint) shift; cmd_checkpoint "$@" ;;
+    session-hook) shift; cmd_session_hook "$@" ;;
     mkfile) shift; cmd_mkfile "$@" ;;
     strip-entity-tags) shift; cmd_strip_entity_tags "$@" ;;
     pages-pending-update) shift; cmd_pages_pending_update "$@" ;;

@@ -1,0 +1,147 @@
+#!/bin/bash
+# test/cli/test-session-hook.sh - `rill session-hook` session ledger (ADR-087)
+#
+# The session ledger lets the GUI bind Claude Code sessions to work units and
+# show their state without reading terminal output. The hook runs on every
+# prompt, tool call and turn end, so it must never take a session down and
+# must print nothing except the SessionStart context payload.
+#
+# Covered:
+#   - events append one JSON line each, with tab / workspace / origin from env
+#   - Write/Edit records the vault-relative path; other tools record no file
+#   - Stop records files changed during the turn, including .view/ sidecars,
+#     files inside untracked directories, and re-edited files; noise excluded
+#   - SessionStart prints additionalContext only when RILL_WORKSPACE names an
+#     existing work unit
+#   - non-SessionStart events print nothing
+#   - missing session id leaves an "unknown" trace; malformed input exits 0
+#   - SessionStart prunes entries older than the retention window
+#
+# Usage: bash test/cli/test-session-hook.sh
+# Requires: bash, jq. No claude CLI, no network.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+RILL="$REPO_ROOT/bin/rill"
+
+# shellcheck source=test/assertions/lib.sh
+source "$SCRIPT_DIR/../assertions/lib.sh"
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "FAIL: jq is required"
+  exit 1
+fi
+
+WORK="$(mktemp -d)"
+cleanup() {
+  rm -rf "$WORK"
+  rm -f "${TMPDIR:-/tmp}"/rill-sess-cse_sess_* 2>/dev/null || true
+}
+trap cleanup EXIT
+
+VAULT="$WORK/vault"
+mkdir -p "$VAULT/workspace/demo-ws/.view" "$VAULT/workspace/demo-ws/drafts" "$VAULT/tasks"
+echo "seed" > "$VAULT/workspace/demo-ws/001-old.md"
+mkdir -p "$VAULT/.rill" && echo "test" > "$VAULT/.rill/version"
+export RILL_HOME="$VAULT"
+LEDGER="$VAULT/.rill/state/sessions.jsonl"
+
+hook() { # event, json
+  printf '%s' "$2" | "$RILL" session-hook "$1"
+}
+last() { tail -n 1 "$LEDGER"; }
+
+SID="cse_sess_a"
+
+# ── SessionStart with a work unit ─────────────────────────────────────
+OUT="$(RILL_WORKSPACE=workspace/demo-ws RILL_TAB=tab-1 RILL_ORIGIN=gui RILL_CLAUDE_VERSION=2.1.290 \
+  hook SessionStart "{\"session_id\":\"$SID\",\"hook_event_name\":\"SessionStart\",\"source\":\"startup\"}")"
+assert_file_exists "$LEDGER" "the ledger is created on first event"
+assert_eq "$(last | jq -r '.event')" "SessionStart" "SessionStart is recorded"
+assert_eq "$(last | jq -r '.workspace')" "workspace/demo-ws" "the workspace comes from RILL_WORKSPACE"
+assert_eq "$(last | jq -r '.tab')" "tab-1" "the tab comes from RILL_TAB"
+assert_eq "$(last | jq -r '.origin')" "gui" "the origin comes from RILL_ORIGIN"
+assert_eq "$(last | jq -r '.claude_version')" "2.1.290" "the CLI version is recorded when provided"
+CTX=no
+if printf '%s' "$OUT" | jq -e '.hookSpecificOutput.hookEventName == "SessionStart"
+    and (.hookSpecificOutput.additionalContext | test("workspace/demo-ws"))' >/dev/null 2>&1; then
+  CTX=yes
+fi
+assert_eq "$CTX" "yes" "SessionStart returns context naming the work unit"
+
+OUT="$(hook SessionStart "{\"session_id\":\"cse_sess_b\"}")"
+assert_eq "$OUT" "" "SessionStart prints nothing without RILL_WORKSPACE"
+OUT="$(RILL_WORKSPACE=workspace/missing hook SessionStart "{\"session_id\":\"cse_sess_b\"}")"
+assert_eq "$OUT" "" "SessionStart prints nothing when the work unit does not exist"
+assert_eq "$(last | jq -r 'has("workspace")')" "true" "the env workspace is still recorded"
+
+# ── turn: prompt, tools, stop ─────────────────────────────────────────
+OUT="$(RILL_TAB=tab-1 hook UserPromptSubmit "{\"session_id\":\"$SID\",\"prompt\":\"go\"}")"
+assert_eq "$OUT" "" "UserPromptSubmit prints nothing"
+sleep 1
+
+OUT="$(hook PostToolUse "{\"session_id\":\"$SID\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$VAULT/workspace/demo-ws/002-new.md\"}}")"
+assert_eq "$OUT" "" "PostToolUse prints nothing"
+assert_eq "$(last | jq -r '.file')" "workspace/demo-ws/002-new.md" "Write records the vault-relative path"
+
+hook PostToolUse "{\"session_id\":\"$SID\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/elsewhere/main.go\"}}"
+assert_eq "$(last | jq -r 'has("file")')" "false" "writes outside the vault record no file"
+
+hook PostToolUse "{\"session_id\":\"$SID\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"}}"
+assert_eq "$(last | jq -r '.tool')" "Bash" "other tools are recorded (they clear the waiting state)"
+assert_eq "$(last | jq -r 'has("file")')" "false" "other tools record no file"
+
+hook PostToolUseFailure "{\"session_id\":\"$SID\",\"tool_name\":\"WebFetch\"}"
+assert_eq "$(last | jq -r '.event')" "PostToolUseFailure" "tool failures are recorded"
+
+# Shell-made changes during the turn
+echo "new" > "$VAULT/workspace/demo-ws/002-new.md"
+echo "re-edit" >> "$VAULT/workspace/demo-ws/001-old.md"
+echo "<html>" > "$VAULT/workspace/demo-ws/.view/digest.html"
+echo "draft" > "$VAULT/workspace/demo-ws/drafts/a.md"
+touch "$VAULT/workspace/demo-ws/.DS_Store"
+
+OUT="$(hook Stop "{\"session_id\":\"$SID\",\"hook_event_name\":\"Stop\"}")"
+assert_eq "$OUT" "" "Stop prints nothing (output would continue the turn)"
+TF="$(grep '"TurnFiles"' "$LEDGER" | tail -n 1)"
+assert_true '[ -n "$TF" ]' "Stop records the files changed during the turn"
+for f in workspace/demo-ws/002-new.md workspace/demo-ws/001-old.md \
+         workspace/demo-ws/.view/digest.html workspace/demo-ws/drafts/a.md; do
+  assert_eq "$(printf '%s' "$TF" | jq -r --arg f "$f" '.files | index($f) != null')" "true" "TurnFiles includes $f"
+done
+assert_eq "$(printf '%s' "$TF" | jq -r '.files | map(select(endswith(".DS_Store"))) | length')" "0" "TurnFiles excludes .DS_Store"
+
+hook StopFailure "{\"session_id\":\"$SID\",\"error\":\"rate_limit\"}" >/dev/null
+assert_true 'grep -q "\"StopFailure\"" "$LEDGER"' "StopFailure is recorded"
+
+hook SessionEnd "{\"session_id\":\"$SID\",\"reason\":\"prompt_input_exit\"}"
+assert_eq "$(last | jq -r '.event')" "SessionEnd" "SessionEnd is recorded"
+assert_file_not_exists "${TMPDIR:-/tmp}/rill-sess-$SID.turn" "SessionEnd removes the turn marker"
+
+# ── robustness ────────────────────────────────────────────────────────
+hook Stop '{"hook_event_name":"Stop"}'
+assert_eq "$(last | jq -r '.event')" "unknown" "missing session id leaves an unknown trace"
+for ev in SessionStart UserPromptSubmit PostToolUse Stop SessionEnd Bogus; do
+  rc=0; echo '' | "$RILL" session-hook "$ev" >/dev/null 2>&1 || rc=$?
+  assert_eq "$rc" "0" "session-hook $ev exits 0 on empty input"
+  rc=0; echo 'not json' | "$RILL" session-hook "$ev" >/dev/null 2>&1 || rc=$?
+  assert_eq "$rc" "0" "session-hook $ev exits 0 on malformed input"
+done
+# Isolate HOME and cwd so vault resolution cannot fall back to a real vault
+# registered on this machine.
+rc=0; (cd "$WORK" && HOME="$WORK" RILL_HOME="$WORK/nope" "$RILL" session-hook Stop </dev/null >/dev/null 2>&1) || rc=$?
+assert_eq "$rc" "0" "session-hook exits 0 without a vault"
+NOTVAULT="$WORK/not-a-vault"; mkdir -p "$NOTVAULT"
+printf '{"session_id":"cse_sess_x"}' | RILL_HOME="$NOTVAULT" "$RILL" session-hook Stop
+assert_file_not_exists "$NOTVAULT/.rill/state/sessions.jsonl" "session-hook never writes outside a vault (no .rill/version)"
+
+# ── retention ─────────────────────────────────────────────────────────
+OLD='{"ts":"2000-01-01T00:00:00+00:00","t":946684800,"event":"Stop","session_id":"cse_sess_old"}'
+{ printf '%s\n' "$OLD"; cat "$LEDGER"; } > "$WORK/l" && mv "$WORK/l" "$LEDGER"
+hook SessionStart '{"session_id":"cse_sess_c"}' >/dev/null
+assert_file_not_contains "$LEDGER" "cse_sess_old" "SessionStart prunes entries past the retention window"
+assert_file_contains "$LEDGER" "$SID" "recent entries survive pruning"
+
+report_results
