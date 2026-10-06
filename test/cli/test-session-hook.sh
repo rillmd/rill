@@ -7,7 +7,8 @@
 # must print nothing except the SessionStart context payload.
 #
 # Covered:
-#   - events append one JSON line each, with tab / workspace / origin from env
+#   - events append one JSON line each to the session's own file, with
+#     tab / workspace / origin from env
 #   - Write/Edit records the vault-relative path; other tools record no file
 #   - Stop records files changed during the turn, including .view/ sidecars,
 #     files inside untracked directories, and re-edited files; noise excluded
@@ -15,7 +16,10 @@
 #     existing work unit
 #   - non-SessionStart events print nothing
 #   - missing session id leaves an "unknown" trace; malformed input exits 0
-#   - SessionStart prunes entries older than the retention window
+#   - TurnFiles attribution: a workspace-bound session claims only changes in
+#     its workspace; paths another session wrote this turn are excluded
+#   - concurrent sessions keep every line valid JSON (one file per session)
+#   - SessionStart deletes session files past the retention window
 #
 # Usage: bash test/cli/test-session-hook.sh
 # Requires: bash, jq. No claude CLI, no network.
@@ -46,19 +50,21 @@ mkdir -p "$VAULT/workspace/demo-ws/.view" "$VAULT/workspace/demo-ws/drafts" "$VA
 echo "seed" > "$VAULT/workspace/demo-ws/001-old.md"
 mkdir -p "$VAULT/.rill" && echo "test" > "$VAULT/.rill/version"
 export RILL_HOME="$VAULT"
-LEDGER="$VAULT/.rill/state/sessions.jsonl"
+SDIR="$VAULT/.rill/state/sessions"
 
 hook() { # event, json
   printf '%s' "$2" | "$RILL" session-hook "$1"
 }
-last() { tail -n 1 "$LEDGER"; }
+ledger() { printf '%s/%s.jsonl' "$SDIR" "$1"; }
+LEDGER="$SDIR/cse_sess_a.jsonl"
+last() { tail -n 1 "$(ledger "${1:-cse_sess_a}")"; }
 
 SID="cse_sess_a"
 
 # ── SessionStart with a work unit ─────────────────────────────────────
 OUT="$(RILL_WORKSPACE=workspace/demo-ws RILL_TAB=tab-1 RILL_ORIGIN=gui RILL_CLAUDE_VERSION=2.1.290 \
   hook SessionStart "{\"session_id\":\"$SID\",\"hook_event_name\":\"SessionStart\",\"source\":\"startup\"}")"
-assert_file_exists "$LEDGER" "the ledger is created on first event"
+assert_file_exists "$LEDGER" "the session's ledger file is created on its first event"
 assert_eq "$(last | jq -r '.event')" "SessionStart" "SessionStart is recorded"
 assert_eq "$(last | jq -r '.workspace')" "workspace/demo-ws" "the workspace comes from RILL_WORKSPACE"
 assert_eq "$(last | jq -r '.tab')" "tab-1" "the tab comes from RILL_TAB"
@@ -75,7 +81,7 @@ OUT="$(hook SessionStart "{\"session_id\":\"cse_sess_b\"}")"
 assert_eq "$OUT" "" "SessionStart prints nothing without RILL_WORKSPACE"
 OUT="$(RILL_WORKSPACE=workspace/missing hook SessionStart "{\"session_id\":\"cse_sess_b\"}")"
 assert_eq "$OUT" "" "SessionStart prints nothing when the work unit does not exist"
-assert_eq "$(last | jq -r 'has("workspace")')" "true" "the env workspace is still recorded"
+assert_eq "$(last cse_sess_b | jq -r 'has("workspace")')" "true" "the env workspace is still recorded"
 
 # ── turn: prompt, tools, stop ─────────────────────────────────────────
 OUT="$(RILL_TAB=tab-1 hook UserPromptSubmit "{\"session_id\":\"$SID\",\"prompt\":\"go\"}")"
@@ -122,7 +128,7 @@ assert_file_not_exists "${TMPDIR:-/tmp}/rill-sess-$SID.turn" "SessionEnd removes
 
 # ── robustness ────────────────────────────────────────────────────────
 hook Stop '{"hook_event_name":"Stop"}'
-assert_eq "$(last | jq -r '.event')" "unknown" "missing session id leaves an unknown trace"
+assert_eq "$(last _unknown | jq -r '.event')" "unknown" "missing session id leaves an unknown trace"
 for ev in SessionStart UserPromptSubmit PostToolUse Stop SessionEnd Bogus; do
   rc=0; echo '' | "$RILL" session-hook "$ev" >/dev/null 2>&1 || rc=$?
   assert_eq "$rc" "0" "session-hook $ev exits 0 on empty input"
@@ -135,15 +141,15 @@ rc=0; (cd "$WORK" && HOME="$WORK" RILL_HOME="$WORK/nope" "$RILL" session-hook St
 assert_eq "$rc" "0" "session-hook exits 0 without a vault"
 NOTVAULT="$WORK/not-a-vault"; mkdir -p "$NOTVAULT"
 printf '{"session_id":"cse_sess_x"}' | RILL_HOME="$NOTVAULT" "$RILL" session-hook Stop
-assert_file_not_exists "$NOTVAULT/.rill/state/sessions.jsonl" "session-hook never writes outside a vault (no .rill/version)"
+assert_file_not_exists "$NOTVAULT/.rill/state/sessions" "session-hook never writes outside a vault (no .rill/version)"
 
 # Oversized malformed input must not abort the hook (no SIGPIPE under pipefail)
 BIG="$(head -c 300000 /dev/zero | tr '\0' 'x')"
 rc=0; printf '{"pad":"%s"}' "$BIG" | "$RILL" session-hook Stop >/dev/null 2>&1 || rc=$?
 assert_eq "$rc" "0" "a 300KB input without a session id still exits 0"
-assert_eq "$(last | jq -r '.event')" "unknown" "and still leaves an unknown trace"
+assert_eq "$(last _unknown | jq -r '.event')" "unknown" "and still leaves an unknown trace"
 
-# Concurrent long appends stay one valid JSON object per line
+# Concurrent sessions: every line in every session file stays valid JSON
 for i in $(seq 1 120); do echo "x" > "$VAULT/workspace/demo-ws/bulk-$i.md"; done
 for n in 1 2 3 4 5 6; do
   ( sid="cse_sess_par$n"
@@ -154,16 +160,35 @@ for n in 1 2 3 4 5 6; do
 done
 wait
 BAD=0
-while IFS= read -r line; do printf '%s' "$line" | jq -e . >/dev/null 2>&1 || BAD=$((BAD + 1)); done < "$LEDGER"
+for f in "$SDIR"/*.jsonl; do
+  while IFS= read -r line; do printf '%s' "$line" | jq -e . >/dev/null 2>&1 || BAD=$((BAD + 1)); done < "$f"
+done
 assert_eq "$BAD" "0" "concurrent sessions never produce an unparseable ledger line"
-assert_eq "$(grep '"TurnFiles"' "$LEDGER" | grep -c 'cse_sess_par' | tr -d ' ')" "6" "every concurrent session recorded its TurnFiles line"
-assert_file_not_exists "$LEDGER.lock" "the lock is released"
+N=0; for n in 1 2 3 4 5 6; do grep -q '"TurnFiles"' "$(ledger cse_sess_par$n)" 2>/dev/null && N=$((N + 1)); done
+assert_eq "$N" "6" "every concurrent session recorded its own TurnFiles line"
+
+# Attribution
+mkdir -p "$VAULT/workspace/other-ws"
+printf '{"session_id":"cse_sess_ws"}' | RILL_WORKSPACE=workspace/demo-ws "$RILL" session-hook UserPromptSubmit
+printf '{"session_id":"cse_sess_other"}' | "$RILL" session-hook UserPromptSubmit
+sleep 1
+echo "mine" > "$VAULT/workspace/demo-ws/mine.md"
+echo "elsewhere" > "$VAULT/workspace/other-ws/elsewhere.md"
+echo "by-other" > "$VAULT/workspace/demo-ws/by-other.md"
+printf '{"session_id":"cse_sess_other","tool_name":"Write","tool_input":{"file_path":"%s"}}' \
+  "$VAULT/workspace/demo-ws/by-other.md" | "$RILL" session-hook PostToolUse
+printf '{"session_id":"cse_sess_ws"}' | RILL_WORKSPACE=workspace/demo-ws "$RILL" session-hook Stop
+TFW="$(grep '"TurnFiles"' "$(ledger cse_sess_ws)" | tail -n 1)"
+assert_eq "$(printf '%s' "$TFW" | jq -r '.files | index("workspace/demo-ws/mine.md") != null')" "true" "a workspace-bound session records its own change"
+assert_eq "$(printf '%s' "$TFW" | jq -r '.files | map(select(startswith("workspace/other-ws/"))) | length')" "0" "it does not claim changes outside its workspace"
+assert_eq "$(printf '%s' "$TFW" | jq -r '.files | index("workspace/demo-ws/by-other.md") == null')" "true" "it does not claim a path another session wrote this turn"
 
 # ── retention ─────────────────────────────────────────────────────────
-OLD='{"ts":"2000-01-01T00:00:00+00:00","t":946684800,"event":"Stop","session_id":"cse_sess_old"}'
-{ printf '%s\n' "$OLD"; cat "$LEDGER"; } > "$WORK/l" && mv "$WORK/l" "$LEDGER"
+OLDF="$(ledger cse_sess_old)"
+echo '{"event":"Stop","session_id":"cse_sess_old"}' > "$OLDF"
+touch -t 200001010000 "$OLDF"
 hook SessionStart '{"session_id":"cse_sess_c"}' >/dev/null
-assert_file_not_contains "$LEDGER" "cse_sess_old" "SessionStart prunes entries past the retention window"
-assert_file_contains "$LEDGER" "$SID" "recent entries survive pruning"
+assert_file_not_exists "$OLDF" "SessionStart deletes session files past the retention window"
+assert_file_exists "$(ledger cse_sess_a)" "recent session files survive"
 
 report_results

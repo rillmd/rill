@@ -1849,69 +1849,49 @@ cmd_checkpoint() {
 }
 
 # ── Session ledger (ADR-087) ─────────────────────────────────────────
-# `rill session-hook <Event>` records Claude Code session events in
-# .rill/state/sessions.jsonl so the GUI can bind sessions to work units and
-# show their state without parsing terminal output. The GUI spawns `claude`
-# with RILL_WORKSPACE / RILL_TAB / RILL_ORIGIN in the environment; hooks
-# inherit them. Sessions started elsewhere record no workspace; readers
-# derive it from file paths, so the ledger never encodes the vault layout.
+# `rill session-hook <Event>` records Claude Code session events under
+# .rill/state/sessions/ so the GUI can bind sessions to work units and show
+# their state without parsing terminal output. The GUI spawns `claude` with
+# RILL_WORKSPACE / RILL_TAB / RILL_ORIGIN in the environment; hooks inherit
+# them. Sessions started elsewhere record no workspace; readers derive it from
+# file paths, so the ledger never encodes the vault layout.
+#
+# One JSONL file per session: sessions never write to the same file, so no
+# cross-process lock is needed, and retention is a file-age delete rather
+# than a rewrite that could race with appends.
 #
 # Contract: fast, exit 0 on every path, print nothing except the
-# SessionStart context payload, ignore unknown fields.
+# SessionStart context payload, ignore unknown fields, write only into a
+# real vault.
 
 _SESS_SCAN_DIRS="workspace tasks projects pages reports knowledge inbox"
 
-_sess_ledger_file() {
-    printf '%s/.rill/state/sessions.jsonl' "$RILL_HOME"
+_sess_dir() {
+    printf '%s/.rill/state/sessions' "$RILL_HOME"
+}
+
+_sess_safe() {
+    printf '%s' "${1//[^A-Za-z0-9_.-]/_}"
 }
 
 _sess_marker() {
-    # Per-session turn-start marker. Keyed by session id like the
-    # checkpoint scratch dir; shell-safe by parameter expansion.
+    # Per-session turn-start marker; its content is the turn start (epoch s).
     local session_id="$1"
     [ -n "$session_id" ] || return 1
-    local safe="${session_id//[^A-Za-z0-9_.-]/_}"
-    printf '%s/rill-sess-%s.turn' "${TMPDIR:-/tmp}" "$safe"
+    printf '%s/rill-sess-%s.turn' "${TMPDIR:-/tmp}" "$(_sess_safe "$session_id")"
 }
 
 _sess_now_iso() {
     date +%Y-%m-%dT%H:%M:%S%z | sed 's/\([0-9][0-9]\)$/:\1/'
 }
 
-_sess_lock() {
-    # Portable mutex (macOS has no flock(1)): mkdir is atomic. Waits up to
-    # ~2s; a lock older than 10s is treated as stale (a killed hook) and
-    # taken over. Returns 1 if the lock could not be acquired.
-    local lock="$1" i=0
-    while ! mkdir "$lock" 2>/dev/null; do
-        i=$((i + 1))
-        if [ "$i" -ge 100 ]; then
-            local age=0 mtime
-            mtime="$(stat -f %m "$lock" 2>/dev/null || stat -c %Y "$lock" 2>/dev/null || echo 0)"
-            age=$(( $(date +%s) - ${mtime:-0} ))
-            if [ "$age" -gt 10 ]; then
-                rmdir "$lock" 2>/dev/null || true
-                mkdir "$lock" 2>/dev/null && return 0
-            fi
-            return 1
-        fi
-        sleep 0.02 2>/dev/null || sleep 1
-    done
-    return 0
-}
-
 _sess_append() {
-    # Append one JSON line under the ledger lock. A long line (TurnFiles) can
-    # be split into several write(2) calls, and pruning replaces the file, so
-    # O_APPEND alone does not keep concurrent sessions from corrupting or
-    # losing lines.
-    local line="$1"
+    # Append one JSON line to this session's own file.
+    local name="$1" line="$2"
     [ -n "$line" ] || return 0
-    local ledger; ledger="$(_sess_ledger_file)"
-    mkdir -p "$(dirname "$ledger")" 2>/dev/null || return 0
-    _sess_lock "$ledger.lock" || return 0
-    printf '%s\n' "$line" >> "$ledger" 2>/dev/null || true
-    rmdir "$ledger.lock" 2>/dev/null || true
+    local dir; dir="$(_sess_dir)"
+    mkdir -p "$dir" 2>/dev/null || return 0
+    printf '%s\n' "$line" >> "$dir/$name.jsonl" 2>/dev/null || true
 }
 
 _sess_turn_files() {
@@ -1919,12 +1899,17 @@ _sess_turn_files() {
     # marker. A timestamp scan rather than a git comparison: git status misses
     # re-edits of already-modified files, files inside untracked directories,
     # changes committed during the turn, and git-ignored .view/ artifacts.
-    local marker="$1"
+    local marker="$1" scope="$2"
     [ -f "$marker" ] || return 0
     local dirs=() d
-    for d in $_SESS_SCAN_DIRS; do
-        [ -d "$RILL_HOME/$d" ] && dirs+=("$d")
-    done
+    if [ -n "$scope" ] && [ -d "$RILL_HOME/$scope" ]; then
+        # A session opened from a work unit only claims changes inside it.
+        dirs=("$scope")
+    else
+        for d in $_SESS_SCAN_DIRS; do
+            [ -d "$RILL_HOME/$d" ] && dirs+=("$d")
+        done
+    fi
     [ "${#dirs[@]}" -gt 0 ] || return 0
     (cd "$RILL_HOME" && find "${dirs[@]}" -type f -newer "$marker" \
         ! -name '.DS_Store' ! -name '*.processed' \
@@ -1932,27 +1917,26 @@ _sess_turn_files() {
         2>/dev/null | head -n 500) || true
 }
 
+_sess_others_writes() {
+    # Paths that other sessions reported writing (Write/Edit) since $since.
+    local self="$1" since="$2"
+    local dir; dir="$(_sess_dir)"
+    [ -d "$dir" ] || return 0
+    local f
+    for f in "$dir"/*.jsonl; do
+        [ -f "$f" ] || continue
+        [ "$(basename "$f" .jsonl)" = "$self" ] && continue
+        jq -r --argjson s "$since" 'select((.t // 0) >= $s and has("file")) | .file' "$f" 2>/dev/null || true
+    done
+}
+
 _sess_prune() {
-    # Drop entries older than RILL_SESS_KEEP_DAYS (default 30). Runs on
-    # SessionStart only; status needs recent lines, not history.
-    local ledger; ledger="$(_sess_ledger_file)"
-    [ -f "$ledger" ] || return 0
+    # Drop session files untouched for RILL_SESS_KEEP_DAYS (default 30).
     local keep="${RILL_SESS_KEEP_DAYS:-30}"
     case "$keep" in ''|*[!0-9]*) keep=30 ;; esac
-    local cutoff=$(( $(date +%s) - keep * 86400 ))
-    local first_t
-    first_t="$(head -n 1 "$ledger" 2>/dev/null | jq -r '.t // 0' 2>/dev/null || echo 0)"
-    case "$first_t" in ''|*[!0-9]*) first_t=0 ;; esac
-    [ "$first_t" -lt "$cutoff" ] || return 0
-    _sess_lock "$ledger.lock" || return 0
-    local tmp; tmp="$(mktemp "$ledger.XXXXXX" 2>/dev/null)" || { rmdir "$ledger.lock" 2>/dev/null; return 0; }
-    if jq -c --argjson c "$cutoff" 'select((.t // 0) >= $c)' "$ledger" > "$tmp" 2>/dev/null; then
-        mv "$tmp" "$ledger" 2>/dev/null || rm -f "$tmp"
-    else
-        rm -f "$tmp"
-    fi
-    rmdir "$ledger.lock" 2>/dev/null || true
-    return 0
+    local dir; dir="$(_sess_dir)"
+    [ -d "$dir" ] || return 0
+    find "$dir" -maxdepth 1 -name '*.jsonl' -type f -mtime "+$keep" -exec rm -f {} + 2>/dev/null || true
 }
 
 cmd_session_hook() {
@@ -1975,15 +1959,16 @@ cmd_session_hook() {
         file_path="$(printf '%s' "$json" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)"
     fi
     if [ -z "$session_id" ]; then
-        # Keep a trace instead of failing silently when the input shape changes.
-        # Truncate without a pipe: head closing early would SIGPIPE printf and,
-        # under pipefail, abort the hook.
+        # Keep a trace instead of failing silently when the input shape
+        # changes. Truncate without a pipe: head closing early would SIGPIPE
+        # printf and, under pipefail, abort the hook.
         local snippet="${json:0:200}"
-        _sess_append "$(jq -cn --arg ts "$(_sess_now_iso)" --argjson t "$(date +%s)" \
+        _sess_append "_unknown" "$(jq -cn --arg ts "$(_sess_now_iso)" --argjson t "$(date +%s)" \
             --arg e "$event" --arg raw "$snippet" \
             '{ts:$ts,t:$t,event:"unknown",hook:$e,raw:$raw}' 2>/dev/null || true)"
         return 0
     fi
+    local name; name="$(_sess_safe "$session_id")"
 
     local rel=""
     if [ "$event" = "PostToolUse" ]; then
@@ -1992,7 +1977,7 @@ cmd_session_hook() {
         esac
     fi
 
-    _sess_append "$(jq -cn \
+    _sess_append "$name" "$(jq -cn \
         --arg ts "$(_sess_now_iso)" --argjson t "$(date +%s)" \
         --arg e "$event" --arg sid "$session_id" \
         --arg tab "${RILL_TAB:-}" --arg ws "${RILL_WORKSPACE:-}" \
@@ -2010,13 +1995,23 @@ cmd_session_hook() {
     local marker; marker="$(_sess_marker "$session_id" || true)"
     case "$event" in
         UserPromptSubmit)
-            [ -n "$marker" ] && : > "$marker" 2>/dev/null || true
+            [ -n "$marker" ] && date +%s > "$marker" 2>/dev/null || true
             ;;
         Stop|StopFailure)
             if [ -n "$marker" ] && [ -f "$marker" ]; then
-                local files; files="$(_sess_turn_files "$marker")"
+                local since; since="$(cat "$marker" 2>/dev/null || echo 0)"
+                case "$since" in ''|*[!0-9]*) since=0 ;; esac
+                local files others
+                files="$(_sess_turn_files "$marker" "${RILL_WORKSPACE:-}")"
                 if [ -n "$files" ]; then
-                    _sess_append "$(printf '%s\n' "$files" | jq -R . | jq -cs \
+                    # Drop paths another session reported writing this turn.
+                    others="$(_sess_others_writes "$name" "$since" | sort -u)"
+                    if [ -n "$others" ]; then
+                        files="$(printf '%s\n' "$files" | grep -vxF -f <(printf '%s\n' "$others") || true)"
+                    fi
+                fi
+                if [ -n "$files" ]; then
+                    _sess_append "$name" "$(printf '%s\n' "$files" | jq -R . | jq -cs \
                         --arg ts "$(_sess_now_iso)" --argjson t "$(date +%s)" \
                         --arg sid "$session_id" --arg tab "${RILL_TAB:-}" '
                         {ts:$ts, t:$t, event:"TurnFiles", session_id:$sid, files:.}
