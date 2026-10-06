@@ -99,6 +99,9 @@ hook PostToolUse "{\"session_id\":\"$SID\",\"tool_name\":\"Bash\",\"tool_input\"
 assert_eq "$(last | jq -r '.tool')" "Bash" "other tools are recorded (they clear the waiting state)"
 assert_eq "$(last | jq -r 'has("file")')" "false" "other tools record no file"
 
+hook PostToolUse "{\"session_id\":\"$SID\",\"tool_name\":\"NotebookEdit\",\"tool_input\":{\"notebook_path\":\"$VAULT/workspace/demo-ws/nb.ipynb\"}}"
+assert_eq "$(last | jq -r '.file')" "workspace/demo-ws/nb.ipynb" "NotebookEdit records notebook_path"
+
 hook PostToolUseFailure "{\"session_id\":\"$SID\",\"tool_name\":\"WebFetch\"}"
 assert_eq "$(last | jq -r '.event')" "PostToolUseFailure" "tool failures are recorded"
 

@@ -1919,15 +1919,18 @@ _sess_turn_files() {
 
 _sess_others_writes() {
     # Paths that other sessions reported writing (Write/Edit) since $since.
-    local self="$1" since="$2"
+    # Only session files touched during this turn can contain such entries,
+    # so candidates are narrowed by mtime and read in one jq call.
+    local self="$1" since="$2" marker="$3"
     local dir; dir="$(_sess_dir)"
-    [ -d "$dir" ] || return 0
-    local f
-    for f in "$dir"/*.jsonl; do
-        [ -f "$f" ] || continue
-        [ "$(basename "$f" .jsonl)" = "$self" ] && continue
-        jq -r --argjson s "$since" 'select((.t // 0) >= $s and has("file")) | .file' "$f" 2>/dev/null || true
-    done
+    [ -d "$dir" ] && [ -f "$marker" ] || return 0
+    local cands=() f
+    while IFS= read -r f; do
+        [ "$f" = "$dir/$self.jsonl" ] && continue
+        cands+=("$f")
+    done < <(find "$dir" -maxdepth 1 -name '*.jsonl' -type f -newer "$marker" 2>/dev/null || true)
+    [ "${#cands[@]}" -gt 0 ] || return 0
+    jq -r --argjson s "$since" 'select((.t // 0) >= $s and has("file")) | .file' "${cands[@]}" 2>/dev/null || true
 }
 
 _sess_prune() {
@@ -1956,7 +1959,7 @@ cmd_session_hook() {
     if [ -n "$json" ]; then
         session_id="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
         tool_name="$(printf '%s' "$json" | jq -r '.tool_name // empty' 2>/dev/null || true)"
-        file_path="$(printf '%s' "$json" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)"
+        file_path="$(printf '%s' "$json" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty' 2>/dev/null || true)"
     fi
     if [ -z "$session_id" ]; then
         # Keep a trace instead of failing silently when the input shape
@@ -2005,7 +2008,7 @@ cmd_session_hook() {
                 files="$(_sess_turn_files "$marker" "${RILL_WORKSPACE:-}")"
                 if [ -n "$files" ]; then
                     # Drop paths another session reported writing this turn.
-                    others="$(_sess_others_writes "$name" "$since" | sort -u)"
+                    others="$(_sess_others_writes "$name" "$since" "$marker" | sort -u || true)"
                     if [ -n "$others" ]; then
                         files="$(printf '%s\n' "$files" | grep -vxF -f <(printf '%s\n' "$others") || true)"
                     fi
