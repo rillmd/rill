@@ -137,6 +137,28 @@ NOTVAULT="$WORK/not-a-vault"; mkdir -p "$NOTVAULT"
 printf '{"session_id":"cse_sess_x"}' | RILL_HOME="$NOTVAULT" "$RILL" session-hook Stop
 assert_file_not_exists "$NOTVAULT/.rill/state/sessions.jsonl" "session-hook never writes outside a vault (no .rill/version)"
 
+# Oversized malformed input must not abort the hook (no SIGPIPE under pipefail)
+BIG="$(head -c 300000 /dev/zero | tr '\0' 'x')"
+rc=0; printf '{"pad":"%s"}' "$BIG" | "$RILL" session-hook Stop >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "0" "a 300KB input without a session id still exits 0"
+assert_eq "$(last | jq -r '.event')" "unknown" "and still leaves an unknown trace"
+
+# Concurrent long appends stay one valid JSON object per line
+for i in $(seq 1 120); do echo "x" > "$VAULT/workspace/demo-ws/bulk-$i.md"; done
+for n in 1 2 3 4 5 6; do
+  ( sid="cse_sess_par$n"
+    printf '{"session_id":"%s"}' "$sid" | "$RILL" session-hook UserPromptSubmit
+    sleep 1
+    touch "$VAULT"/workspace/demo-ws/bulk-*.md
+    printf '{"session_id":"%s"}' "$sid" | "$RILL" session-hook Stop ) &
+done
+wait
+BAD=0
+while IFS= read -r line; do printf '%s' "$line" | jq -e . >/dev/null 2>&1 || BAD=$((BAD + 1)); done < "$LEDGER"
+assert_eq "$BAD" "0" "concurrent sessions never produce an unparseable ledger line"
+assert_eq "$(grep '"TurnFiles"' "$LEDGER" | grep -c 'cse_sess_par' | tr -d ' ')" "6" "every concurrent session recorded its TurnFiles line"
+assert_file_not_exists "$LEDGER.lock" "the lock is released"
+
 # ── retention ─────────────────────────────────────────────────────────
 OLD='{"ts":"2000-01-01T00:00:00+00:00","t":946684800,"event":"Stop","session_id":"cse_sess_old"}'
 { printf '%s\n' "$OLD"; cat "$LEDGER"; } > "$WORK/l" && mv "$WORK/l" "$LEDGER"

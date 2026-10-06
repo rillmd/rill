@@ -1878,14 +1878,40 @@ _sess_now_iso() {
     date +%Y-%m-%dT%H:%M:%S%z | sed 's/\([0-9][0-9]\)$/:\1/'
 }
 
+_sess_lock() {
+    # Portable mutex (macOS has no flock(1)): mkdir is atomic. Waits up to
+    # ~2s; a lock older than 10s is treated as stale (a killed hook) and
+    # taken over. Returns 1 if the lock could not be acquired.
+    local lock="$1" i=0
+    while ! mkdir "$lock" 2>/dev/null; do
+        i=$((i + 1))
+        if [ "$i" -ge 100 ]; then
+            local age=0 mtime
+            mtime="$(stat -f %m "$lock" 2>/dev/null || stat -c %Y "$lock" 2>/dev/null || echo 0)"
+            age=$(( $(date +%s) - ${mtime:-0} ))
+            if [ "$age" -gt 10 ]; then
+                rmdir "$lock" 2>/dev/null || true
+                mkdir "$lock" 2>/dev/null && return 0
+            fi
+            return 1
+        fi
+        sleep 0.02 2>/dev/null || sleep 1
+    done
+    return 0
+}
+
 _sess_append() {
-    # Append one JSON line. A single printf of a short line is one write
-    # under O_APPEND, so concurrent sessions do not interleave.
+    # Append one JSON line under the ledger lock. A long line (TurnFiles) can
+    # be split into several write(2) calls, and pruning replaces the file, so
+    # O_APPEND alone does not keep concurrent sessions from corrupting or
+    # losing lines.
     local line="$1"
     [ -n "$line" ] || return 0
     local ledger; ledger="$(_sess_ledger_file)"
     mkdir -p "$(dirname "$ledger")" 2>/dev/null || return 0
+    _sess_lock "$ledger.lock" || return 0
     printf '%s\n' "$line" >> "$ledger" 2>/dev/null || true
+    rmdir "$ledger.lock" 2>/dev/null || true
 }
 
 _sess_turn_files() {
@@ -1918,12 +1944,14 @@ _sess_prune() {
     first_t="$(head -n 1 "$ledger" 2>/dev/null | jq -r '.t // 0' 2>/dev/null || echo 0)"
     case "$first_t" in ''|*[!0-9]*) first_t=0 ;; esac
     [ "$first_t" -lt "$cutoff" ] || return 0
-    local tmp; tmp="$(mktemp 2>/dev/null)" || return 0
+    _sess_lock "$ledger.lock" || return 0
+    local tmp; tmp="$(mktemp "$ledger.XXXXXX" 2>/dev/null)" || { rmdir "$ledger.lock" 2>/dev/null; return 0; }
     if jq -c --argjson c "$cutoff" 'select((.t // 0) >= $c)' "$ledger" > "$tmp" 2>/dev/null; then
         mv "$tmp" "$ledger" 2>/dev/null || rm -f "$tmp"
     else
         rm -f "$tmp"
     fi
+    rmdir "$ledger.lock" 2>/dev/null || true
     return 0
 }
 
@@ -1948,7 +1976,9 @@ cmd_session_hook() {
     fi
     if [ -z "$session_id" ]; then
         # Keep a trace instead of failing silently when the input shape changes.
-        local snippet; snippet="$(printf '%s' "$json" | head -c 200)"
+        # Truncate without a pipe: head closing early would SIGPIPE printf and,
+        # under pipefail, abort the hook.
+        local snippet="${json:0:200}"
         _sess_append "$(jq -cn --arg ts "$(_sess_now_iso)" --argjson t "$(date +%s)" \
             --arg e "$event" --arg raw "$snippet" \
             '{ts:$ts,t:$t,event:"unknown",hook:$e,raw:$raw}' 2>/dev/null || true)"
