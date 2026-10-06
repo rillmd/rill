@@ -129,6 +129,16 @@ hook SessionEnd "{\"session_id\":\"$SID\",\"reason\":\"prompt_input_exit\"}"
 assert_eq "$(last | jq -r '.event')" "SessionEnd" "SessionEnd is recorded"
 assert_file_not_exists "${TMPDIR:-/tmp}/rill-sess-$SID.turn" "SessionEnd removes the turn marker"
 
+# Interrupted turn: no Stop, the next prompt collects the changes first
+printf '{"session_id":"cse_sess_int"}' | "$RILL" session-hook UserPromptSubmit
+sleep 1
+echo "half" > "$VAULT/workspace/demo-ws/interrupted.md"
+printf '{"session_id":"cse_sess_int"}' | "$RILL" session-hook UserPromptSubmit
+TFI="$(grep '"TurnFiles"' "$(ledger cse_sess_int)" | tail -n 1)"
+assert_eq "$(printf '%s' "$TFI" | jq -r '.files | index("workspace/demo-ws/interrupted.md") != null')" "true" "an interrupted turn's changes are recorded at the next prompt"
+printf '{"session_id":"cse_sess_int"}' | "$RILL" session-hook Stop
+assert_eq "$(grep -c '"TurnFiles"' "$(ledger cse_sess_int)" | tr -d ' ')" "1" "the same turn is not collected twice"
+
 # ── robustness ────────────────────────────────────────────────────────
 hook Stop '{"hook_event_name":"Stop"}'
 assert_eq "$(last _unknown | jq -r '.event')" "unknown" "missing session id leaves an unknown trace"

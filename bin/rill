@@ -1933,6 +1933,34 @@ _sess_others_writes() {
     jq -r --argjson s "$since" 'select((.t // 0) >= $s and has("file")) | .file' "${cands[@]}" 2>/dev/null || true
 }
 
+_sess_flush_turn() {
+    # Record files changed since the turn marker as one TurnFiles entry, then
+    # remove the marker so the same turn is never collected twice.
+    local name="$1" session_id="$2" marker="$3"
+    [ -n "$marker" ] && [ -f "$marker" ] || return 0
+    local since; since="$(cat "$marker" 2>/dev/null || echo 0)"
+    case "$since" in ''|*[!0-9]*) since=0 ;; esac
+    local files others
+    files="$(_sess_turn_files "$marker" "${RILL_WORKSPACE:-}")"
+    if [ -n "$files" ]; then
+        # Drop paths another session reported writing this turn.
+        others="$(_sess_others_writes "$name" "$since" "$marker" | sort -u || true)"
+        if [ -n "$others" ]; then
+            files="$(printf '%s\n' "$files" | grep -vxF -f <(printf '%s\n' "$others") || true)"
+        fi
+    fi
+    if [ -n "$files" ]; then
+        _sess_append "$name" "$(printf '%s\n' "$files" | jq -R . | jq -cs \
+            --arg ts "$(_sess_now_iso)" --argjson t "$(date +%s)" \
+            --arg sid "$session_id" --arg tab "${RILL_TAB:-}" '
+            {ts:$ts, t:$t, event:"TurnFiles", session_id:$sid, files:.}
+            + (if $tab != "" then {tab:$tab} else {} end)
+        ' 2>/dev/null || true)"
+    fi
+    rm -f "$marker" 2>/dev/null || true
+    return 0
+}
+
 _sess_prune() {
     # Drop session files untouched for RILL_SESS_KEEP_DAYS (default 30).
     local keep="${RILL_SESS_KEEP_DAYS:-30}"
@@ -1998,33 +2026,16 @@ cmd_session_hook() {
     local marker; marker="$(_sess_marker "$session_id" || true)"
     case "$event" in
         UserPromptSubmit)
+            # An interrupted turn fires no Stop: collect its changes before
+            # the marker is reset for the new turn.
+            _sess_flush_turn "$name" "$session_id" "$marker"
             [ -n "$marker" ] && date +%s > "$marker" 2>/dev/null || true
             ;;
         Stop|StopFailure)
-            if [ -n "$marker" ] && [ -f "$marker" ]; then
-                local since; since="$(cat "$marker" 2>/dev/null || echo 0)"
-                case "$since" in ''|*[!0-9]*) since=0 ;; esac
-                local files others
-                files="$(_sess_turn_files "$marker" "${RILL_WORKSPACE:-}")"
-                if [ -n "$files" ]; then
-                    # Drop paths another session reported writing this turn.
-                    others="$(_sess_others_writes "$name" "$since" "$marker" | sort -u || true)"
-                    if [ -n "$others" ]; then
-                        files="$(printf '%s\n' "$files" | grep -vxF -f <(printf '%s\n' "$others") || true)"
-                    fi
-                fi
-                if [ -n "$files" ]; then
-                    _sess_append "$name" "$(printf '%s\n' "$files" | jq -R . | jq -cs \
-                        --arg ts "$(_sess_now_iso)" --argjson t "$(date +%s)" \
-                        --arg sid "$session_id" --arg tab "${RILL_TAB:-}" '
-                        {ts:$ts, t:$t, event:"TurnFiles", session_id:$sid, files:.}
-                        + (if $tab != "" then {tab:$tab} else {} end)
-                    ' 2>/dev/null || true)"
-                fi
-            fi
+            _sess_flush_turn "$name" "$session_id" "$marker"
             ;;
         SessionEnd)
-            [ -n "$marker" ] && rm -f "$marker" 2>/dev/null || true
+            _sess_flush_turn "$name" "$session_id" "$marker"
             ;;
         SessionStart)
             _sess_prune || true
