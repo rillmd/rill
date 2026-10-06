@@ -70,5 +70,45 @@
     "event": "UserPromptSubmit",
     "command": "rill checkpoint on-prompt",
     "timeout": 5
+  },
+  {
+    "event": "SessionStart",
+    "command": "rill session-hook SessionStart",
+    "timeout": 5
+  },
+  {
+    "event": "UserPromptSubmit",
+    "command": "rill session-hook UserPromptSubmit",
+    "timeout": 5
+  },
+  {
+    "event": "PermissionRequest",
+    "command": "rill session-hook PermissionRequest",
+    "timeout": 5
+  },
+  {
+    "event": "PostToolUse",
+    "command": "rill session-hook PostToolUse",
+    "timeout": 5
+  },
+  {
+    "event": "PostToolUseFailure",
+    "command": "rill session-hook PostToolUseFailure",
+    "timeout": 5
+  },
+  {
+    "event": "Stop",
+    "command": "rill session-hook Stop",
+    "timeout": 5
+  },
+  {
+    "event": "StopFailure",
+    "command": "rill session-hook StopFailure",
+    "timeout": 5
+  },
+  {
+    "event": "SessionEnd",
+    "command": "rill session-hook SessionEnd",
+    "timeout": 5
   }
 ]
