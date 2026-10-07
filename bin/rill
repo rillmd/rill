@@ -2234,15 +2234,45 @@ _activity_log_on_prompt() {
             [ -n "$question" ] && _activity_log_append "ask" "\"$question\""
             ;;
         /sync*)
+            # Do not log completion here: the prompt was only submitted.
+            # Record a per-session pending marker; the Stop hook turns it
+            # into sync:complete once the turn actually finishes. A failed
+            # or interrupted turn never fires Stop, so it never logs.
             local target
             target="$(echo "$prompt" | sed 's|^/sync *||')"
-            _activity_log_append "sync:complete" "\"${target:-manual}\""
+            local session_id
+            session_id="$(echo "$json" | jq -r '.session_id // empty' 2>/dev/null)" || return 0
+            local dir
+            dir="$(_ckpt_state_dir "$session_id" || true)"
+            [ -z "$dir" ] && return 0
+            mkdir -p "$dir" 2>/dev/null || return 0
+            printf '%s' "${target:-manual}" > "$dir/sync-pending" 2>/dev/null || true
             ;;
     esac
+    return 0
 }
 
 _activity_log_on_stop() {
-    # Called by Stop hook. Aggregates distill count from tmp file.
+    # Called by Stop hook. Receives hook JSON on stdin (may be empty).
+    # Must print nothing: Stop hook output would continue the conversation.
+    local json
+    json="$(cat 2>/dev/null || true)"
+
+    # Pending /sync for this session: the turn completed, so log it now.
+    local session_id=""
+    if [ -n "$json" ]; then
+        session_id="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null)" || session_id=""
+    fi
+    local dir
+    dir="$(_ckpt_state_dir "$session_id" || true)"
+    if [ -n "$dir" ] && [ -f "$dir/sync-pending" ]; then
+        local target
+        target="$(cat "$dir/sync-pending" 2>/dev/null || true)"
+        rm -f "$dir/sync-pending" 2>/dev/null || true
+        _activity_log_append "sync:complete" "\"${target:-manual}\"" || true
+    fi
+
+    # Aggregate distill count from tmp file.
     local count_file="/tmp/rill-distill-count-${PPID}"
     if [ -f "$count_file" ]; then
         local count
@@ -2252,6 +2282,7 @@ _activity_log_on_stop() {
         fi
         rm -f "$count_file"
     fi
+    return 0
 }
 
 # ── Crypt: git-crypt encryption management ──
