@@ -1860,6 +1860,11 @@ cmd_checkpoint() {
 # cross-process lock is needed, and retention is a file-age delete rather
 # than a rewrite that could race with appends.
 #
+# `entrypoint` (from CLAUDE_CODE_ENTRYPOINT, e.g. `cli` or `sdk-cli` for
+# `claude -p`) is recorded when present, as a best-effort hint to tell
+# background runs from interactive sessions; nothing depends on it for
+# safety.
+#
 # Contract: fast, exit 0 on every path, print nothing except the
 # SessionStart context payload, ignore unknown fields, write only into a
 # real vault.
@@ -2013,12 +2018,14 @@ cmd_session_hook() {
         --arg e "$event" --arg sid "$session_id" \
         --arg tab "${RILL_TAB:-}" --arg ws "${RILL_WORKSPACE:-}" \
         --arg origin "${RILL_ORIGIN:-}" --arg ver "${RILL_CLAUDE_VERSION:-}" \
+        --arg entry "${CLAUDE_CODE_ENTRYPOINT:-}" \
         --arg tool "$tool_name" --arg file "$rel" '
         {ts:$ts, t:$t, event:$e, session_id:$sid}
         + (if $tab    != "" then {tab:$tab} else {} end)
         + (if $ws     != "" then {workspace:$ws} else {} end)
         + (if $origin != "" then {origin:$origin} else {} end)
         + (if $ver    != "" then {claude_version:$ver} else {} end)
+        + (if $entry  != "" then {entrypoint:$entry} else {} end)
         + (if $tool   != "" then {tool:$tool} else {} end)
         + (if $file   != "" then {file:$file} else {} end)
     ' 2>/dev/null || true)"

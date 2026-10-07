@@ -70,6 +70,8 @@ assert_eq "$(last | jq -r '.workspace')" "workspace/demo-ws" "the workspace come
 assert_eq "$(last | jq -r '.tab')" "tab-1" "the tab comes from RILL_TAB"
 assert_eq "$(last | jq -r '.origin')" "gui" "the origin comes from RILL_ORIGIN"
 assert_eq "$(last | jq -r '.claude_version')" "2.1.290" "the CLI version is recorded when provided"
+printf '{"session_id":"cse_sess_ep"}' | CLAUDE_CODE_ENTRYPOINT=sdk-cli "$RILL" session-hook Stop
+assert_eq "$(last cse_sess_ep | jq -r '.entrypoint')" "sdk-cli" "the entrypoint is recorded when present"
 CTX=no
 if printf '%s' "$OUT" | jq -e '.hookSpecificOutput.hookEventName == "SessionStart"
     and (.hookSpecificOutput.additionalContext | test("workspace/demo-ws"))' >/dev/null 2>&1; then
