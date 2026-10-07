@@ -97,7 +97,7 @@ echo ""
 
 # 1. Inbox immutability (excluding tweets/) (INV-01)
 echo "=== INV-01: Inbox immutability (non-tweet) ==="
-bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE" || true
+run_assertion bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE"
 echo ""
 
 # 2. Tweet file creation (FC-01)
@@ -167,7 +167,7 @@ else
   # OR-03: tags exist in taxonomy (if tags present)
   ORG_TAGS=$(fm_get "$ORG_FILE" "tags" 2>/dev/null || true)
   if [[ -n "$ORG_TAGS" && "$ORG_TAGS" != "[]" ]]; then
-    bash "$ASSERTIONS_DIR/check-taxonomy.sh" "$ORG_FILE" taxonomy.md || true
+    run_assertion bash "$ASSERTIONS_DIR/check-taxonomy.sh" "$ORG_FILE" taxonomy.md
   else
     echo "  INFO: No tags field in organized file (skipping taxonomy check)"
   fi
@@ -223,7 +223,7 @@ cat > "$RESULTS_DIR/summary.json" <<EOF
 }
 EOF
 
-report_results || true
+report_results
 
 echo ""
 echo "Vault preserved at: $VAULT_DIR"

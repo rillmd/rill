@@ -887,18 +887,11 @@ _plugin_enable() {
                 count=$((count + 1))
             fi
 
-            local skill_name="${cmd_basename%.md}"
-            local codex_skill_dir="$RILL_HOME/.agents/skills/$skill_name"
-            local codex_skill="$codex_skill_dir/SKILL.md"
-            local plugin_rel="${cmd#"$RILL_HOME"/}"
-            if [ ! -e "$codex_skill" ] && [ ! -L "$codex_skill" ]; then
-                mkdir -p "$codex_skill_dir"
-                ln -s "../../../$plugin_rel" "$codex_skill"
-                echo "  codex: $skill_name"
-            fi
+
         done
     fi
 
+    _ensure_codex_command_skills "$RILL_HOME"
     _state_add "$PLUGINS_DIR/.enabled" "$name"
     echo "Enabled: $name ($count commands linked)"
 }
@@ -956,6 +949,7 @@ _plugin_disable() {
         fi
     done
 
+    _ensure_codex_command_skills "$RILL_HOME"
     _state_remove "$PLUGINS_DIR/.enabled" "$name"
     echo "Disabled: $name ($count commands unlinked)"
 }
@@ -2884,18 +2878,67 @@ _install_codex_container_guidance() {
 
 _ensure_codex_command_skills() {
     local vault="$1"
-    local command skill_name skill_dir skill_file
-    for command in "$vault"/.claude/commands/*.md; do
-        [ -f "$command" ] || continue
-        skill_name="$(basename "$command" .md)"
-        [[ "$skill_name" == _* ]] && continue
-        skill_dir="$vault/.agents/skills/$skill_name"
-        skill_file="$skill_dir/SKILL.md"
-        if [ ! -e "$skill_file" ] && [ ! -L "$skill_file" ]; then
-            mkdir -p "$skill_dir"
-            ln -s "../../../.claude/commands/$(basename "$command")" "$skill_file"
-        fi
-    done
+    # Wrappers retain one editable source and its resources. Replace only
+    # our own wrappers or the exact legacy command symlinks.
+    python3 - "$vault" <<'PY_SKILLS'
+import json
+import os
+from pathlib import Path
+import re
+import sys
+
+vault = Path(sys.argv[1])
+marker = "<!-- rill-generated-skill-v1 -->"
+targets = vault / ".agents/skills"
+sources = {}
+for source in sorted((vault / ".claude/commands").glob("*.md")):
+    if source.is_file() and not source.stem.startswith("_"):
+        sources[source.stem] = source
+for source in sorted((vault / ".claude/skills").glob("*/SKILL.md")):
+    if source.is_file():
+        sources[source.parent.name] = source
+for name, source in sources.items():
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name) or len(name) > 64:
+        print("Warning: skipping Codex projection for unsupported skill name: " + name, file=sys.stderr)
+        continue
+    dest = targets / name / "SKILL.md"
+    if dest.parent.is_symlink():
+        continue  # A user-owned directory must never be written through.
+    old = dest.read_text() if dest.is_file() else ""
+    legacy = dest.is_symlink() and os.readlink(dest) == "../../../.claude/commands/" + name + ".md"
+    plugin_legacy = dest.is_symlink() and source.is_symlink() and dest.resolve() == source.resolve() and os.readlink(dest).startswith("../../../plugins/")
+    legacy = legacy or plugin_legacy
+    generated = not dest.is_symlink() and marker in old
+    if (dest.exists() or dest.is_symlink()) and not (legacy or generated):
+        continue
+    workflow = source.resolve() if source.is_symlink() else source
+    try:
+        relative = workflow.relative_to(vault.resolve()).as_posix()
+    except ValueError:
+        relative = source.relative_to(vault).as_posix()
+    description = "Run the vault's " + name + " workflow. Use when the user requests " + name + "."
+    original = source.read_text()
+    if original.startswith("---\n"):
+        header = original.split("---", 2)[1]
+        match = re.search(r"^description: *([^\n]+)", header, re.M)
+        if match and match[1].strip() not in ("|", ">", "|-", ">-"):
+            description = match[1].strip().strip("\"'")
+    content = "---\nname: " + name + "\ndescription: " + json.dumps(description) + "\n---\n\n" + marker + "\n"
+    content += "Source: `" + relative + "`\n\nRead [the workflow](../../../" + relative + ") and follow it. "
+    content += "Resolve its relative references from the original file's directory. "
+    content += "Use the current harness's tools for the described operations.\n"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    temp = dest.with_name(".SKILL.md.tmp")
+    temp.write_text(content)
+    temp.replace(dest)
+for dest in targets.glob("*/SKILL.md"):
+    if not dest.parent.is_symlink() and not dest.is_symlink() and dest.is_file() and marker in dest.read_text() and dest.parent.name not in sources:
+        dest.unlink()
+        try:
+            dest.parent.rmdir()
+        except OSError:
+            pass  # Never remove user resources.
+PY_SKILLS
 }
 
 # ── Permission installation (ADR-074) ────────────────────────────────────
@@ -3121,10 +3164,24 @@ EOF
     local managed="$vault/.rill/managed-files.txt"
     [ -f "$managed" ] || return 0
 
-    # Normalize target to relative path from vault root
-    local rel="$target_path"
-    rel="${rel#"$vault"/}"   # strip vault prefix if absolute
-    rel="${rel#./}"           # strip leading ./
+    # Resolve against the tool cwd, including symlink aliases and dot segments.
+    local rel
+    rel="$(python3 - "$vault" "$target_path" <<'PY_PATH'
+import os
+import sys
+vault = os.path.realpath(sys.argv[1])
+target = os.path.abspath(os.path.join(vault, sys.argv[2]))
+relative = os.path.relpath(target, vault)
+resolved = os.path.realpath(target)
+with open(os.path.join(vault, ".rill/managed-files.txt")) as manifest:
+    for line in manifest:
+        managed_path = line.rstrip("\n")
+        if managed_path and (relative == managed_path or resolved == os.path.realpath(os.path.join(vault, managed_path))):
+            relative = managed_path
+            break
+print(relative)
+PY_PATH
+)" || return 1
 
     # Check against managed-files.txt
     if grep -qxF "$rel" "$managed" 2>/dev/null; then
@@ -3155,42 +3212,49 @@ cmd_codex_hook() {
     case "$event" in
         pre-write|post-write)
             local paths
-            paths="$(printf '%s' "$json" | jq -r '
-                [
-                  .tool_input.file_path?, .tool_input.path?,
-                  .input.file_path?, .input.path?
-                ] | .[] | select(type == "string" and length > 0)
-            ' 2>/dev/null || true)"
-
-            local patch_text
-            patch_text="$(printf '%s' "$json" | jq -r '
-                .tool_input.patch // .tool_input.input //
-                .input.patch // .input.input // empty
-            ' 2>/dev/null || true)"
-            if [ -n "$patch_text" ]; then
-                local patch_paths
-                patch_paths="$(printf '%s\n' "$patch_text" |
-                    sed -nE 's/^\*\*\* (Add|Update|Delete) File: (.*)$/\2/p' || true)"
-                paths="${paths}${paths:+$'\n'}${patch_paths}"
-            fi
-
-            paths="$(printf '%s\n' "$paths" | sed '/^$/d' | sort -u || true)"
-            if [ -z "$paths" ]; then
+            # Freeform tools carry a string; function tools carry an object.
+            paths="$(printf '%s' "$json" | jq -er '
+                def unwrap:
+                    if type == "string" then (fromjson? // .) else . end;
+                def targets:
+                    unwrap |
+                    if type == "string" then
+                        split("\n")[] |
+                        select(test("^\\*\\*\\* (Add File|Update File|Delete File|Move to): ")) |
+                        sub("^\\*\\*\\* (Add File|Update File|Delete File|Move to): "; "")
+                    elif type == "object" then
+                        (.file_path?, .path? | select(type == "string")),
+                        (.patch?, .input?, .arguments?, .command? | select(. != null) | targets)
+                    else empty end;
+                [.tool_input?, .input?, .arguments? | select(. != null) | targets] |
+                unique | if length == 0 or any(.[]; length == 0 or test("[\r\n]")) then error("unknown write target") else .[] end
+            ' 2>/dev/null)" || {
                 echo "Rill Codex hook could not determine the write target; blocking the write." >&2
                 return 2
-            fi
+            }
 
             local path synthetic
             while IFS= read -r path; do
                 [ -n "$path" ] || continue
                 if [ "$event" = "pre-write" ]; then
-                    cmd_guard "$path" || return $?
+                    local tool_cwd
+                    tool_cwd="$(printf '%s' "$json" | jq -r '.cwd // empty')" || return 2
+                    tool_cwd="${tool_cwd:-$PWD}"
+                    if [[ "$path" != /* ]]; then
+                        path="$tool_cwd/$path"
+                    fi
+                    cmd_guard "$path" || return 2
                 else
                     # Carry the session id through: `rill checkpoint` keys its
                     # per-session state on it, and without it the checkpoint
                     # hooks would silently do nothing under Codex.
                     local sid
                     sid="$(printf '%s' "$json" | jq -r '.session_id // empty' 2>/dev/null || true)"
+                    local write_cwd
+                    write_cwd="$(printf '%s' "$json" | jq -r '.cwd // empty')" || return 2
+                    if [ -n "$write_cwd" ] && [[ "$path" != /* ]]; then
+                        path="$write_cwd/$path"
+                    fi
                     synthetic="$(jq -cn --arg p "$path" --arg s "$sid" \
                         '{session_id: $s, tool_input:{file_path:$p}}')"
                     printf '%s' "$synthetic" | cmd_activity_log on-write
@@ -3205,11 +3269,7 @@ cmd_codex_hook() {
             ;;
         stop)
             printf '%s' "$json" | cmd_activity_log on-stop
-            # Codex exposes no SessionEnd or PreCompact event, so the
-            # checkpoint file itself has no trigger here — only the nudge,
-            # which keeps artifacts getting written while the session runs.
-            # A Codex session's state therefore lands through the artifacts
-            # the model writes, not through _log.md.
+            # This adapter currently wires Stop to the checkpoint nudge.
             printf '%s' "$json" | cmd_checkpoint on-stop
             ;;
         *)
@@ -3285,6 +3345,30 @@ cmd_doctor() {
             issues=$((issues + 1))
         }
     done
+
+    if ! python3 - "$vault" <<'PY_VALIDATE'
+from pathlib import Path
+import re
+import sys
+bad = []
+for path in sorted((Path(sys.argv[1]) / ".agents/skills").glob("*/SKILL.md")):
+    try:
+        text = path.read_text()
+    except OSError:
+        bad.append(str(path) + ": unreadable skill")
+        continue
+    header = text.split("---", 2)[1] if text.startswith("---\n") and text.count("---") >= 2 else ""
+    for key in ("name", "description"):
+        match = re.search(r"^" + key + r":[ \t]*(\S[^\n]*)", header, re.M)
+        if not match or match[1].strip() in ("null", "~", "\"\"", "''"):
+            bad.append(str(path) + ": missing " + key)
+for message in bad:
+    print("  Invalid skill: " + message)
+sys.exit(bool(bad))
+PY_VALIDATE
+    then
+        issues=$((issues + 1))
+    fi
 
     if [ "$issues" -eq 0 ]; then
         echo "  ✓ Codex guidance, hooks, and skills are installed"

@@ -1,0 +1,14 @@
+{
+  "create-note": {
+    "prompt": "Run the /foundation-note workflow. Use the installed skill and its referenced resource. Complete the file creation in this synthetic vault.",
+    "repeats": 1,
+    "required_terms": ["violet-orbit", "120", "45"],
+    "expected_notes": 1
+  },
+  "distill-repeat": {
+    "prompt": "Run /distill on the single journal entry in this synthetic vault. Extract the reusable technical finding, preserve the original, and record processing state. There are no people, organizations, tasks, or external sources to resolve. Do not contact external services or push Git. Use English for the generated notes. Finish all applicable local steps without asking for preferences.",
+    "repeats": 2,
+    "required_terms": ["120", "45", "cache"],
+    "expected_notes": 1
+  }
+}

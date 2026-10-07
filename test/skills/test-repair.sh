@@ -99,7 +99,7 @@ echo ""
 
 # 1. Inbox + knowledge/notes immutability for empty-queue run
 echo "=== INV-01: Inbox + knowledge/notes immutable on empty queue ==="
-bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE" || true
+run_assertion bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE"
 echo ""
 
 # 2. Empty queue path emits the documented message
