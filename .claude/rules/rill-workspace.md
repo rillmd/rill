@@ -35,6 +35,7 @@ type: workspace
 id: rill-development
 name: Rill Development
 status: active              # active | completed | on-hold | pilot | planning
+icon: "🔭"                   # one emoji, chosen at creation (GUI identity)
 origin: inbox/journal/2026-02-13-1950.md
 tags: [rill]
 mentions: [projects/rill]

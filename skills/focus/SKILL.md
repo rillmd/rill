@@ -80,7 +80,7 @@ Automatically collect information related to the theme:
    ```bash
    rill mkfile workspace --slug {YYYY-MM-DD}-{topic-name} --type workspace
    ```
-   This creates `workspace/{YYYY-MM-DD}-{topic-name}/_workspace.md` with `created` (ISO 8601, auto-assigned), `type: workspace`, `id`, and `status: active` already populated. Then Edit the file to fill in the remaining frontmatter fields (`name`, `origin`, `tags`) and the body:
+   This creates `workspace/{YYYY-MM-DD}-{topic-name}/_workspace.md` with `created` (ISO 8601, auto-assigned), `type: workspace`, `id`, and `status: active` already populated. Then Edit the file to fill in the remaining frontmatter fields (`name`, `icon`, `origin`, `tags`) and the body:
 
 ```markdown
 ---
@@ -89,6 +89,7 @@ type: workspace
 id: {YYYY-MM-DD}-{topic-name}
 name: {Topic title}
 status: active
+icon: "{one emoji}"
 origin: (path of origin journal. Omit for theme-specified starts)
 tags: [related-tags]
 ---
@@ -112,6 +113,14 @@ tags: [related-tags]
 ## Next Steps
 - [ ] First action
 ```
+
+**`icon` (required for new workspaces)**: one emoji that identifies the workspace at a glance in the GUI (workspace cards, the thread header, the sidebar's Today roster). Pick it from the topic itself (e.g. a telescope for a vision piece, a receipt for bookkeeping, a bed for a mattress purchase), not a generic mark. Avoid emojis already used by active workspaces so they stay distinguishable — list them first:
+
+```bash
+grep -l '^status: active' workspace/*/_workspace.md | xargs grep -h '^icon:'
+```
+
+Write it quoted (`icon: "🔭"`); a single emoji only (no text, no spaces).
 
 3. The first deliverable file (`001-{description}.md`) is generated naturally during the conversation (not auto-created at session start)
 
