@@ -10,6 +10,7 @@
 #   - a /sync prompt writes nothing to activity-log.md
 #   - Stop for the same session writes one sync:complete line with the target
 #   - Stop for another session writes nothing; a second Stop writes nothing
+#   - an interrupted /sync (no Stop) is dropped by the next prompt
 #   - bare /sync logs the "manual" target
 #   - hooks print nothing and exit 0 on empty or malformed input
 #
@@ -62,6 +63,13 @@ assert_eq "$(grep -c 'sync:complete "x"' "$LOG" || true)" "1" "the line carries 
 
 hook on-stop '{"session_id":"als_a"}' >/dev/null
 assert_eq "$(sync_lines)" "1" "a later Stop does not log the same sync again"
+
+echo "=== interrupted /sync then an unrelated turn ==="
+hook on-prompt '{"session_id":"als_d","prompt":"/sync z"}' >/dev/null
+# No Stop: the turn was interrupted. The next prompt starts a new turn.
+hook on-prompt '{"session_id":"als_d","prompt":"hello"}' >/dev/null
+hook on-stop '{"session_id":"als_d"}' >/dev/null
+assert_eq "$(grep -c 'sync:complete "z"' "$LOG" || true)" "0" "an interrupted sync is not credited to the next completed turn"
 
 echo "=== bare /sync ==="
 hook on-prompt '{"session_id":"als_c","prompt":"/sync"}' >/dev/null

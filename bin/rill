@@ -2227,6 +2227,15 @@ _activity_log_on_prompt() {
     prompt="$(echo "$json" | jq -r '.prompt // empty' 2>/dev/null)" || return 0
     [ -z "$prompt" ] && return 0
 
+    # A pending /sync marker belongs to one turn. A new prompt means that
+    # turn ended without Stop (interrupted or failed), so drop the marker
+    # before it can be credited to this unrelated turn.
+    local session_id
+    session_id="$(echo "$json" | jq -r '.session_id // empty' 2>/dev/null)" || session_id=""
+    local dir
+    dir="$(_ckpt_state_dir "$session_id" || true)"
+    [ -n "$dir" ] && rm -f "$dir/sync-pending" 2>/dev/null || true
+
     case "$prompt" in
         /ask*)
             local question
@@ -2240,10 +2249,6 @@ _activity_log_on_prompt() {
             # or interrupted turn never fires Stop, so it never logs.
             local target
             target="$(echo "$prompt" | sed 's|^/sync *||')"
-            local session_id
-            session_id="$(echo "$json" | jq -r '.session_id // empty' 2>/dev/null)" || return 0
-            local dir
-            dir="$(_ckpt_state_dir "$session_id" || true)"
             [ -z "$dir" ] && return 0
             mkdir -p "$dir" 2>/dev/null || return 0
             printf '%s' "${target:-manual}" > "$dir/sync-pending" 2>/dev/null || true
