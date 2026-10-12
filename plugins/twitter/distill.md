@@ -31,7 +31,9 @@ File path: {file_path}
    bash plugins/twitter/fetch-tweet.sh "{url}"
    ```
 3. The script outputs structured YAML to stdout. Use this output in subsequent steps
-4. If the script fails (exit code ≠ 0), report the stderr error message and skip this file
+4. If the script fails (exit code ≠ 0), do not create an _organized/ file and stop processing this file. Branch on the exit code:
+   - **Exit code 4** (tweet unavailable — deleted or private, a retry cannot succeed): report the exact line `Result: skipped (source-unavailable)` followed by the stderr message
+   - **Any other non-zero exit code** (transient or unknown failure): report the exact line `Result: error` followed by the stderr message, so the file is retried on the next run
 
 ### Step 1.5: URL Enrichment (only when urls is non-empty)
 
@@ -184,6 +186,7 @@ For source, use the path of the organized file (`inbox/tweets/_organized/{same f
 
 ## Output
 After processing, briefly report:
+- If Step 1 failed: only the `Result:` line and the stderr message from Step 1 item 4 (nothing below applies). Keep the `Result:` line verbatim in English — the coordinator string-matches it
 - Path of the created _organized/ file
 - Suggested tags
 - Whether it is an Article

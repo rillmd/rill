@@ -258,15 +258,16 @@ Shared context:
 - **Phase 1b (think-outputs)**: `_distill/think-output-agent.md` (1 file/Agent). **Launch via Agent tool with `model: "sonnet"`** — same routing rationale as Phase 1a (atomic microfile + Evergreen extraction; no organize step is performed because AI structures the file at write time). Inherit Sonnet eval until think-outputs accumulate enough volume for a separate evaluation. When `inject_args` (from Step 1.6) is non-empty, append it to each agent's prompt
 - **Phase 2**: Resolved plugin `distill.md` (1 file/Agent). Read the plugin's distill.md, extract the ``` block template from `## Agent Prompt` section → expand template variables (`{file_path}`, `{taxonomy_yaml}`, `{people_mapping}`, `{orgs_mapping}`, `{projects_mapping}`, `{task_extraction_rules}`) → pass expanded prompt directly to Agent's prompt
 
-**Error handling**: If an agent reports an error, skip that file and proceed to the next. Skipped files are not appended to `.processed`.
+**Error handling**: If an agent reports an error, skip that file and proceed to the next; it is not recorded in `.processed`, so the next run retries it. The one exception is an agent that reports the exact line `Result: skipped (source-unavailable)` — its source is permanently gone (e.g. a deleted or private tweet) and a retry cannot succeed, so Step 5 records it as `skipped`. Agents never write `.processed` themselves; they run in parallel and the parent owns that file.
 
 ### Step 5: Group 1 Result Collection
 
 After all agents complete:
-1. Update `.processed` via `rill processed set` (do not record files that errored/skipped; the CLI enforces one line per file, last-wins — no duplicate rows):
+1. Update `.processed` via `rill processed set` (do not record files that errored; the CLI enforces one line per file, last-wins — no duplicate rows):
    - journal: `rill processed set inbox/journal/.processed <filename>` (bare, no status)
    - think-outputs: `rill processed set inbox/think-outputs/.processed <filename>` (bare; AI structures at write time so no organize step occurs)
    - inbox/* (meetings/web-clips/tweets/sources): `rill processed set inbox/{subdir}/.processed <filename> organized`
+   - inbox/* whose agent reported `Result: skipped (source-unavailable)`: `rill processed set inbox/{subdir}/.processed <filename> skipped` — no `_organized/` file exists and Phase 3 never selects it. Without this the file would be re-queued and fail on every run
 2. **Entity ID stripping (deterministic post-processing)**: Run `rill strip-entity-tags <file-paths ...>` on created/updated knowledge/notes/ (ADR-046 D46-2)
 3. Aggregate task candidates from all Phase 1 + Phase 2 agents. For each candidate, launch `_task/create-agent.md` as a sub-agent in `mode=extract` (launch all in the background, `run_in_background: true`, harness-capped concurrency, **`model: "sonnet"`** — see the Sonnet-routing rationale on the single-file-mode invocation above; same eval applies). Pass the candidate pipe line, the `source_path` already recorded in it, and the shared context (taxonomy_yaml, people/orgs/projects mappings). The sub-agent handles duplicate checking, substance-rule-compliant body writing, and file creation via `rill mkfile tasks --field 'status=draft' ...` (ADR-069). Legacy parent-side parsing of `| background:` / `| context:` fields and `Title::path` conversion is no longer performed here — substance writing is owned by the sub-agent per `.claude/rules/rill-tasks.md`
 4. If new tags are reported, append to `taxonomy.md` (verify no conflict with deprecated tags)
@@ -295,7 +296,7 @@ Phase 2.5 and Phase 3 are mutually independent, so execute in parallel.
 ### Step 7: Group 2 Result Collection
 
 1. Run `rill strip-entity-tags` on knowledge/notes/ created in Phase 3
-2. Mark each extracted file via `rill processed set inbox/{subdir}/.processed <filename> extracted` — this rewrites the line in place, so the `organized` → `extracted` transition stays one line per file (no duplicate row). Leave errored/skipped files as-is
+2. Mark each extracted file via `rill processed set inbox/{subdir}/.processed <filename> extracted` — this rewrites the line in place, so the `organized` → `extracted` transition stays one line per file (no duplicate row). Leave errored files as-is (still `organized`, so the next run retries extraction), and never touch a `skipped` line
 3. Append new tags to `taxonomy.md`
 
 ### Step 7.5: Tier 1 curation review (NEW, conditional)
@@ -419,7 +420,7 @@ Design essence: pages carried no `mentions` at all when matching was first desig
 
 After all Phases complete, display the following summary:
 - **Phase 1**: Processed / skipped count, created file list
-- **Phase 2**: Organized / skipped count, created file list
+- **Phase 2**: Organized / skipped count, created file list. List each file recorded as `skipped` (source unavailable) by name with its reason, separately from files that errored and will be retried — the user needs to know a source was written off
 - **Phase 2.5**: Entity creation / skip count
 - **Phase 3**: Extraction / skip count, created knowledge list
 - **Phase 4**: Interest Profile update content (only if changes occurred)
@@ -449,5 +450,5 @@ If the /pulse invocation fails for any reason, log a 1-line warning to stdout an
 - Agent prompt templates (`.claude/commands/_distill/`) are **Read by agents themselves** (do not Read in parent context). Exception: `task-extraction.md` is Read by parent and injected as shared context data for child agents so they can return task *candidates*; actual ticket writing is delegated to the `_task/create-agent.md` sub-agent invoked by the orchestrator
 - Plugin distill.md is Read by parent, template variables expanded, and injected inline into prompt
 - Template variable names are unified: `{taxonomy_yaml}`, `{people_mapping}`, `{orgs_mapping}`, `{projects_mapping}`, `{task_extraction_rules}`, `{file_path}`
-- **Error handling**: If an agent returns an error, skip that file and do not record it in `.processed` (no `rill processed set` call for it). Include skip count in summary
+- **Error handling**: If an agent returns an error, skip that file and do not record it in `.processed` (no `rill processed set` call for it), so the next run retries it. Exception: an agent reporting `Result: skipped (source-unavailable)` is recorded as `skipped` in Step 5, because its source is permanently gone and retrying can never succeed. Include both counts in the summary
 - **zsh compatibility**: Refer to CLAUDE.md rule 26

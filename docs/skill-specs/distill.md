@@ -199,7 +199,7 @@ Rules that must never be violated, verified across all tests.
 | ID | Rule | Verification Method | Status |
 |----|------|---------------------|--------|
 | PL-01 | Max 5 agents in parallel. Batch split if exceeded | Log confirmation | ✅ |
-| PL-02 | On agent error, skip and do not append to .processed | Error fixture | ✅ |
+| PL-02 | On agent error, skip and do not append to .processed (exception: PS-05 source-unavailable) | Error fixture | ✅ |
 | PL-03 | workspace/ directory specified -> redirect to /close | workspace input test | ✅ |
 | PL-04 | All categories 0 files -> exit with "No unprocessed files" | Empty input test | ✅ |
 | PL-05 | Phase 1/2 are mutually independent (can run in parallel) | Design confirmation | ✅ |
@@ -218,6 +218,7 @@ Rules that must never be violated, verified across all tests.
 | PS-02 | inbox/*: not listed -> `filename:organized` -> `filename:extracted` | State transition | ✅ |
 | PS-03 | On skip: `filename:skipped` | State check | ✅ |
 | PS-04 | On error: do not append to .processed (allows retry) | Error state check | ✅ |
+| PS-05 | Phase 2 agent reports `Result: skipped (source-unavailable)` (source permanently gone, e.g. `fetch-tweet.sh` exit 4): parent records `filename:skipped`; no `_organized/` file, never re-queued | State check | ⚠️ |
 
 ---
 
