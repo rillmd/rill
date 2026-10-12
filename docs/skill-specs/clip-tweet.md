@@ -67,6 +67,7 @@ Behavioral specification for /clip-tweet. Ingests a Twitter/X tweet URL into `in
 |----|------|---------------------|
 | DT-01 | Execute fetch-tweet.sh | ⚠️ Log confirmation |
 | DT-02 | On script failure, keep file and allow reprocessing via /distill | Error handling confirmation |
+| DT-03 | On exit code 4 (tweet unavailable), keep file and record `filename:skipped` in `.processed` so /distill does not re-queue it | State check |
 
 ---
 

@@ -188,7 +188,7 @@ The following entities are updatable:
 - `unprocessed`: File exists in `inbox/*/*.md` and is not listed in `.processed`
 - `organized`: Listed in `.processed` as `filename:organized`
 - `extracted`: Listed in `.processed` as `filename:extracted`
-- `skipped`: Listed in `.processed` as `filename:skipped`
+- `skipped`: Listed in `.processed` as `filename:skipped`. Terminal — never re-queued. Reached either from `organized` (explicitly skipped) or directly from `unprocessed` when the source is permanently unavailable (e.g. a deleted or private tweet), in which case no `_organized/` file exists
 
 **`.processed` format**: `filename:status`
 ```
@@ -205,6 +205,7 @@ Managed via `rill processed` (never hand-appended): `set` rewrites one line per 
 |-----------|---------|-----------|
 | unprocessed → organized | `/distill` Phase 2 | Automatic |
 | organized → extracted | `/distill` Phase 3 | Automatic |
+| unprocessed → skipped | `/distill` Phase 2, `/clip-tweet` | Source permanently unavailable — the fetcher reports that a retry cannot succeed (`fetch-tweet.sh` exit 4). Transient fetch failures stay `unprocessed` and are retried |
 
 ### 3.3 Workspace Lifecycle
 

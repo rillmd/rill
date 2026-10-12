@@ -38,6 +38,7 @@ run_test "activity-log sync" "$SCRIPT_DIR/cli/test-activity-log-sync.sh"
 run_test "PII hook + allowlist" "$SCRIPT_DIR/cli/test-pii-hook.sh"
 run_test "track_managed gitignore" "$SCRIPT_DIR/cli/test-track-managed-gitignore.sh"
 run_test "context-map + processed" "$SCRIPT_DIR/cli/test-context-map-processed.sh"
+run_test "fetch-tweet exit codes" "$SCRIPT_DIR/cli/test-fetch-tweet-exit-codes.sh"
 
 # Static consistency checks: pure shell, no claude required
 run_test "Skill preamble" "$SCRIPT_DIR/cli/test-skill-preamble.sh"

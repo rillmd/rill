@@ -45,7 +45,10 @@ bash plugins/twitter/fetch-tweet.sh "{normalized URL}"
 
 The script outputs structured YAML to stdout. Use this output in subsequent steps.
 
-If the script fails (exit code ≠ 0), report the error message from stderr and leave the file created in Step 2 (it can be reprocessed by /distill).
+If the script fails (exit code ≠ 0), report the error message from stderr, leave the file created in Step 2, and stop (skip the remaining steps). Branch on the exit code:
+
+- **Exit code 4** (tweet unavailable — deleted or private, a retry cannot succeed): run `rill processed set inbox/tweets/.processed {filename} skipped` so /distill does not re-queue it on every run, and tell the user the tweet is no longer available
+- **Any other non-zero exit code** (transient or unknown failure): do not record anything in `.processed` — the file can be reprocessed by /distill
 
 ### Step 3.5: URL Enrichment (only if urls is non-empty)
 

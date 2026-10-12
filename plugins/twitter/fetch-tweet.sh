@@ -5,7 +5,15 @@
 #        fetch-tweet.sh <screen_name> <tweet_id>
 #
 # Output: Structured YAML to stdout
-# Exit:   0=success, 1=bad args, 2=API failed, 3=parse error
+# Exit:   0=success, 1=bad args, 2=API failed (transient — retry later),
+#         3=parse error, 4=tweet unavailable (deleted or private — a retry
+#         cannot succeed)
+#
+# Exit 4 is deliberately narrow: both sources must explicitly deny the tweet
+# (FixTweet code 404/401 AND oEmbed HTTP 404/403) on a transfer that curl
+# completed cleanly. A timeout, an empty response, a server error, or any curl
+# failure on either side stays exit 2, so a live tweet is never written off
+# because of a network blip.
 
 set -euo pipefail
 
@@ -37,7 +45,8 @@ fi
 # --- FixTweet API fetch ---
 
 api_url="https://api.fxtwitter.com/${screen_name}/status/${tweet_id}"
-api_json="$(curl -sL --max-time 15 "$api_url" 2>/dev/null)" || true
+api_curl_rc=0
+api_json="$(curl -sL --max-time 15 "$api_url" 2>/dev/null)" || api_curl_rc=$?
 
 # Validate response
 api_code=""
@@ -203,7 +212,16 @@ fi
 echo "FixTweet API failed (code: ${api_code:-empty}), trying oEmbed..." >&2
 
 oembed_url="https://publish.twitter.com/oembed?url=${url}"
-oembed_json="$(curl -sL --max-time 10 "$oembed_url" 2>/dev/null)" || true
+# -w appends the final HTTP status on its own last line. A status can still be
+# reported when the transfer fails after the headers arrive (e.g. a timeout
+# mid-body), so the curl exit code is kept and checked alongside it.
+oembed_curl_rc=0
+oembed_resp="$(curl -sL --max-time 10 -w '\n%{http_code}' "$oembed_url" 2>/dev/null)" || oembed_curl_rc=$?
+oembed_status="${oembed_resp##*$'\n'}"
+oembed_json=""
+if [[ "$oembed_resp" == *$'\n'* ]]; then
+    oembed_json="${oembed_resp%$'\n'*}"
+fi
 
 if [ -n "$oembed_json" ]; then
     oembed_html="$(echo "$oembed_json" | jq -r '.html // empty' 2>/dev/null)" || true
@@ -238,6 +256,16 @@ source: oembed
 YAML
         exit 0
     fi
+fi
+
+# --- Unavailable vs transient ---
+# Both sources explicitly denied the tweet on a cleanly completed transfer: it
+# is deleted or private. Anything less certain falls through to exit 2.
+if [ "$api_curl_rc" -eq 0 ] && [ "$oembed_curl_rc" -eq 0 ] &&
+   { [ "$api_code" = "404" ] || [ "$api_code" = "401" ]; } &&
+   { [ "$oembed_status" = "404" ] || [ "$oembed_status" = "403" ]; }; then
+    echo "Error: Tweet unavailable (deleted or private; FixTweet code: ${api_code}, oEmbed HTTP: ${oembed_status}): $url" >&2
+    exit 4
 fi
 
 echo "Error: Both FixTweet and oEmbed failed for $url" >&2
