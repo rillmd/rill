@@ -4778,9 +4778,10 @@ cmd_mkfile() {
         # status reads ## Current Focus, /refresh-project owns ## Active
         # Tasks and ## Related Workspaces) can write into the file without
         # first having to scaffold missing headings. Author fills the Goal
-        # bullet after creation. Other directories get the generic
-        # "Generating content" marker that signals the GUI that the body
-        # is still being produced.
+        # bullet after creation. Other directories get an empty body: a
+        # placeholder line here was easy to leave behind above the real
+        # `# Title`, where it hid the title from readers that take the
+        # first body line as the preview.
         if [ "$directory" = "projects" ]; then
             echo "## Goal"
             echo ""
@@ -4799,9 +4800,6 @@ cmd_mkfile() {
             echo "### Keywords"
             echo ""
             echo "## Key Facts"
-            echo ""
-        else
-            echo "_Generating content..._"
             echo ""
         fi
     } > "$filepath"
