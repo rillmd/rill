@@ -230,6 +230,10 @@ assert_true "[ $rc -ne 0 ]" "mkfile rejects --date containing '/'"
 rc=0; out="$("$RILL" mkfile knowledge/notes --slug smoke-note --type insight 2>&1)" || rc=$?
 assert_eq "$rc" "0" "mkfile creates a normal knowledge note"
 assert_file_exists "$VAULT/knowledge/notes/smoke-note.md" "note file exists"
+# The body starts empty: a placeholder line left above the real `# Title`
+# hides the title from readers that take the first body line as the preview.
+body="$(awk '/^---$/ { n++; next } n >= 2 && NF' "$VAULT/knowledge/notes/smoke-note.md")"
+assert_eq "$body" "" "mkfile writes no body text after the frontmatter"
 
 rc=0; out="$("$RILL" mkfile inbox/meetings --slug kickoff --date 2026-01-02 2>&1)" || rc=$?
 assert_eq "$rc" "0" "mkfile accepts a normal --date"
