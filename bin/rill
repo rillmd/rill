@@ -943,6 +943,8 @@ _plugin_disable() {
     local codex_link
     for codex_link in "$RILL_HOME/.agents/skills"/*/SKILL.md; do
         [ -L "$codex_link" ] || continue
+        # A linked directory is a vault-local skill; never delete inside it.
+        [ -L "$(dirname "$codex_link")" ] && continue
         local codex_target
         codex_target="$(readlink "$codex_link")"
         if [[ "$codex_target" == *"plugins/local/$name/commands/"* ]] \
@@ -3021,11 +3023,11 @@ _ensure_codex_command_skills() {
     # Vault-local skills (.claude/skills/{name}/ not shipped by Rill, which
     # projects its own as copies): mirror each with a directory symlink.
     # Codex follows a linked skill directory, and the link keeps any bundled
-    # scripts next to SKILL.md. Clear dangling links from removed skills, and
-    # stale command stubs, first: a command that moved to .claude/skills/
-    # must not leave its stub in the way of the new link.
+    # scripts next to SKILL.md. Clear links to skills that are gone (or lost
+    # their SKILL.md), and stale command stubs, first: a skill that moved to
+    # a command, or back, must not leave the old entry in the way.
     for agents_dir in "$vault"/.agents/skills/*; do
-        if [ -L "$agents_dir" ] && [ ! -e "$agents_dir" ] \
+        if [ -L "$agents_dir" ] && [ ! -f "$agents_dir/SKILL.md" ] \
             && [[ "$(readlink "$agents_dir")" == "../../.claude/skills/"* ]]; then
             rm -f "$agents_dir"
         fi
@@ -3436,26 +3438,26 @@ cmd_doctor() {
     done
 
     # Presence is not enough: Codex silently skips a SKILL.md that is a
-    # symlink or whose frontmatter has no description.
-    local skill_dir rel missing
+    # symlink or whose frontmatter has no description. Skills may sit in
+    # grouping directories, so check every SKILL.md at any depth.
+    local skill_dir skill_md rel missing
     for skill_dir in "$vault"/.agents/skills/*; do
-        [ -e "$skill_dir" ] || [ -L "$skill_dir" ] || continue
-        rel=".agents/skills/$(basename "$skill_dir")"
-        if [ ! -e "$skill_dir" ]; then
-            echo "  ✗ $rel is a broken link"
-        elif [ ! -d "$skill_dir" ]; then
-            continue
-        elif [ -L "$skill_dir/SKILL.md" ]; then
-            echo "  ✗ $rel/SKILL.md is a symlink, which Codex does not load"
-        elif [ ! -f "$skill_dir/SKILL.md" ]; then
-            echo "  ✗ $rel has no SKILL.md"
+        if [ -L "$skill_dir" ] && [ ! -e "$skill_dir" ]; then
+            echo "  ✗ .agents/skills/$(basename "$skill_dir") is a broken link"
+            issues=$((issues + 1))
+        fi
+    done
+    while IFS= read -r skill_md; do
+        rel="${skill_md#"$vault"/}"
+        if [ -L "$skill_md" ]; then
+            echo "  ✗ $rel is a symlink, which Codex does not load"
         else
-            missing="$(_skill_frontmatter_missing "$skill_dir/SKILL.md")"
+            missing="$(_skill_frontmatter_missing "$skill_md")"
             [ -n "$missing" ] || continue
-            echo "  ✗ $rel/SKILL.md frontmatter lacks $missing, so Codex skips it"
+            echo "  ✗ $rel frontmatter lacks $missing, so Codex skips it"
         fi
         issues=$((issues + 1))
-    done
+    done < <(find -L "$vault/.agents/skills" -name SKILL.md 2>/dev/null | sort)
 
     if [ "$issues" -eq 0 ]; then
         echo "  ✓ Codex guidance, hooks, and skills are installed"

@@ -143,6 +143,29 @@ rm -r "$VAULT/.claude/skills/quote-test"
 "$RILL_BIN" update --vault codex-test >/dev/null
 test ! -e "$VAULT/.agents/skills/quote-test" && test ! -L "$VAULT/.agents/skills/quote-test"
 
+# A skill that lost its SKILL.md (scripts left behind) and became a command
+# gets a stub in place of the stale directory link.
+mkdir -p "$VAULT/.claude/skills/moved-test/scripts"
+printf '%s\n' '---' 'name: moved-test' 'description: Was a skill' '---' \
+  > "$VAULT/.claude/skills/moved-test/SKILL.md"
+touch "$VAULT/.claude/skills/moved-test/scripts/run.sh"
+"$RILL_BIN" update --vault codex-test >/dev/null
+test -L "$VAULT/.agents/skills/moved-test"
+rm "$VAULT/.claude/skills/moved-test/SKILL.md"
+printf '%s\n' '# /moved-test — Now a command' > "$VAULT/.claude/commands/moved-test.md"
+"$RILL_BIN" update --vault codex-test >/dev/null
+test -d "$VAULT/.agents/skills/moved-test" && ! test -L "$VAULT/.agents/skills/moved-test"
+grep -Fxq 'description: "Now a command"' "$VAULT/.agents/skills/moved-test/SKILL.md"
+test -f "$VAULT/.claude/skills/moved-test/scripts/run.sh"
+rm -r "$VAULT/.claude/skills/moved-test" "$VAULT/.claude/commands/moved-test.md"
+"$RILL_BIN" update --vault codex-test >/dev/null
+
+# Skills grouped in a subdirectory are valid for Codex; doctor accepts them
+# (the final doctor run below) and checks the nested SKILL.md files.
+mkdir -p "$VAULT/.agents/skills/group-test/nested-ok"
+printf '%s\n' '---' 'name: nested-ok' 'description: Grouped skill' '---' \
+  > "$VAULT/.agents/skills/group-test/nested-ok/SKILL.md"
+
 # --- doctor reports skills Codex cannot load ---
 mkdir -p "$VAULT/.agents/skills/no-frontmatter" "$VAULT/.agents/skills/no-description" \
   "$VAULT/.agents/skills/linked"
@@ -152,6 +175,8 @@ printf '%s\n' '---' 'name: no-description' '---' 'Body.' \
 printf '%s\n' '---' 'name: linked' 'description: Valid but linked' '---' \
   > "$TMP_ROOT/linked.md"
 ln -s "$TMP_ROOT/linked.md" "$VAULT/.agents/skills/linked/SKILL.md"
+mkdir -p "$VAULT/.agents/skills/group-test/nested-bad"
+printf '%s\n' '# Nested, no frontmatter' > "$VAULT/.agents/skills/group-test/nested-bad/SKILL.md"
 if doctor_out="$(cd "$VAULT" && "$RILL_BIN" doctor codex)"; then
   echo "doctor codex passed despite unloadable skills" >&2
   exit 1
@@ -159,8 +184,13 @@ fi
 grep -Fq '.agents/skills/no-frontmatter/SKILL.md frontmatter lacks name and description' <<<"$doctor_out"
 grep -Fq '.agents/skills/no-description/SKILL.md frontmatter lacks description' <<<"$doctor_out"
 grep -Fq '.agents/skills/linked/SKILL.md is a symlink' <<<"$doctor_out"
+grep -Fq '.agents/skills/group-test/nested-bad/SKILL.md frontmatter lacks' <<<"$doctor_out"
+if grep -Fq 'nested-ok' <<<"$doctor_out" || grep -Fq 'group-test is' <<<"$doctor_out"; then
+  echo "doctor codex flagged a valid grouped skill" >&2
+  exit 1
+fi
 rm -r "$VAULT/.agents/skills/no-frontmatter" "$VAULT/.agents/skills/no-description" \
-  "$VAULT/.agents/skills/linked"
+  "$VAULT/.agents/skills/linked" "$VAULT/.agents/skills/group-test/nested-bad"
 
 # Deny rules must survive reprojection on `rill update` too.
 test -f "$VAULT/.codex/rules/rill-deny.rules"
