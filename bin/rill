@@ -2886,8 +2886,12 @@ _install_codex_container_guidance() {
 # Codex at the command file, so the command stays the single source of truth.
 # A `rill-generated: command` metadata key marks the stubs this code owns.
 
-# Print the frontmatter description of a command, or its H1 title (without
-# the leading "/name —" prefix) when it has none.
+_codex_yaml_quote() {
+    printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
+# Print, as a YAML scalar, the frontmatter description of a command, or its
+# H1 title (without the leading "/name —" prefix) when it has none.
 _codex_command_description() {
     local command="$1"
     local skill_name="$2"
@@ -2901,7 +2905,11 @@ _codex_command_description() {
     # Block scalars (description: > / |) are not worth parsing here.
     case "$desc" in '>'*|'|'*) desc="" ;; esac
     if [ -n "$desc" ]; then
-        printf '%s' "$desc"
+        # Already YAML: a quoted value is kept exactly as written.
+        case "$desc" in
+            \"*\"|\'*\') printf '%s' "$desc" ;;
+            *) _codex_yaml_quote "$desc" ;;
+        esac
         return
     fi
     title="$(awk '
@@ -2915,16 +2923,7 @@ _codex_command_description() {
     case "$desc" in "— "*|"- "*|": "*) desc="${desc#* }" ;; esac
     [ -n "$desc" ] || desc="$title"
     [ -n "$desc" ] || desc="Run the /$skill_name command."
-    printf '%s' "$desc"
-}
-
-# Quote a value as a YAML double-quoted scalar unless it is already quoted.
-_codex_yaml_scalar() {
-    local value="$1"
-    case "$value" in
-        \"*\"|\'*\') printf '%s' "$value" ;;
-        *) printf '"%s"' "$(printf '%s' "$value" | sed 's/\\/\\\\/g; s/"/\\"/g')" ;;
-    esac
+    _codex_yaml_quote "$desc"
 }
 
 _is_generated_codex_skill() {
@@ -2967,16 +2966,22 @@ _sync_codex_command_skill() {
     skill_name="$(basename "$command" .md)"
     skill_dir="$vault/.agents/skills/$skill_name"
     skill_file="$skill_dir/SKILL.md"
-    if [ -e "$skill_file" ] && [ ! -L "$skill_file" ] \
-        && ! _is_generated_codex_skill "$skill_file"; then
+    # Never write through a linked skill directory (a vault-local skill), and
+    # replace a SKILL.md link only if it is one older Rill versions made.
+    [ -L "$skill_dir" ] && return 1
+    if [ -L "$skill_file" ]; then
+        case "$(readlink "$skill_file")" in
+            *.claude/commands/*|*plugins/*/commands/*) ;;
+            *) return 1 ;;
+        esac
+    elif [ -e "$skill_file" ] && ! _is_generated_codex_skill "$skill_file"; then
         return 1
     fi
     desc="$(_codex_command_description "$command" "$skill_name")"
     mkdir -p "$skill_dir"
     rm -f "$skill_file"
     {
-        printf '%s\n' '---' "name: $skill_name" \
-            "description: $(_codex_yaml_scalar "$desc")" \
+        printf '%s\n' '---' "name: $skill_name" "description: $desc" \
             'metadata:' '  rill-generated: command' '---' '' "# /$skill_name" ''
         printf '%s\n' \
             "Codex entry point for the \`/$skill_name\` command. Read" \
@@ -2995,6 +3000,7 @@ _prune_codex_command_skills() {
     local vault="$1"
     local skill_file skill_name
     for skill_file in "$vault"/.agents/skills/*/SKILL.md; do
+        [ -L "$(dirname "$skill_file")" ] && continue
         skill_name="$(basename "$(dirname "$skill_file")")"
         if _is_generated_codex_skill "$skill_file"; then
             [ -f "$vault/.claude/commands/$skill_name.md" ] && continue
@@ -3015,13 +3021,16 @@ _ensure_codex_command_skills() {
     # Vault-local skills (.claude/skills/{name}/ not shipped by Rill, which
     # projects its own as copies): mirror each with a directory symlink.
     # Codex follows a linked skill directory, and the link keeps any bundled
-    # scripts next to SKILL.md. Clear dangling links from removed skills.
+    # scripts next to SKILL.md. Clear dangling links from removed skills, and
+    # stale command stubs, first: a command that moved to .claude/skills/
+    # must not leave its stub in the way of the new link.
     for agents_dir in "$vault"/.agents/skills/*; do
         if [ -L "$agents_dir" ] && [ ! -e "$agents_dir" ] \
             && [[ "$(readlink "$agents_dir")" == "../../.claude/skills/"* ]]; then
             rm -f "$agents_dir"
         fi
     done
+    _prune_codex_command_skills "$vault"
     for skill in "$vault"/.claude/skills/*/SKILL.md; do
         [ -f "$skill" ] || continue
         skill_name="$(basename "$(dirname "$skill")")"
@@ -3037,7 +3046,6 @@ _ensure_codex_command_skills() {
         [[ "$(basename "$command")" == _* ]] && continue
         _sync_codex_command_skill "$vault" "$command" || true
     done
-    _prune_codex_command_skills "$vault"
 }
 
 # ── Permission installation (ADR-074) ────────────────────────────────────

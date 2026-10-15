@@ -114,6 +114,35 @@ printf '%s\n' '---' 'name: own-test' 'description: Hand written' '---' 'Mine.' \
 grep -Fxq 'description: Hand written' "$VAULT/.agents/skills/own-test/SKILL.md"
 rm -r "$VAULT/.claude/commands/own-test.md" "$VAULT/.agents/skills/own-test"
 
+# A vault-local skill whose SKILL.md is itself a link, sharing its name with
+# a command, is left alone (no write through the directory link).
+printf '%s\n' '---' 'name: shared-test' 'description: Linked own skill' '---' \
+  > "$TMP_ROOT/shared-test.md"
+mkdir -p "$VAULT/.claude/skills/shared-test"
+ln -s "$TMP_ROOT/shared-test.md" "$VAULT/.claude/skills/shared-test/SKILL.md"
+printf '%s\n' '# /shared-test — Shared' > "$VAULT/.claude/commands/shared-test.md"
+"$RILL_BIN" update --vault codex-test >/dev/null
+test -L "$VAULT/.claude/skills/shared-test/SKILL.md"
+grep -Fxq 'description: Linked own skill' "$TMP_ROOT/shared-test.md"
+rm -r "$VAULT/.claude/skills/shared-test" "$VAULT/.claude/commands/shared-test.md"
+
+# A heading that starts and ends with a quote is text, not a YAML value.
+printf '%s\n' '# /quote-test — "Build" and "test"' > "$VAULT/.claude/commands/quote-test.md"
+"$RILL_BIN" update --vault codex-test >/dev/null
+grep -Fxq 'description: "\"Build\" and \"test\""' "$VAULT/.agents/skills/quote-test/SKILL.md"
+
+# A command moved to .claude/skills/ gets its link in a single update.
+rm "$VAULT/.claude/commands/quote-test.md"
+mkdir -p "$VAULT/.claude/skills/quote-test"
+printf '%s\n' '---' 'name: quote-test' 'description: Moved' '---' \
+  > "$VAULT/.claude/skills/quote-test/SKILL.md"
+"$RILL_BIN" update --vault codex-test >/dev/null
+test -L "$VAULT/.agents/skills/quote-test"
+grep -Fxq 'description: Moved' "$VAULT/.agents/skills/quote-test/SKILL.md"
+rm -r "$VAULT/.claude/skills/quote-test"
+"$RILL_BIN" update --vault codex-test >/dev/null
+test ! -e "$VAULT/.agents/skills/quote-test" && test ! -L "$VAULT/.agents/skills/quote-test"
+
 # --- doctor reports skills Codex cannot load ---
 mkdir -p "$VAULT/.agents/skills/no-frontmatter" "$VAULT/.agents/skills/no-description" \
   "$VAULT/.agents/skills/linked"
