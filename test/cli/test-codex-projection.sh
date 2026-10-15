@@ -60,10 +60,78 @@ done
 agents_bytes="$(wc -c < "$VAULT/AGENTS.md" | tr -d ' ')"
 test "$agents_bytes" -lt 4096
 
+# --- Command skills: Codex skips a symlinked SKILL.md and any SKILL.md whose
+# frontmatter has no description, so each command gets a generated stub file
+# that carries name + description and points back at the command. ---
 printf '%s\n' '---' 'description: Personal test workflow' '---' '# Personal' \
   > "$VAULT/.claude/commands/personal-test.md"
+printf '%s\n' '# /bare-test — Bare "quoted" command' '' 'Body.' \
+  > "$VAULT/.claude/commands/bare-test.md"
+# Legacy layout: a SKILL.md link into .claude/commands/ must become a stub,
+# and must not write through the link into the command file.
+mkdir -p "$VAULT/.agents/skills/bare-test"
+ln -s ../../../.claude/commands/bare-test.md "$VAULT/.agents/skills/bare-test/SKILL.md"
+# Vault-local skill (not shipped by Rill) with a bundled script.
+mkdir -p "$VAULT/.claude/skills/local-test/scripts"
+printf '%s\n' '---' 'name: local-test' 'description: Local test skill' '---' '# Local' \
+  > "$VAULT/.claude/skills/local-test/SKILL.md"
+touch "$VAULT/.claude/skills/local-test/scripts/run.sh"
 "$RILL_BIN" update --vault codex-test >/dev/null
-test -L "$VAULT/.agents/skills/personal-test/SKILL.md"
+
+stub="$VAULT/.agents/skills/personal-test/SKILL.md"
+test -f "$stub" && ! test -L "$stub"
+grep -Fxq 'name: personal-test' "$stub"
+grep -Fxq 'description: "Personal test workflow"' "$stub"
+grep -Fxq '  rill-generated: command' "$stub"
+grep -Fq '.claude/commands/personal-test.md' "$stub"
+
+stub="$VAULT/.agents/skills/bare-test/SKILL.md"
+test -f "$stub" && ! test -L "$stub"
+grep -Fxq 'name: bare-test' "$stub"
+grep -Fxq 'description: "Bare \"quoted\" command"' "$stub"
+head -1 "$VAULT/.claude/commands/bare-test.md" | grep -Fxq '# /bare-test — Bare "quoted" command'
+
+test -L "$VAULT/.agents/skills/local-test"
+test -f "$VAULT/.agents/skills/local-test/scripts/run.sh"
+
+# Stubs are refreshed in place, and removed once their command is gone.
+printf '%s\n' '---' 'description: Personal test workflow v2' '---' '# Personal' \
+  > "$VAULT/.claude/commands/personal-test.md"
+rm "$VAULT/.claude/commands/bare-test.md"
+rm -r "$VAULT/.claude/skills/local-test"
+"$RILL_BIN" update --vault codex-test >/dev/null
+grep -Fxq 'description: "Personal test workflow v2"' "$VAULT/.agents/skills/personal-test/SKILL.md"
+test ! -e "$VAULT/.agents/skills/bare-test"
+test ! -e "$VAULT/.agents/skills/local-test" && test ! -L "$VAULT/.agents/skills/local-test"
+
+# A hand-written skill under .agents/skills is never overwritten.
+printf '%s\n' '---' 'description: Personal test workflow' '---' '# Personal' \
+  > "$VAULT/.claude/commands/own-test.md"
+mkdir -p "$VAULT/.agents/skills/own-test"
+printf '%s\n' '---' 'name: own-test' 'description: Hand written' '---' 'Mine.' \
+  > "$VAULT/.agents/skills/own-test/SKILL.md"
+"$RILL_BIN" update --vault codex-test >/dev/null
+grep -Fxq 'description: Hand written' "$VAULT/.agents/skills/own-test/SKILL.md"
+rm -r "$VAULT/.claude/commands/own-test.md" "$VAULT/.agents/skills/own-test"
+
+# --- doctor reports skills Codex cannot load ---
+mkdir -p "$VAULT/.agents/skills/no-frontmatter" "$VAULT/.agents/skills/no-description" \
+  "$VAULT/.agents/skills/linked"
+printf '%s\n' '# No frontmatter' > "$VAULT/.agents/skills/no-frontmatter/SKILL.md"
+printf '%s\n' '---' 'name: no-description' '---' 'Body.' \
+  > "$VAULT/.agents/skills/no-description/SKILL.md"
+printf '%s\n' '---' 'name: linked' 'description: Valid but linked' '---' \
+  > "$TMP_ROOT/linked.md"
+ln -s "$TMP_ROOT/linked.md" "$VAULT/.agents/skills/linked/SKILL.md"
+if doctor_out="$(cd "$VAULT" && "$RILL_BIN" doctor codex)"; then
+  echo "doctor codex passed despite unloadable skills" >&2
+  exit 1
+fi
+grep -Fq '.agents/skills/no-frontmatter/SKILL.md frontmatter lacks name and description' <<<"$doctor_out"
+grep -Fq '.agents/skills/no-description/SKILL.md frontmatter lacks description' <<<"$doctor_out"
+grep -Fq '.agents/skills/linked/SKILL.md is a symlink' <<<"$doctor_out"
+rm -r "$VAULT/.agents/skills/no-frontmatter" "$VAULT/.agents/skills/no-description" \
+  "$VAULT/.agents/skills/linked"
 
 # Deny rules must survive reprojection on `rill update` too.
 test -f "$VAULT/.codex/rules/rill-deny.rules"
