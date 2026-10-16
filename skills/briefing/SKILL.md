@@ -62,14 +62,21 @@ Unattended: never ask a question, never wait. Finish in one turn.
 
 ### Content
 
-Four sections, in this order. Each item is one to three plain sentences that a reader with no context understands on a phone: say what the thing is, the date and source of what changed, and the concrete action. Absolute dates with weekdays. No vault-internal labels (artifact numbers, stage names, coined terms). No links that require the vault (the text may be mailed); plain file links are fine in the note itself but the sentence must stand without them.
+Four sections, in this order. The reader skims on a phone, so every item has two layers: a **headline line** that can be understood alone, and at most two sentences of **detail** below it. Reading only the headlines of all four sections must tell the reader what to do today and what is coming. Absolute dates with weekdays. No vault-internal labels (artifact numbers, stage names, coined terms). No links that require the vault (the text may be mailed); plain file links are fine in the detail but the sentence must stand without them.
 
-1. **Needs you today** (0–4 items). Only actions with a reason to be done today: a deadline today or tomorrow, an unread request from another person, something that blocks other work, a reply owed. Each item carries the estimated minutes and the end point ("done when the reply is sent"). Also include decisions the user must make today. If nothing qualifies, say so in one sentence.
-2. **Deadlines ahead** (0–6 items, within roughly 6 weeks; further ones only if preparation must start now). Do the arithmetic of the time left when an estimate exists: estimated effort, effort already done, working days left, the daily share ("9 hours of preparation, none done yet, 6 weekdays left: about 1.5 hours a day"). Mark an estimate as an estimate. Fixed appointments (interviews, meetings) go here with their time.
-3. **Nothing needed now** (0–6 items). Things the user might worry about that need no action today, each with the reason and the date or condition when it next needs attention ("payment is due by Oct 31; check on that day"). This is the section that answers "am I forgetting something" — only list items whose state was verified (see "Unverified is not safe").
-4. **New since yesterday** (0–5 items). Mail, calendar invitations, and records that arrived since the previous handoff and matter, one line each. If a prepared item covers it, say that the detail is in today's prepared items.
+Item format (a mail builder parses it; keep it exact):
 
-If yesterday's standup left commitments, add one sentence before section 1 saying how many were done and which were not, and carry an undone one into section 1 only if it still has a reason to be done today.
+```markdown
+- **{lead}** {rest of the headline}
+  {detail: one or two sentences, indented two spaces}
+```
+
+1. **Needs you today** (0–4 items). Only actions with a reason to be done today: a deadline today or tomorrow, an unread request from another person, something that blocks other work, a reply owed, a decision to make today. Lead = the action in a few words ("Decide whether to go to SCAJ"). Rest = the estimated minutes and the end point ("(half a day; done when decided)"). Detail = why today and what is already done. If nothing qualifies, write one plain sentence instead of items.
+2. **Deadlines ahead** (0–6 items, within roughly 6 weeks; further ones only if preparation must start now), sorted by date. Lead = the date with weekday, plus the time for appointments ("Oct 23 (Fri) 11:20"). Rest = what it is, in a few words ("OpenAI interviews, three rounds"). Detail = what remains, with the arithmetic of the time left when an estimate exists ("9 hours of preparation, none done, 6 days left: about 1.5 hours a day"); mark estimates as estimates.
+3. **Nothing needed now** (0–5 items). Things the user might worry about that need no action today. Lead = the thing ("MTI first invoice"). Rest = when it next needs attention ("check the deposit on Nov 2 (Mon)"). Detail = the reason, in one sentence. Only items whose state was verified (see "Unverified is not safe").
+4. **New since yesterday** (0–4 items). Mail, invitations, and records that arrived since the previous handoff and matter. Lead = what arrived. Rest = the action, or "no action needed". Detail = one sentence; if a prepared item covers it, say that the detail is in today's prepared items.
+
+If yesterday's standup left commitments, the opening sentence says how many were done and which were not; carry an undone one into section 1 only if it still has a reason to be done today.
 
 ### Thursday retrospective nudge (state contract)
 
@@ -125,7 +132,7 @@ The handoff is the text between two marker lines, so a same-day rerun replaces o
 <!-- handoff:end -->
 ```
 
-The H1 stays verbatim in every language (SC-01). Section headings are rendered in the vault language, one consistent rendering per concept; reuse the previous daily note's renderings when its language matches. Keep the four `###` sections in this order even when empty (write one sentence saying it is empty), so that a mail builder can rely on them. Inside sections use plain list items, one item per line or short paragraph; no tables, no code blocks, no emoji.
+The H1 stays verbatim in every language (SC-01). Section headings are rendered in the vault language, one consistent rendering per concept; reuse the previous daily note's renderings when its language matches. Keep the four `###` sections in this order even when empty (write one sentence saying it is empty), so that a mail builder can rely on them. Inside sections use only the item format above; no tables, no code blocks, no emoji. Keep the opening to the sources read, the counts, and (when yesterday's standup left commitments) one sentence on which were done and which were not.
 
 Finish with a 2–3 line summary of counts. Do not chain to other skills.
 
