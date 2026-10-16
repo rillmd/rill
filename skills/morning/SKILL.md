@@ -35,7 +35,7 @@ $ARGUMENTS — none
 
 ### Step 1: Daily Note (/briefing)
 
-Invoke the `briefing` skill (via the harness's skill mechanism) and wait for it to complete. Capture the path of the generated Daily Note from the skill's summary output.
+Invoke the `briefing` skill with `--handoff` (via the harness's skill mechanism) and wait for it to complete. The handoff mode is non-interactive; the standup (plain `/briefing`) is for when the user wants to talk through the day, and is not part of this routine. Capture the path of the generated Daily Note from the skill's summary output.
 
 ### Step 2: Newsletter (/newsletter)
 
