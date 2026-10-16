@@ -919,27 +919,26 @@ Batch design:
   4. Change _workspace.md status to completed
 ```
 
-### 5.4 /briefing — Daily Note Generation Pipeline (D30)
+### 5.4 /briefing — Morning Handoff and Standup
 
 ```
-  Input:  tasks/*/_task.md, workspace/*/_workspace.md,
-          past 3 days of inbox/journal/ and knowledge/notes/,
-          inbox/ unprocessed count, git log
-  Process: Internal data collection -> prose report generation (fully automated, no dialogue)
-  Output: reports/daily/YYYY-MM-DD.md
-  State:  File existence serves as processed marker. Re-execution overwrites (versions saved in Git history)
+  Handoff (--handoff, unattended):
+    Input:   tasks/*/_task.md, knowledge/self/ snapshot, active workspaces' Next Steps,
+             mail and calendar via tools the vault declares, yesterday's standup commitments
+    Output:  reports/daily/YYYY-MM-DD.md, block between <!-- handoff:start --> and <!-- handoff:end -->
+             (Needs you today / Deadlines ahead / Nothing needed now / New since yesterday + coverage line)
+  Standup (default, interactive):
+    Input:   the user's monologue + today's handoff (or the same sources when absent)
+    Output:  ## Standup section appended to the same daily note (commitments with minutes and end points,
+             Not today with reasons and return dates)
+  State:     one file per day; a handoff rerun replaces only the marked block
 ```
 
-**Key changes (D30, changes from former D19-3)**:
-- Merged `/daily-report`: Forward-looking (today's focus) + backward-looking (yesterday's activity) combined into single Daily Note
-- Output location changed from `workspace/daily/` to `reports/daily/`
-- Fully automated: abolished interactive task review (Phase 1.5)
-- WebSearch separated to `/newsletter` (separate skill)
-- Assistant mode abolished (generate report and exit)
-- Prose report quality: prose with context and recommended actions as the base, not bullet-point lists
-- Tasks collected from ticket files in tasks/
-- InboxBanner information included in body (snapshot, not a GUI component)
-- Re-execution overwrites without confirmation (versions retained in Git history)
+**Key changes (2026-10, replacing D30's five-card daily note)**:
+- The handoff reads primary sources (mail, calendar) when the vault declares tools for them, and never lists an item as needing nothing when its source could not be read
+- The standup builds the day's plan from the user's own words; it asks at most two questions and does not allocate time slots
+- Dropped: the five-slot narrowing, the four-element card schema, the snapshot-only derivation, the 2500-character cap
+- Kept: the Thursday /retrospective nudge (handoff only), the /pulse freshness check, plugin hooks
 
 ### 5.5 /newsletter — Daily Research Report Pipeline (D31)
 

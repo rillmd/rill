@@ -1,58 +1,79 @@
 ---
 name: briefing
-description: Generate today's Daily Note (or one for a specified date) at reports/daily/YYYY-MM-DD.md by aggregating the day's situation across journals, tasks, workspaces, knowledge, activity-log, and any plugin briefing hooks. Fully automated, no interaction. Use when the user asks for a daily briefing, situational analysis, or "what's going on today/yesterday".
+description: Daily briefing in two parts. `/briefing --handoff` (unattended, run by the morning job) writes the morning handoff — what needs the user today, deadlines ahead with the arithmetic of the time left, what needs nothing now and why, and what arrived since yesterday — at the top of reports/daily/YYYY-MM-DD.md. `/briefing` with no flag is the morning standup — the user talks freely about the day, and the skill organizes it against the handoff and the records into today's commitments. Use when the user wants to plan the day, asks for a daily briefing, or starts talking through what they have to do today.
 gui:
   label: "/briefing"
-  hint: "Generate today's situational analysis report"
+  hint: "Talk through your day; get today's commitments"
   match:
     - "reports/daily/**/*.md"
   arg: none
   order: 60
-  mode: auto
+  mode: live
 ---
 
-# /briefing — Daily Note Generation
+# /briefing — Morning Handoff and Standup
 
 **Conduct all conversation with the user — and write all generated output — in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if that file is absent). Follow the language rules in full — exceptions and translation quality are defined in the Language Rules of `.claude/rules/rill-core.md` and the vault's `personal-*.md` overrides, never restated per skill. The English instructions below are for skill clarity, not for output style.
 
-> **Tool references in this skill** (`Bash`, `Grep`, `Read`, `Edit`, `Glob`, `sub-agent`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent — Claude Code uses its built-in tools as named; Codex CLI uses `apply_patch` / shell / its own sub-agent mechanism etc. as appropriate.
+> **Tool references in this skill** (`Bash`, `Grep`, `Read`, `Edit`, `Glob`, `sub-agent`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent.
 
 ## Goal
 
-Generate a prose-quality Daily Note at `reports/daily/{TARGET_DATE}.md` (~2500 chars), fully automated, no interaction. **Derivation, not aggregation**: "where am I" awareness lives in `knowledge/self/` (maintained by `/pulse` and `/distill`); the briefing derives *today's actions* from that snapshot instead of rebuilding a situation analysis from raw files. Do not re-scan raw journals, knowledge/notes/, past reports, or full workspace bodies — `self/current-state.md` subsumes them.
+The morning has two jobs, done by two entry points that share one file per day, `reports/daily/{DATE}.md`.
+
+| | Handoff (`--handoff`) | Standup (default) |
+|---|---|---|
+| Who starts it | The morning job, unattended (or the user) | The user, when they want to plan the day |
+| What the user does | Reads it (the vault's morning mail may carry it) | Talks freely, one way, about the day |
+| Answers | What needs me today? Is everything else really fine? | Is what I have in mind complete and doable today? |
+| Writes | The handoff block at the top of the daily note | A standup section appended below it |
+
+Design history (2026-10): the earlier version derived five cards from a self-snapshot with a 2500-character cap and no primary sources; it went unused for a month. The user chose this split after comparing five patterns on one real morning: the handoff because it arrives without being asked for, the standup because a plan built from the user's own words is more accurate and gets used.
 
 ## Arguments
 
-$ARGUMENTS — `YYYY-MM-DD` → generate for that date / omitted → today. If `reports/daily/{TARGET_DATE}.md` exists, overwrite without confirmation (Git holds history). At start, run `rill pages-pending-update --gc` (silent, never fails).
+$ARGUMENTS
 
-## Inputs
+- `--handoff` → handoff for today. `--handoff YYYY-MM-DD` → handoff for that date.
+- A bare `YYYY-MM-DD` → handoff for that date (non-interactive; kept for backfills and the test harness).
+- Anything else, or nothing → standup. Text given with the command is the start of the user's monologue.
 
-- **Structured data**: `bash .claude/commands/_lib/briefing-context.sh "$TARGET_DATE" "03:00"` → YAML with `workspaces` (status counts + active detail), `inbox` (unprocessed counts), `journals_in_window`, `knowledge_created_in_window`, `tag_health` (top-5 + split threshold), `task_tickets` (open/waiting/overdue counts + due_soon + filenames), `activity_window`.
-- **Task tickets**: `Grep(pattern="^status: (open|waiting)", path="tasks/", glob="**/_task.md", output_mode="files_with_matches")`, read the hits only. Per ticket: title (h1), status, due, **scheduled** (a past `scheduled` alone qualifies for 🟠 Urgent), mentions, background opening, request. Also grep `^status: draft`, sort by `created` desc, and read the **most recent 1** draft body — it feeds the 🔵 Draft-candidate card. 0 drafts → skip the slot.
-- **activity-log.md**: entries in `[TARGET_DATE - 5d at day_boundary, TARGET_DATE at day_boundary]`, anchored to TARGET_DATE (never wall clock, so backfilled runs slice correctly). Three subsets: the 1-day window (v2-style summaries), the **recent 12h** (Today's Flow section), the full 5 days (the **untouched** axis — no touch in this window = untouched).
-- **Freshness pre-check**: read `.claude/state/pulse.json`; if `last_pulse_at` is >5 min old or missing, synchronously invoke `/pulse --force` before reading the snapshot (briefing-on-demand bypasses /pulse's cooldown; /pulse never calls back).
-- **self/ snapshot** (skip any absent file silently): `current-state.md`, `direction.md`, `interests.md`, `decisions.md` (may be absent until `/retrospective` populates it — treat as empty), `constraints.md` (secondary importance signal).
-- **Stale-workspace count**: among active workspaces, count those with `updated` (fallback `created`) >7 days old; if ≥3, append to Notes: `⚠ Stalled 7+ days: {n} workspaces (details in the next /retrospective)`.
-- **Previous Daily Note** (most recent in `reports/daily/`, for heading-language continuity) and today's `reports/newsletter/` file if present (for linking).
-- **Plugin hooks**: for each plugin in `plugins/.enabled` whose `plugin.md` frontmatter has `hooks.briefing`, run the hook prompt file via a general-purpose sub-agent (context: target date + plugin path). Failures are non-fatal — log and skip. Each hook returns a complete `## Section Name` block, inserted as-is at the end of the note.
+`TARGET_DATE` is the given date or today (wall-clock date with the 03:00 day boundary: before 03:00 counts as the previous day).
 
-## Selection logic (v3 narrowing)
+## Shared inputs
 
-v2 surfaced every active workspace and pushed triage onto the user; v3 narrows to **5 items** (soft cap; 3-7 acceptable), expands only the Top item hierarchically, and renders every card in the fixed 4-element schema.
+Read what exists; skip absent sources silently, but record each skipped or failed source for the coverage line (see "Unverified is not safe").
 
-- **Main-theme line**: compress the `## Current Main Theme` section of `direction.md` to 1 dense line. Heading lookup contract: that heading is the canonical English structural key seeded by `/onboarding`; if absent, fall back to the first `## ` section. Headings are lookup keys, not display strings.
-- **Top (⚠️ Today's Focus)** — the 3-condition product:
-  1. **important**: mentioned in `direction.md` Active Projects, OR tied to a `constraints.md` constraint (either path is valid; "ineligible" only when neither mentions it)
-  2. **untouched**: no activity-log touch in the past 5 days
-  3. **pull**: `due` / `scheduled` / explicit deadline / promise / doctrine
-  Tie-break: explicit deadline > scheduled/due > general doctrine; longer delay first. 0 candidates → fall back to the most active project of the past 12h, heading `## ★ Today's Focus (in progress)`.
-- **Parallel cards**: 1× 🟢 In Progress (most active project, past 12h) + 1-2× 🟠 Urgent (past `due` / past `scheduled` / `/pulse` Section 6 execution-gap entries) + 0-1× 🔵 Draft candidate (most recent draft task). **De-dup**: if the Top fell back to "in progress" and the 🟢 leader is the same project, the 🟢 slot takes the next-most-active project — never spend 2 of 5 slots on one item.
-- **Dependency-aware demotion (ADR-080 D80-6)**: a Top/🟠 candidate blocked by an unmet `depends-on` (any listed dependency not `done`/`cancelled`, or a broken link) is demoted — the next candidate takes Top, and the blocked item goes to "Narrowed out" as `Blocked: [{title}](../../tasks/{slug}/_task.md) — waiting on [{dep-title}](../../tasks/{dep-slug}/_task.md)` (max 2 lines, older first); blocked 🟠 candidates are omitted silently. No `depends-on` field = unblocked (the cheap common case). Use the same canonical Dependency Resolution Algorithm as `/refresh-project` (defined in the `/project` SKILL.md).
-- Analytical content (contradictions, longitudinal observations) is never regenerated here — it belongs to `self/observations.md` and `/retrospective`.
+1. **Freshness**: read `.claude/state/pulse.json`; if `last_pulse_at` is more than 12 hours old or missing, invoke `/pulse --force` first. Then read `knowledge/self/current-state.md`, `direction.md`, `constraints.md` (absent = empty).
+2. **Tasks**: `Grep(pattern="^status: (open|waiting)", path="tasks/", glob="**/_task.md", output_mode="files_with_matches")`; read the hits. Per ticket: title, status, `due`, `scheduled`, `depends-on`, the Current Position or Background tail, the request.
+3. **Workspaces**: active workspaces' `_workspace.md` "Next Steps" unchecked items and deadlines, for those touched in the last 14 days or named in `current-state.md`. Do not read every artifact; open an artifact only when a deadline or a promise depends on it.
+4. **Structured counts**: `bash .claude/commands/_lib/briefing-context.sh "$TARGET_DATE" "03:00"` (activity window, journals, inbox counts, task counts).
+5. **Primary sources**: if the vault declares tools for mail and calendar (look for a `personal-*` rule describing them, e.g. a CLI and its accounts), read the calendar from TARGET_DATE to TARGET_DATE + 14 days and the mail of the last 2 days (both directions) on every declared account. These catch what the records have not caught up with: an unread request with a deadline, an appointment the user has not mentioned, a reply still owed.
+6. **Yesterday's daily note**: the most recent `reports/daily/*.md` before TARGET_DATE. If it has a standup section, take its commitments: each one is either done (evidence in activity-log, tasks, or mail), not done, or unknown.
+7. **Today's prepared items**: if the vault has a proactive run directory for TARGET_DATE (e.g. `reports/anticipation/{DATE}/`), list its item titles, so new arrivals already covered there can say so instead of repeating it.
 
-## /retrospective Thursday nudge (state contract)
+### Unverified is not safe
 
-All dates derive from TARGET_DATE, not the wall clock. State: `.claude/state/retrospective.json` (lazily initialized; missing file = all fields empty, no error; parse error = one-line warning, no nudge).
+Every source that failed or was skipped (a mail account whose login expired, a calendar that could not be read, a tool not declared) is named in one coverage line at the end of the handoff. When a source that would affect an item could not be read, that item never goes under "Nothing needed now"; it goes under "Needs you today" as a check, or the coverage line says what could not be confirmed. Do not present stale records as confirmed state.
+
+## Handoff mode
+
+Unattended: never ask a question, never wait. Finish in one turn.
+
+### Content
+
+Four sections, in this order. Each item is one to three plain sentences that a reader with no context understands on a phone: say what the thing is, the date and source of what changed, and the concrete action. Absolute dates with weekdays. No vault-internal labels (artifact numbers, stage names, coined terms). No links that require the vault (the text may be mailed); plain file links are fine in the note itself but the sentence must stand without them.
+
+1. **Needs you today** (0–4 items). Only actions with a reason to be done today: a deadline today or tomorrow, an unread request from another person, something that blocks other work, a reply owed. Each item carries the estimated minutes and the end point ("done when the reply is sent"). Also include decisions the user must make today. If nothing qualifies, say so in one sentence.
+2. **Deadlines ahead** (0–6 items, within roughly 6 weeks; further ones only if preparation must start now). Do the arithmetic of the time left when an estimate exists: estimated effort, effort already done, working days left, the daily share ("9 hours of preparation, none done yet, 6 weekdays left: about 1.5 hours a day"). Mark an estimate as an estimate. Fixed appointments (interviews, meetings) go here with their time.
+3. **Nothing needed now** (0–6 items). Things the user might worry about that need no action today, each with the reason and the date or condition when it next needs attention ("payment is due by Oct 31; check on that day"). This is the section that answers "am I forgetting something" — only list items whose state was verified (see "Unverified is not safe").
+4. **New since yesterday** (0–5 items). Mail, calendar invitations, and records that arrived since the previous handoff and matter, one line each. If a prepared item covers it, say that the detail is in today's prepared items.
+
+If yesterday's standup left commitments, add one sentence before section 1 saying how many were done and which were not, and carry an undone one into section 1 only if it still has a reason to be done today.
+
+### Thursday retrospective nudge (state contract)
+
+Runs in handoff mode only (never in standup, so a strike is not counted twice). All dates derive from TARGET_DATE. State: `.claude/state/retrospective.json` (missing file = all fields empty; parse error = one-line warning, no nudge).
 
 ```
 period_id = "weekly-{Monday of the ISO week before the one containing target_date}"
@@ -60,111 +81,75 @@ init nudge_state[period_id] to { nudge_count: 0, last_nudge_at: null } if absent
 same_day_rerun = (date of last_nudge_at == target_date)   # reruns never consume strikes
 
 if last_period == period_id or period_id in skipped_periods:
-    nudge = OFF            # completed / 3-strike-skipped periods never re-nudge
+    nudge = OFF
 elif Thursday:  nudge = ON
 elif Fri/Sat/Sun:  nudge = DELAYED
-else:  nudge = OFF         # Mon/Tue/Wed
+else:  nudge = OFF
 on ON/DELAYED and not same_day_rerun: nudge_count += 1, last_nudge_at = now
 
 3-strike auto-skip: if nudge_count >= 3 and target_date is Sunday →
   append period_id to skipped_periods (dedup), nudge = OFF
 ```
 
-Persist with **merge-write semantics** — update only `nudge_state[period_id]` and (when applicable) `skipped_periods`; never touch `last_run_at` / `last_period` / `pending_finalize` / `run_count` (owned by `/retrospective`). Skip persistence when `target_date != today` (backfills are read-only against state). If nudge is ON/DELAYED, prepend one warm prose line above the main-theme line, ending with the literal `/retrospective weekly` (a slash command, so allowed despite the no-CLI-commands rule for Notes; mark "delayed" when DELAYED).
+Persist with merge-write semantics: update only `nudge_state[period_id]` and (when applicable) `skipped_periods`; never touch `last_run_at` / `last_period` / `pending_finalize` / `run_count` (owned by `/retrospective`). Skip persistence when TARGET_DATE is not today. When ON/DELAYED, add one warm sentence ending with the literal `/retrospective weekly` as the last item of "New since yesterday" (or as its own sentence when that section is empty).
 
-## Output contract
+### Plugin hooks
 
-Create the file first (timestamp accuracy, ADR-060 — never write `created` by hand):
+For each plugin in `plugins/.enabled` whose `plugin.md` frontmatter has `hooks.briefing`, run its hook prompt via a sub-agent in the foreground. Each returns a `## Section` block, inserted after the handoff block. Failures are non-fatal: log and skip.
+
+### Writing the file
+
+The daily note keeps one file per day. If `reports/daily/{TARGET_DATE}.md` does not exist, create it first (ADR-060 — never write `created` by hand):
 
 ```bash
-rill mkfile reports/daily --type daily-note --field "journal-count=N"
-# dated: rill mkfile reports/daily --date YYYY-MM-DD --type daily-note --field "journal-count=N"
+rill mkfile reports/daily --date YYYY-MM-DD --type daily-note --field "journal-count=N"
 ```
 
-then Edit the body in. Template (canonical English forms; 6 sections after the H1 + main-theme line):
+The handoff is the text between two marker lines, so a same-day rerun replaces only the handoff and leaves any standup section intact. If the markers exist, replace what is between them; otherwise insert the block right after the H1.
 
 ```markdown
 # YYYY-MM-DD Daily Briefing
 
-(SC-01 contract: the H1 must match `# YYYY-MM-DD Daily Briefing` exactly; the weekday goes in the main-theme line.)
+<!-- handoff:start -->
+## Morning Handoff
 
-(Nudge line here when ON/DELAYED — one prose line, no heading, no bullet.)
+{One opening sentence: what this is, which sources were read, and the counts of the first three sections.}
 
-**Main theme**: {direction.md main theme in 1 dense line}. **Today ({weekday})**: {time constraints, if any}.
+### Needs you today
+### Deadlines ahead
+### Nothing needed now
+### New since yesterday
 
-## Today's Flow (touched in the last 12 hours)
-
-- **Morning**: {activity-log entries grouped, prose, 1 line}
-- **Afternoon**: {…}
-- **Most recent**: {…}
-
-(0 entries in 12h → single line "No activity in the last 12 hours".)
-
-## ⚠️ Today's Focus — important but untouched
-
-**[{Project}] {Top item title}**
-
-> {1-2 sentences: why important × untouched — direction.md mention / activity gap / deadline / promise}
-
-```
-├ Strategy: {decided means; say "not up for re-deliberation" if decided}
-├ Execution ← untouched: {concrete action N days delayed — the stuck node}
-└ Contingency: {guardrails / fallback when stalled}
+{Coverage line: sources read, and sources that could not be read and what that leaves unconfirmed.}
+<!-- handoff:end -->
 ```
 
-**Resume** → `{/focus or /solve command}`
-**Source** → [{name}]({path}) · [{name}]({path})
+The H1 stays verbatim in every language (SC-01). Section headings are rendered in the vault language, one consistent rendering per concept; reuse the previous daily note's renderings when its language matches. Keep the four `###` sections in this order even when empty (write one sentence saying it is empty), so that a mail builder can rely on them. Inside sections use plain list items, one item per line or short paragraph; no tables, no code blocks, no emoji.
 
-(3-tier tree with Unicode box-drawing; collapse to 2 tiers when the chain is shallow, never pad to 4. Fallback-Top renders as a single-tier card unless dependencies exist.)
+Finish with a 2–3 line summary of counts. Do not chain to other skills.
 
-## In Parallel (4)
+## Standup mode
 
-### 🟢 In Progress — [{Project}] {title}
-### 🟠 Urgent — [{Project}] {title}
-### 🟠 Urgent — (omit if only 1)
-### 🔵 Draft candidate — [{Project}] {title}
+The user talks; the skill listens, then organizes once. It is not an interview.
 
-(Every card uses the fixed 4-element schema:
-- **Stuck** (1-2 sentences, ~80 chars) — from `_workspace.md` Current Position / Session History tail, or `_task.md` Background tail + due/scheduled delay
-- **Next step** (1 sentence, ~60 chars, ≤30-min action) — source order: /pulse Section 6 entry → `## Next Steps` first unchecked → `_task.md` Plan next step → the decision itself for judgment gates
-- **Resume** (1 backtick line) — `/focus {id}` for workspaces, `/solve {slug}` for tasks, link-only for judgment gates, `/solve {slug}` + "(after Review-mode approval)" for drafts
-- **Source** (1-3 Markdown links))
+1. **If the user has not said anything about the day yet** (no text with the command), reply with one short line inviting them to talk freely about today (what they plan, what is on their mind, anything that came up), and end the turn. Do not read sources before they talk, and do not summarize the handoff at them.
+2. **While they talk**, do not interrupt. If the message ends mid-thought or says there is more, reply with one short acknowledgement and wait.
+3. **When they are done**, read the shared inputs. If today's handoff block exists, use it as the gathered state instead of re-reading every source; re-read only mail and calendar since the handoff was written. If no handoff exists, gather the shared inputs yourself.
+4. **Reply once**, in this order:
+   - What they said, organized by topic in their own terms (short; this shows it was heard). Keep their intent: if they said "today", it stays a today candidate unless something rules it out, and then say what.
+   - What they did not mention but should know today: deadlines, appointments, unread requests, yesterday's undone commitments — only those that change today's choices.
+   - At most two questions, only when the answer changes today's order or scope (for example, whether a research request means re-checking yesterday's results or a new question). Ask them inline; do not use a question tool.
+   - **Today's commitments**: a numbered list of 3–5 actions in the order to do them. Each has estimated minutes and an end point. Start with one sentence naming the fixed appointments that bound the day and the hours left around them. Do not allocate time slots and do not write to a calendar.
+   - **Not today**: the remaining things they mentioned or that are pending, each with the reason and when it comes back (a date or a condition).
+5. If they answer the questions or correct the plan, update the commitments in a short reply.
+6. **Write it down**: append (or, on a later standup the same day, replace) a `## Standup` section below the handoff block in `reports/daily/{TARGET_DATE}.md`, creating the file with `rill mkfile` if it does not exist. Record: the time, a short summary of what the user said, the commitments with minutes and end points, Not today with reasons and return dates, and open questions. Mark it as the plan agreed with the user. Tomorrow's handoff reads this.
 
-## Narrowed out
-
-(No `<details>` folding — count summaries go on bold heading lines. Markdown viewer compatibility.)
-
-**Active workspaces, remaining N** · not tied to today's decisions: X / stalled 15-29 days: Y (next week's `/close` candidates) / dormant 30+ days: Z → details in [knowledge/self/current-state.md](../../knowledge/self/current-state.md)
-
-**Waiting tasks N** · overdue: X / due this month: Y / one-off scheduled: Z (if any overdue, surface exactly 1 inline link)
-
-**External signals** · today: critical alerts X, releases Y · prior day: … — latest in [newsletter]({path})
-
-## Notes
-
-(Bulleted prose, max 5 items. Recommended-action nudges must read as requests the user makes to Claude — **never output `rill log`, `rill clip`, or any `rill *` CLI command here**. Journal-capture nudge when journal-count is 0 (or 3+ days of 0); inbox-processing nudge when any unprocessed count is non-zero, suggesting daily automation if it has recurred for days. Stale-workspace warning line goes here. Plugin hook sections follow, each as-is.)
-```
-
-**Empty cases**:
-
-| Case | Behavior |
-|---|---|
-| 0 important × untouched candidates | `## ★ Today's Focus (in progress)` + most-active project |
-| /pulse Section 6 empty | 🟠 from past due/scheduled only; if 0, add a second 🟢 instead |
-| 0 draft tasks | Omit 🔵 card (4 items is fine) |
-| No activity in 12h | Today's Flow = single line |
-| 0 active workspaces | Do **not** drop the cards — re-source Top + parallels entirely from `tasks/` (Top = highest-pull task: overdue → past scheduled → near due → draft; tree degrades to 1 tier). Note "no active workspaces — surfacing urgent items from tasks/" atop the Top card |
-
-**Output language**: template strings above are canonical English. Render headings, card labels, and body in the `personal-language.md` language (English when absent), one consistent rendering per concept, translated at generation time (never import source-material vocabulary untranslated). Verbatim in every language: the H1 `# YYYY-MM-DD Daily Briefing` (SC-01) and the literal `waiting` status token (TK-04). Reuse the previous Daily Note's heading renderings when its language matches. Notes nudges keep a warm conversational tone in the user's language.
-
-**Task display**: title = ticket h1 as-is; 1-sentence background; link `../../tasks/{slug}/_task.md`; show `due` when present; show `` `waiting` `` in backticks. Example: `- **[Submit Q4 expense report](../../tasks/submit-expense-report/_task.md)** — Reimbursement deadline approaching. due: 2026-04-15`
-
-**Post-output**: display a 3-5 line summary and finish. Do not transition to assistant mode.
+Progress itself stays in the source records (tasks, workspaces). The daily note records the state as of that morning and the day's choices. Never rewrite task statuses from the standup unless the user asks.
 
 ## Constraints
 
-- **Never modify inbox/journal/ and inbox/*/ originals** (read-only). Prefer `_organized/` versions when present.
+- Never modify `inbox/` originals. Prefer `_organized/` versions.
 - Create `reports/daily/` if missing.
-- Prose-based sections with context and recommended actions.
-- File references always as `[display name](../../relative-path)` links; backtick-only ID references prohibited.
-- Partially-present self/ files: proceed, treat missing ones as empty.
+- Contacts (email addresses, phone numbers) of other people are never written into the daily note.
+- Do not invent estimates without saying they are estimates. Do not present inference as fact.
+- File references in the note as `[display name](../../relative-path)`; backtick-only ID references are prohibited.

@@ -74,7 +74,7 @@ if ! $SKIP_EXECUTE; then
 
   isolate_test_vault "$VAULT_DIR"
 
-  claude -p "/briefing $TARGET_DATE" \
+  claude -p "/briefing --handoff $TARGET_DATE" \
     --output-format text \
     --max-turns 50 \
     2>&1 | tee "$RESULTS_DIR/briefing-output.log"
@@ -115,46 +115,39 @@ if [[ -f "$DAILY_NOTE" ]]; then
 fi
 echo ""
 
-# 3. Section structure (SC-01 to SC-05)
+# 3. Section structure (SC-01 to SC-03) — handoff block
 echo "=== SC: Section structure ==="
 if [[ -f "$DAILY_NOTE" ]]; then
   # SC-01: Title
   TITLE_LINE=$(grep '^# ' "$DAILY_NOTE" | head -1)
   assert_true "[[ -n '$TITLE_LINE' ]]" "SC-01: Has H1 title"
 
-  # Language note: the fixture vault ships no .claude/rules/personal-language.md,
-  # so /briefing renders the canonical English v3 headings (localized vaults are
-  # out of this fixture's scope — the skill translates headings at runtime).
+  # SC-02: handoff markers, start before end
+  START_LN=$(grep -n '^<!-- handoff:start -->$' "$DAILY_NOTE" | head -1 | cut -d: -f1)
+  END_LN=$(grep -n '^<!-- handoff:end -->$' "$DAILY_NOTE" | head -1 | cut -d: -f1)
+  assert_true "[[ -n '$START_LN' && -n '$END_LN' && '$START_LN' -lt '$END_LN' ]]" "SC-02: Handoff markers present and ordered"
 
-  # SC-02: Activity section (v3 canonical: "Today's Flow" / v2 fallback: Yesterday's Activity)
-  HAS_ACTIVITY=$({ grep -c '^## .*Flow\|^## .*Yesterday\|^## .*Activity' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
-  assert_gt "$HAS_ACTIVITY" 0 "SC-02: Has activity section"
-
-  # SC-03: Focus section (v3 canonical: "Today's Focus" / v2 fallback: Today's Focus)
-  HAS_FOCUS=$({ grep -c '^## .*Today\|^## .*Focus' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
-  assert_gt "$HAS_FOCUS" 0 "SC-03: Has focus section"
-
-  # SC-04: Cards section (v3 canonical: "In Parallel (N)" / v2 fallback: Situation Analysis)
-  HAS_ANALYSIS=$({ grep -c '^## .*Parallel\|^## .*Situation\|^## .*Analysis' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
-  assert_gt "$HAS_ANALYSIS" 0 "SC-04: Has cards section"
-
-  # SC-05: Notes (optional — only check if content warrants it)
-  HAS_NOTES=$({ grep -ci '^## .*Notes\|^## .*Attention\|^## .*Caution' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
-  echo "  INFO: Notes section present: $HAS_NOTES (optional)"
+  # SC-03: four ### sections inside the block (the fixture vault has no language
+  # rule, so the canonical English headings are rendered)
+  if [[ -n "$START_LN" && -n "$END_LN" ]]; then
+    BLOCK=$(sed -n "${START_LN},${END_LN}p" "$DAILY_NOTE")
+    H3_COUNT=$(printf '%s\n' "$BLOCK" | grep -c '^### ' || true)
+    assert_eq "$H3_COUNT" "4" "SC-03: Four handoff sections"
+    HAS_NEEDS=$(printf '%s\n' "$BLOCK" | grep -ci '^### .*Needs you' || true)
+    assert_gt "$HAS_NEEDS" 0 "SC-03: 'Needs you today' section"
+    HAS_NOTHING=$(printf '%s\n' "$BLOCK" | grep -ci '^### .*Nothing needed' || true)
+    assert_gt "$HAS_NOTHING" 0 "SC-03: 'Nothing needed now' section"
+  fi
 fi
 echo ""
 
-# 4. Task display rules (TK-03, TK-04)
+# 4. Task display rules (TK-01, TK-03, TK-05)
 echo "=== TK: Task display ==="
 if [[ -f "$DAILY_NOTE" ]]; then
   # TK-03: Reference links — task OR workspace (v3 relaxation, the 5-card narrowing may produce all-workspace briefings)
   REF_LINKS=$({ grep -c '../../tasks/\|../../workspace/' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
   assert_gt "$REF_LINKS" 0 "TK-03: Has task or workspace reference links (v3-relaxed)"
 
-  # TK-04: waiting tasks marker — optional in v3 (waiting tasks may collapse into the
-  # "Narrowed out" count summary without surfacing the literal `waiting` token)
-  HAS_WAITING=$({ grep -c '`waiting`\|waiting' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
-  echo "  INFO: Waiting marker present: $HAS_WAITING (optional in v3, may be summarized in the Narrowed out section)"
 
   # TK-01: open tasks are referenced — v3 relaxation
   # In v2 the fixture's `oauth-provider-investigation` task was always cited;
@@ -168,16 +161,6 @@ if [[ -f "$DAILY_NOTE" ]]; then
   # TK-05: Overdue task detection (review-auth0-contract has due: 2026-01-13, target is 2026-01-15)
   HAS_OVERDUE=$({ grep -ci 'overdue\|expired\|delayed\|auth0.*contract\|review-auth0-contract\|contract.*review' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
   assert_gt "$HAS_OVERDUE" 0 "TK-05: Overdue task detected or referenced"
-fi
-echo ""
-
-# 5. Previous briefing reference (DC-04)
-echo "=== DC-04: Previous briefing ==="
-if [[ -f "$DAILY_NOTE" ]]; then
-  # The previous day's briefing (2026-01-14.md) was available.
-  # The new briefing should reference or build on previous content.
-  HAS_PREV_REF=$({ grep -ci 'previous\|prior\|2026-01-14\|yesterday\|last briefing' "$DAILY_NOTE" 2>/dev/null || echo "0"; } | tr -d '[:space:]')
-  assert_gt "$HAS_PREV_REF" 0 "DC-04: References previous briefing content"
 fi
 echo ""
 
