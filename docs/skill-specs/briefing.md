@@ -18,6 +18,7 @@ Behavioral specification for /briefing. Two entry points share one daily note: `
 | IO-I6 | `reports/daily/*.md` (most recent before target) | Yesterday's standup commitments |
 | IO-I7 | Proactive run directory for the target date (e.g. `reports/anticipation/{DATE}/`) | Existence check |
 | IO-I8 | The user's monologue | Standup mode only |
+| IO-I9 | Mail, calendar, activity-log, tasks and workspaces changed since the handoff was written | Standup mode, when a handoff exists |
 
 ### Output
 
@@ -86,4 +87,4 @@ Headings are canonical English in the skill and rendered in the vault language a
 | PL-01 | Handoff mode is fully unattended; no questions | Log confirmation | ✅ |
 | PL-02 | Handoff rerun replaces only the marked block | Diff | ⚠️ manual |
 | PL-03 | Handoff finishes with a 2–3 line summary | Log confirmation | ✅ |
-| PL-04 | Plugin hooks are non-fatal on failure | Error handling | ✅ |
+| PL-04 | Plugin hooks are non-fatal on failure; their output sits between `<!-- briefing-hooks:start -->` and `<!-- briefing-hooks:end -->` and is replaced on rerun | Error handling, diff | ✅ |

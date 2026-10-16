@@ -95,7 +95,7 @@ Persist with merge-write semantics: update only `nudge_state[period_id]` and (wh
 
 ### Plugin hooks
 
-For each plugin in `plugins/.enabled` whose `plugin.md` frontmatter has `hooks.briefing`, run its hook prompt via a sub-agent in the foreground. Each returns a `## Section` block, inserted after the handoff block. Failures are non-fatal: log and skip.
+For each plugin in `plugins/.enabled` whose `plugin.md` frontmatter has `hooks.briefing`, run its hook prompt via a sub-agent in the foreground. Each returns a `## Section` block. Put all returned blocks, in plugin order, between `<!-- briefing-hooks:start -->` and `<!-- briefing-hooks:end -->` right after the handoff end marker; on a same-day rerun, replace what is between these markers (omit the pair when no hook returns anything). Failures are non-fatal: log and skip.
 
 ### Writing the file
 
@@ -105,7 +105,7 @@ The daily note keeps one file per day. If `reports/daily/{TARGET_DATE}.md` does 
 rill mkfile reports/daily --date YYYY-MM-DD --type daily-note --field "journal-count=N"
 ```
 
-The handoff is the text between two marker lines, so a same-day rerun replaces only the handoff and leaves any standup section intact. If the markers exist, replace what is between them; otherwise insert the block right after the H1.
+The handoff is the text between two marker lines, so a same-day rerun replaces only the handoff (and the plugin-hook block, which has its own markers) and leaves any standup section intact. If the markers exist, replace what is between them; otherwise insert the block right after the H1.
 
 ```markdown
 # YYYY-MM-DD Daily Briefing
@@ -134,7 +134,7 @@ The user talks; the skill listens, then organizes once. It is not an interview.
 
 1. **If the user has not said anything about the day yet** (no text with the command), reply with one short line inviting them to talk freely about today (what they plan, what is on their mind, anything that came up), and end the turn. Do not read sources before they talk, and do not summarize the handoff at them.
 2. **While they talk**, do not interrupt. If the message ends mid-thought or says there is more, reply with one short acknowledgement and wait.
-3. **When they are done**, read the shared inputs. If today's handoff block exists, use it as the gathered state instead of re-reading every source; re-read only mail and calendar since the handoff was written. If no handoff exists, gather the shared inputs yourself.
+3. **When they are done**, read the shared inputs. If today's handoff block exists, use it as the starting state instead of re-reading every source, then check what changed since it was written: mail and calendar since then, `activity-log.md` entries since then, and task tickets and `_workspace.md` files modified since then (status changes, new tickets with `due` or `scheduled`, completed Next Steps). Prefer the newer state wherever the two disagree. If no handoff exists, gather the shared inputs yourself.
 4. **Reply once**, in this order:
    - What they said, organized by topic in their own terms (short; this shows it was heard). Keep their intent: if they said "today", it stays a today candidate unless something rules it out, and then say what.
    - What they did not mention but should know today: deadlines, appointments, unread requests, yesterday's undone commitments — only those that change today's choices.
