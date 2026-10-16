@@ -132,7 +132,7 @@ The handoff is the text between two marker lines, so a same-day rerun replaces o
 <!-- handoff:end -->
 ```
 
-The H1 stays verbatim in every language (SC-01). Section headings are rendered in the vault language, one consistent rendering per concept; reuse the previous daily note's renderings when its language matches. Keep the four `###` sections in this order even when empty (write one sentence saying it is empty), so that a mail builder can rely on them. Inside sections use only the item format above; no tables, no code blocks, no emoji. Keep the opening sentence to the sources read and the counts.
+The H1 stays verbatim in every language (SC-01). Section headings are rendered in the vault language, one consistent rendering per concept; reuse the previous daily note's renderings when its language matches. Keep the four `###` sections in this order even when empty (write one sentence saying it is empty), so that a mail builder can rely on them. Inside sections use only the item format above; no tables, no code blocks, no emoji. Keep the opening to the sources read, the counts, and (when yesterday's standup left commitments) one sentence on which were done and which were not.
 
 Finish with a 2–3 line summary of counts. Do not chain to other skills.
 
