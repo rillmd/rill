@@ -111,6 +111,7 @@ The handoff is the text between two marker lines, so a same-day rerun replaces o
 # YYYY-MM-DD Daily Briefing
 
 <!-- handoff:start -->
+<!-- gathered-at: {ISO 8601 time when reading the shared inputs began} -->
 ## Morning Handoff
 
 {One opening sentence: what this is, which sources were read, and the counts of the first three sections.}
@@ -134,7 +135,7 @@ The user talks; the skill listens, then organizes once. It is not an interview.
 
 1. **If the user has not said anything about the day yet** (no text with the command), reply with one short line inviting them to talk freely about today (what they plan, what is on their mind, anything that came up), and end the turn. Do not read sources before they talk, and do not summarize the handoff at them.
 2. **While they talk**, do not interrupt. If the message ends mid-thought or says there is more, reply with one short acknowledgement and wait.
-3. **When they are done**, read the shared inputs. If today's handoff block exists, use it as the starting state instead of re-reading every source, then check what changed since it was written: mail and calendar since then, `activity-log.md` entries since then, and task tickets and `_workspace.md` files modified since then (status changes, new tickets with `due` or `scheduled`, completed Next Steps). Prefer the newer state wherever the two disagree. If no handoff exists, gather the shared inputs yourself.
+3. **When they are done**, read the shared inputs. If today's handoff block exists, use it as the starting state instead of re-reading every source, then check what changed since its gathering started (the `gathered-at` comment at the top of the block; if absent, the daily note's `created`): mail and calendar since then, `activity-log.md` entries since then, and task tickets and `_workspace.md` files modified since then (status changes, new tickets with `due` or `scheduled`, completed Next Steps). Prefer the newer state wherever the two disagree. For any source the handoff's coverage line reports as failed or skipped, read it over the full shared-input range instead of the difference. If no handoff exists, gather the shared inputs yourself.
 4. **Reply once**, in this order:
    - What they said, organized by topic in their own terms (short; this shows it was heard). Keep their intent: if they said "today", it stays a today candidate unless something rules it out, and then say what.
    - What they did not mention but should know today: deadlines, appointments, unread requests, yesterday's undone commitments — only those that change today's choices.
