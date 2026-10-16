@@ -78,6 +78,19 @@ Item format (a mail builder parses it; keep it exact):
 
 If yesterday's standup left commitments, the opening sentence says how many were done and which were not; carry an undone one into section 1 only if it still has a reason to be done today.
 
+### Showing only what changed
+
+A handoff read every morning loses attention when the same items repeat in the same words: repeated identical warnings are habituated to, and attention returns when something visibly changes (security-warning habituation studies; tiered clinical alerts; alert repeat intervals). So each handoff is compared with the previous one, and unchanged items are kept but made quiet.
+
+1. **Find the previous handoff**: the most recent daily note before TARGET_DATE (up to 7 days back) that has a handoff block. If there is none, every item is new and nothing below applies.
+2. **Classify each item** of sections 2 and 3 against it, by its lead (deadlines are matched by date and what it is): *new* (not in the previous handoff), *changed* (the date, the state, the remaining effort, or the action changed), or *unchanged*. Write the leads in the same words as the previous handoff when the thing is the same, so the comparison stays stable.
+3. **Mark** new and changed items by ending their headline line with `<!-- new -->` or `<!-- changed -->`. The detail of a changed item says what changed, first ("Preparation went from 0 to 1.5 hours; 5 days left").
+4. **Deadlines ahead** shows an item in full only on its milestone days: when it is new or changed, on the day preparation must start to finish in time (when an estimate exists), and 7 days, 3 days, 1 day before and on the day. On other days it is unchanged.
+5. **Nothing needed now** shows every item in full on the first handoff of the week (Monday, or the first one after a gap of 3 days or more). On other days only new and changed items are full.
+6. **Unchanged items** of a section are not dropped. They go, after the section's full items, on one line that starts with `<!-- unchanged -->` and then one plain sentence naming each by its lead (for deadlines, the date and what it is), for example `<!-- unchanged --> Still the same: Oct 31 (Sat) director pay, Oct 31 (Sat) PTA survey.` Omit the line when there are none.
+7. Sections 1 and 4 are always shown in full: section 1 is what to do today, section 4 is new by definition. If a section 1 item was also there yesterday, its rest says so ("second day").
+8. The opening sentence counts the full items and the unchanged ones separately.
+
 ### Thursday retrospective nudge (state contract)
 
 Runs in handoff mode only (never in standup, so a strike is not counted twice). All dates derive from TARGET_DATE. State: `.claude/state/retrospective.json` (missing file = all fields empty; parse error = one-line warning, no nudge).
