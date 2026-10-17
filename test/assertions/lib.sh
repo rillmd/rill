@@ -236,6 +236,9 @@ check_real_repo_contamination() {
       echo ""
     fi
   done
+  if $found; then
+    return 1
+  fi
   if ! $found; then
     echo "  OK: Contamination check: no fixture files leaked to $repo_real_dir"
   fi
@@ -268,5 +271,12 @@ report_results() {
     done
   fi
   echo "==========================================="
-  return "$_FAIL"
+  (( _FAIL == 0 ))
+}
+
+# Aggregate child assertions in the parent without hiding failures.
+run_assertion() {
+  local rc=0
+  "$@" || rc=$?
+  assert_eq "$rc" "0" "Child assertion: $*"
 }

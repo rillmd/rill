@@ -107,7 +107,7 @@ echo ""
 
 # 1. Inbox immutability (INV-01)
 echo "=== INV-01: Inbox immutability ==="
-bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE" || true
+run_assertion bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE"
 echo ""
 
 # 2. _summary.md existence and frontmatter (INV-02)
@@ -186,10 +186,10 @@ for f in knowledge/notes/*.md; do
     echo "  New note: $name"
 
     # Reuse distill assertion checks on each new note
-    bash "$ASSERTIONS_DIR/check-frontmatter.sh" "$f" --required "created,type,source" || true
-    bash "$ASSERTIONS_DIR/check-taxonomy.sh" "$f" taxonomy.md || true
-    bash "$ASSERTIONS_DIR/check-mentions.sh" "$f" || true
-    bash "$ASSERTIONS_DIR/check-file-naming.sh" "$f" || true
+    run_assertion bash "$ASSERTIONS_DIR/check-frontmatter.sh" "$f" --required "created,type,source"
+    run_assertion bash "$ASSERTIONS_DIR/check-taxonomy.sh" "$f" taxonomy.md
+    run_assertion bash "$ASSERTIONS_DIR/check-mentions.sh" "$f"
+    run_assertion bash "$ASSERTIONS_DIR/check-file-naming.sh" "$f"
 
     # KD-05: source points to workspace deliverable
     NOTE_SOURCE=$(fm_get "$f" "source")
@@ -254,7 +254,7 @@ echo ""
 
 # 8. Key fact preservation (KF)
 echo "=== KF: Key fact preservation ==="
-bash "$ASSERTIONS_DIR/check-keyfacts.sh" "." "$FIXTURES_DIR" || true
+run_assertion bash "$ASSERTIONS_DIR/check-keyfacts.sh" "." "$FIXTURES_DIR"
 echo ""
 
 # 9. Existing file immutability
@@ -355,7 +355,7 @@ cat > "$RESULTS_DIR/summary.json" <<EOF
 }
 EOF
 
-report_results || true
+report_results
 
 echo ""
 echo "Vault preserved at: $VAULT_DIR"
