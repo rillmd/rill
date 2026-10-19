@@ -229,16 +229,80 @@ cmd_push() {
         done
     fi
 
-    git add -A
-    local msg
-    msg="journal: $(date '+%Y-%m-%d %H:%M')"
-    if git diff --cached --quiet; then
-        echo "Nothing to push."
-        return 0
+    # Several writers push to the same branch (the Mac, a scheduled job, cloud
+    # sessions, the phone). The sequence is: commit locally first, so local
+    # work is safe before any network step; then fetch and rebase onto the
+    # remote branch; then push. A rebase conflict is never resolved here and
+    # nothing is ever force-pushed: the rebase is aborted, the commit stays
+    # local, and the command exits non-zero so the caller can report it. The
+    # next run tries again. Scripts and hooks call this without going through
+    # Claude Code's permission rules, so the no-force guarantee has to live in
+    # this function.
+    if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
+        echo "⚠️  A rebase is already in progress. Finish it (git rebase --continue) or drop it (git rebase --abort), then run rill push again." >&2
+        return 1
     fi
-    git commit -m "$msg"
-    git push
-    echo "Pushed."
+
+    local branch
+    if ! branch="$(git symbolic-ref --short -q HEAD)"; then
+        echo "⚠️  Not on a branch (detached HEAD); nothing pushed." >&2
+        return 1
+    fi
+    local remote
+    remote="$(git config "branch.$branch.remote" 2>/dev/null || echo origin)"
+
+    # Rill-Writer names who wrote the commit, so the history can be filtered
+    # per writer (git log --grep, git shortlog --group=trailer:rill-writer).
+    # Callers set RILL_WRITER (e.g. a scheduled job or a cloud environment);
+    # the short host name is the fallback.
+    local writer="${RILL_WRITER:-$(hostname -s 2>/dev/null || echo unknown)}"
+    writer="${writer//[^A-Za-z0-9_.@-]/_}"
+
+    git add -A
+    if ! git diff --cached --quiet; then
+        git commit -q -m "journal: $(date '+%Y-%m-%d %H:%M')" -m "Rill-Writer: $writer"
+    fi
+
+    if ! git remote get-url "$remote" >/dev/null 2>&1; then
+        echo "⚠️  No git remote '$remote'; committed locally, nothing pushed." >&2
+        return 1
+    fi
+
+    local attempt conflicts
+    for attempt in 1 2; do
+        if ! git fetch -q "$remote" 2>/dev/null; then
+            echo "⚠️  Could not reach '$remote'; your changes are committed locally and were not pushed." >&2
+            return 1
+        fi
+        if git rev-parse --verify -q "refs/remotes/$remote/$branch" >/dev/null; then
+            if ! git rebase -q "$remote/$branch" >/dev/null 2>&1; then
+                conflicts="$(git diff --name-only --diff-filter=U 2>/dev/null || true)"
+                if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
+                    git rebase --abort >/dev/null 2>&1 || true
+                fi
+                if [ -n "$conflicts" ]; then
+                    echo "⚠️  Your changes and newer changes on $remote/$branch edit the same lines in:" >&2
+                    printf '%s\n' "$conflicts" | sed 's/^/      /' >&2
+                    echo "   Your commit is kept locally and was not pushed. Combine the two versions of these files, commit, and run rill push again." >&2
+                else
+                    echo "⚠️  Could not rebase onto $remote/$branch (are there uncommitted changes?). Your commit is kept locally and was not pushed." >&2
+                fi
+                return 1
+            fi
+            if [ "$(git rev-list --count "$remote/$branch..HEAD")" = "0" ]; then
+                echo "Nothing to push."
+                return 0
+            fi
+        fi
+        if git push -q -u "$remote" "$branch" >/dev/null 2>&1; then
+            echo "Pushed."
+            return 0
+        fi
+        # Most often another writer pushed between our fetch and our push.
+        # Fetch, rebase, and push once more.
+    done
+    echo "⚠️  Push to $remote/$branch was rejected twice. Your commit is kept locally; run rill push again." >&2
+    return 1
 }
 
 cmd_status() {
@@ -6218,7 +6282,7 @@ User commands — quick capture from outside Claude Code:
   log [text]            Create a journal entry (inline or editor)
   i, interactive        Interactive mode (unlimited input, blank line to save)
   clip <url>            Save a web page/tweet to inbox/ for later processing
-  push                  Git add, commit, and push all changes
+  push                  Commit all changes, rebase onto the remote, and push (never forces)
   status [n]            Show recent journal entries (default: 10)
   edit                  Open the latest journal entry in editor
   open <path>           Open a file in the Rill GUI (--highlight for emphasis)

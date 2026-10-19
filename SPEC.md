@@ -1038,7 +1038,7 @@ Grouped by audience, matching `rill help`'s own grouping: commands you type your
 | `rill log [text]` | Create a journal entry. Opens editor if no argument |
 | `rill i` / `rill interactive` | Interactive mode (unlimited input, blank line to save) |
 | `rill clip <url>` | Save a web page/tweet to inbox/ for later processing |
-| `rill push` | git add -A && commit && push |
+| `rill push` | git add -A, commit (with a `Rill-Writer` trailer), fetch and rebase onto the remote branch, push. On a rebase conflict it aborts the rebase, keeps the commit local, and exits non-zero; it never force-pushes |
 | `rill status [n]` | Show recent journal entries (default: 10) |
 | `rill edit` | Open the latest journal entry in editor |
 | `rill open <path>` | Open a file in the Rill GUI (`--highlight` for emphasis) |
