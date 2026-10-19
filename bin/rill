@@ -292,11 +292,22 @@ cmd_push() {
         return 1
     fi
 
+    # RILL_PUSH_BRANCH sends the work to that branch of the push remote
+    # instead of the current branch's own destination. Cloud sessions check
+    # out a per-session branch; setting RILL_PUSH_BRANCH=main in the cloud
+    # environment lets every writer share one branch.
+    local target_branch="${RILL_PUSH_BRANCH:-}"
+    if [ -n "$target_branch" ] && ! git check-ref-format --branch "$target_branch" >/dev/null 2>&1; then
+        echo "⚠️  RILL_PUSH_BRANCH is not a valid branch name: $target_branch" >&2
+        return 1
+    fi
+
     # Rill-Writer names who wrote the commit, so the history can be filtered
     # per writer (git log --grep, git shortlog --group=trailer:rill-writer).
     # Callers set RILL_WRITER (e.g. a scheduled job or a cloud environment);
-    # the short host name is the fallback.
-    local writer="${RILL_WRITER:-$(hostname -s 2>/dev/null || echo unknown)}"
+    # otherwise `git config rill.writer` (set once per machine), then the
+    # short host name.
+    local writer="${RILL_WRITER:-$(git config rill.writer 2>/dev/null || hostname -s 2>/dev/null || echo unknown)}"
     writer="${writer//[^A-Za-z0-9_.@-]/_}"
 
     git add -A
@@ -313,6 +324,7 @@ cmd_push() {
     # pushRemote, push refspecs, push.default) applies as before. The rebase
     # target is the remote-tracking ref of that same destination; when there
     # is none yet (first push of a branch), there is nothing to rebase onto.
+    # With RILL_PUSH_BRANCH set, both are that branch on the push remote.
     local push_ref err conflicts remote attempt
     remote="$(_push_remote)"
     for attempt in 1 2; do
@@ -321,7 +333,11 @@ cmd_push() {
             [ -n "$err" ] && printf '%s\n' "$err" | sed 's/^/      /' >&2
             return 1
         fi
-        push_ref="$(_push_tracking_ref)"
+        if [ -n "$target_branch" ]; then
+            push_ref="refs/remotes/$remote/$target_branch"
+        else
+            push_ref="$(_push_tracking_ref)"
+        fi
         if [ -n "$push_ref" ] && git rev-parse --verify -q "$push_ref" >/dev/null; then
             # A plain rebase drops merge commits, and with them any change
             # made while merging. Leave such history to the user.
@@ -351,7 +367,9 @@ cmd_push() {
                 return 0
             fi
         fi
-        if err="$(git push -q 2>&1)"; then
+        if [ -n "$target_branch" ]; then
+            err="$(git push -q "$remote" "HEAD:refs/heads/$target_branch" 2>&1)" && { echo "Pushed."; return 0; }
+        elif err="$(git push -q 2>&1)"; then
             echo "Pushed."
             return 0
         fi

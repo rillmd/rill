@@ -15,6 +15,10 @@
 #   - unpushed merge commits are refused rather than flattened
 #   - a push rejected by a hook shows the hook's message
 #   - branch.<b>.pushRemote is honored (rebase and push go to that remote)
+#   - RILL_PUSH_BRANCH sends a per-session branch's work to main, rebased
+#     onto main, without creating the session branch on the remote
+#   - an invalid RILL_PUSH_BRANCH is refused
+#   - git config rill.writer is the writer when RILL_WRITER is unset
 #   - a clean, up-to-date vault reports "Nothing to push."
 #
 # Usage: bash test/cli/test-push-rebase.sh
@@ -220,6 +224,34 @@ rc=0; out="$(push_b)" || rc=$?
 assert_eq "$rc" "0" "push to the configured pushRemote exits 0"
 assert_eq "$(remote_head)" "$origin_before" "origin is untouched when pushRemote names another remote"
 assert_out_contains "$(git -C "$WORK/private.git" show main:activity-log.md)" "- b-private" "the commit reached the pushRemote"
+
+# --- 12. RILL_PUSH_BRANCH: a per-session branch pushes to main ------------
+clone "$WORK/c" c
+git -C "$WORK/c" checkout -q -b claude/session-1
+rc=0; out="$(push_a)" || rc=$?   # advance origin/main past c's base
+echo "- a-before-cloud" >> "$WORK/a/activity-log.md"
+rc=0; out="$(push_a)" || rc=$?
+echo "- cloud" >> "$WORK/c/activity-log.md"
+rc=0; out="$(RILL_HOME="$WORK/c" RILL_WRITER=cloud RILL_PUSH_BRANCH=main "$RILL" push 2>&1)" || rc=$?
+assert_eq "$rc" "0" "push with RILL_PUSH_BRANCH=main exits 0"
+log_remote="$(git -C "$WORK/remote.git" show main:activity-log.md)"
+assert_out_contains "$log_remote" "- cloud" "the session branch's line reached main"
+assert_out_contains "$log_remote" "- a-before-cloud" "main's newer line survives (rebased, not overwritten)"
+assert_eq "$(git -C "$WORK/remote.git" branch --list 'claude/*')" "" "the session branch is not created on the remote"
+trailer="$(git -C "$WORK/remote.git" log -1 --format='%(trailers:key=Rill-Writer,valueonly)' main | tr -d '\n')"
+assert_eq "$trailer" "cloud" "the cloud commit carries its writer"
+rc=0; out="$(RILL_HOME="$WORK/c" RILL_PUSH_BRANCH=main "$RILL" push 2>&1)" || rc=$?
+assert_out_contains "$out" "Nothing to push." "a second run with nothing new reports nothing to push"
+
+rc=0; out="$(RILL_HOME="$WORK/c" RILL_PUSH_BRANCH='bad..name' "$RILL" push 2>&1)" || rc=$?
+assert_true "[ $rc -ne 0 ]" "an invalid RILL_PUSH_BRANCH is refused"
+
+# --- 13. git config rill.writer ---------------------------------------------
+git -C "$WORK/c" config rill.writer configured-writer
+echo "- configured" >> "$WORK/c/activity-log.md"
+rc=0; out="$(RILL_HOME="$WORK/c" RILL_PUSH_BRANCH=main "$RILL" push 2>&1)" || rc=$?
+trailer="$(git -C "$WORK/remote.git" log -1 --format='%(trailers:key=Rill-Writer,valueonly)' main | tr -d '\n')"
+assert_eq "$trailer" "configured-writer" "rill.writer names the writer when RILL_WRITER is unset"
 
 echo ""
 report_results
