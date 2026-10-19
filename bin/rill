@@ -209,6 +209,33 @@ cmd_log() {
     fi
 }
 
+_push_tracking_ref() {
+    # Remote-tracking ref of the current branch's push destination. @{push}
+    # covers upstream, push refspecs, and push.default, but git cannot
+    # resolve it for push.default=simple when the push remote differs from
+    # the upstream remote, although `git push` itself then pushes to the
+    # same-named branch. Fall back to that same-named branch on the push
+    # remote (pushRemote, remote.pushDefault, upstream remote, or the only
+    # remote). Prints nothing when no such ref exists.
+    local ref
+    if ref="$(git rev-parse -q --symbolic-full-name '@{push}' 2>/dev/null)" && [ -n "$ref" ]; then
+        printf '%s' "$ref"
+        return 0
+    fi
+    local branch remote
+    branch="$(git symbolic-ref --short -q HEAD)" || return 0
+    remote="$(git config "branch.$branch.pushRemote" 2>/dev/null \
+        || git config remote.pushDefault 2>/dev/null \
+        || git config "branch.$branch.remote" 2>/dev/null || true)"
+    if [ -z "$remote" ] && [ "$(git remote | wc -l | tr -d ' ')" = "1" ]; then
+        remote="$(git remote)"
+    fi
+    [ -n "$remote" ] || return 0
+    git rev-parse --verify -q "refs/remotes/$remote/$branch" >/dev/null \
+        && printf '%s' "refs/remotes/$remote/$branch"
+    return 0
+}
+
 cmd_push() {
     cd "$RILL_HOME"
 
@@ -243,25 +270,9 @@ cmd_push() {
         return 1
     fi
 
-    local branch
-    if ! branch="$(git symbolic-ref --short -q HEAD)"; then
+    if ! git symbolic-ref -q HEAD >/dev/null; then
         echo "⚠️  Not on a branch (detached HEAD); nothing pushed." >&2
         return 1
-    fi
-
-    # Resolve where a plain `git push` would send this branch, honoring
-    # branch.<b>.pushRemote, remote.pushDefault, and push.default=upstream,
-    # so the rebase target and the push target are the same ref.
-    local up_remote up_merge remote target
-    up_remote="$(git config "branch.$branch.remote" 2>/dev/null || true)"
-    up_merge="$(git config "branch.$branch.merge" 2>/dev/null || true)"
-    remote="$(git config "branch.$branch.pushRemote" 2>/dev/null \
-        || git config remote.pushDefault 2>/dev/null \
-        || printf '%s' "${up_remote:-origin}")"
-    target="$branch"
-    if [ "$(git config push.default 2>/dev/null || true)" = "upstream" ] \
-        && [ "$remote" = "$up_remote" ] && [ -n "$up_merge" ]; then
-        target="${up_merge#refs/heads/}"
     fi
 
     # Rill-Writer names who wrote the commit, so the history can be filtered
@@ -276,56 +287,57 @@ cmd_push() {
         git commit -q -m "journal: $(date '+%Y-%m-%d %H:%M')" -m "Rill-Writer: $writer"
     fi
 
-    if ! git remote get-url "$remote" >/dev/null 2>&1; then
-        echo "⚠️  No git remote '$remote'; committed locally, nothing pushed." >&2
+    if [ -z "$(git remote)" ]; then
+        echo "⚠️  No git remote; committed locally, nothing pushed." >&2
         return 1
     fi
 
-    local tracking="refs/remotes/$remote/$target" err conflicts
+    # The push itself is a plain `git push`, so every push setting (upstream,
+    # pushRemote, push refspecs, push.default) applies as before. The rebase
+    # target is the remote-tracking ref of that same destination; when there
+    # is none yet (first push of a branch), there is nothing to rebase onto.
+    local push_ref err conflicts
     for _ in 1 2; do
-        if ! err="$(git fetch -q "$remote" 2>&1)"; then
-            echo "⚠️  Could not fetch from '$remote'; your changes are committed locally and were not pushed." >&2
-            [ -n "$err" ] && printf '%s\n' "$err" >&2
+        if ! err="$(git fetch -q --all 2>&1)"; then
+            echo "⚠️  Could not fetch; your changes are committed locally and were not pushed." >&2
+            [ -n "$err" ] && printf '%s\n' "$err" | sed 's/^/      /' >&2
             return 1
         fi
-        if git rev-parse --verify -q "$tracking" >/dev/null; then
+        push_ref="$(_push_tracking_ref)"
+        if [ -n "$push_ref" ] && git rev-parse --verify -q "$push_ref" >/dev/null; then
             # A plain rebase drops merge commits, and with them any change
             # made while merging. Leave such history to the user.
-            if [ "$(git rev-list --merges --count "$tracking..HEAD")" != "0" ]; then
+            if [ "$(git rev-list --merges --count "$push_ref..HEAD")" != "0" ]; then
                 echo "⚠️  There are unpushed merge commits, which rill push does not rebase. Push them by hand (git pull --no-rebase, then git push). Nothing was pushed." >&2
                 return 1
             fi
-            if ! git rebase -q "$tracking" >/dev/null 2>&1; then
+            if ! git rebase -q "$push_ref" >/dev/null 2>&1; then
                 conflicts="$(git diff --name-only --diff-filter=U 2>/dev/null || true)"
                 if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
                     git rebase --abort >/dev/null 2>&1 || true
                 fi
                 if [ -n "$conflicts" ]; then
-                    echo "⚠️  Your changes and newer changes on $remote/$target edit the same lines in:" >&2
+                    echo "⚠️  Your changes and newer changes on ${push_ref#refs/remotes/} edit the same lines in:" >&2
                     printf '%s\n' "$conflicts" | sed 's/^/      /' >&2
-                    echo "   Your commit is kept locally and was not pushed. To combine them: git rebase $remote/$target, fix the files above, git add them, git rebase --continue, then rill push." >&2
+                    echo "   Your commit is kept locally and was not pushed. To combine them: git rebase ${push_ref#refs/remotes/}, fix the files above, git add them, git rebase --continue, then rill push." >&2
                 else
-                    echo "⚠️  Could not rebase onto $remote/$target (are there uncommitted changes?). Your commit is kept locally and was not pushed." >&2
+                    echo "⚠️  Could not rebase onto ${push_ref#refs/remotes/} (are there uncommitted changes?). Your commit is kept locally and was not pushed." >&2
                 fi
                 return 1
             fi
-            if [ "$(git rev-list --count "$tracking..HEAD")" = "0" ]; then
+            if [ "$(git rev-list --count "$push_ref..HEAD")" = "0" ]; then
                 echo "Nothing to push."
                 return 0
             fi
         fi
-        local push_args=(-q)
-        # First push of a branch with no upstream: record one, as
-        # push.autoSetupRemote would. Never rewrite an existing upstream.
-        [ -z "$up_remote" ] && push_args+=(-u)
-        if err="$(git push "${push_args[@]}" "$remote" "HEAD:refs/heads/$target" 2>&1)"; then
+        if err="$(git push -q 2>&1)"; then
             echo "Pushed."
             return 0
         fi
         # Most often another writer pushed between our fetch and our push.
         # Fetch, rebase, and push once more.
     done
-    echo "⚠️  Push to $remote/$target failed twice. Your commit is kept locally. Git said:" >&2
+    echo "⚠️  Push failed twice. Your commit is kept locally. Git said:" >&2
     printf '%s\n' "$err" | sed 's/^/      /' >&2
     return 1
 }
