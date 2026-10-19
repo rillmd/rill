@@ -328,7 +328,11 @@ cmd_push() {
     local push_ref err conflicts remote attempt
     remote="$(_push_remote)"
     for attempt in 1 2; do
-        if ! err="$(git fetch -q "$remote" 2>&1)"; then
+        # Fetch the target branch by name: a single-branch clone (as cloud
+        # sessions may use) would otherwise not update its tracking ref.
+        local fetch_args=("$remote")
+        [ -n "$target_branch" ] && fetch_args+=("+refs/heads/$target_branch:refs/remotes/$remote/$target_branch")
+        if ! err="$(git fetch -q "${fetch_args[@]}" 2>&1)"; then
             echo "⚠️  Could not fetch; your changes are committed locally and were not pushed." >&2
             [ -n "$err" ] && printf '%s\n' "$err" | sed 's/^/      /' >&2
             return 1

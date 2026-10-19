@@ -243,13 +243,26 @@ assert_eq "$trailer" "cloud" "the cloud commit carries its writer"
 rc=0; out="$(RILL_HOME="$WORK/c" RILL_PUSH_BRANCH=main "$RILL" push 2>&1)" || rc=$?
 assert_out_contains "$out" "Nothing to push." "a second run with nothing new reports nothing to push"
 
+# A single-branch clone of the session branch still rebases onto main.
+git -C "$WORK/remote.git" branch claude/session-2 main
+git clone -q --single-branch -b claude/session-2 "$WORK/remote.git" "$WORK/d"
+git -C "$WORK/d" config user.email "d@example.com"; git -C "$WORK/d" config user.name d
+echo "- a-after-d-clone" >> "$WORK/a/activity-log.md"
+rc=0; out="$(push_a)" || rc=$?
+echo "- single-branch" >> "$WORK/d/activity-log.md"
+rc=0; out="$(RILL_HOME="$WORK/d" RILL_PUSH_BRANCH=main "$RILL" push 2>&1)" || rc=$?
+assert_eq "$rc" "0" "a single-branch clone pushes to main with RILL_PUSH_BRANCH"
+log_remote="$(git -C "$WORK/remote.git" show main:activity-log.md)"
+assert_out_contains "$log_remote" "- single-branch" "the single-branch clone's line reached main"
+assert_out_contains "$log_remote" "- a-after-d-clone" "main's newer line survives the single-branch push"
+
 rc=0; out="$(RILL_HOME="$WORK/c" RILL_PUSH_BRANCH='bad..name' "$RILL" push 2>&1)" || rc=$?
 assert_true "[ $rc -ne 0 ]" "an invalid RILL_PUSH_BRANCH is refused"
 
 # --- 13. git config rill.writer ---------------------------------------------
 git -C "$WORK/c" config rill.writer configured-writer
 echo "- configured" >> "$WORK/c/activity-log.md"
-rc=0; out="$(RILL_HOME="$WORK/c" RILL_PUSH_BRANCH=main "$RILL" push 2>&1)" || rc=$?
+rc=0; out="$(unset RILL_WRITER; RILL_HOME="$WORK/c" RILL_PUSH_BRANCH=main "$RILL" push 2>&1)" || rc=$?
 trailer="$(git -C "$WORK/remote.git" log -1 --format='%(trailers:key=Rill-Writer,valueonly)' main | tr -d '\n')"
 assert_eq "$trailer" "configured-writer" "rill.writer names the writer when RILL_WRITER is unset"
 
