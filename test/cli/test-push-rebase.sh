@@ -46,6 +46,11 @@ assert_out_contains() {
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# Isolate from the user's git config (e.g. a global core.hooksPath would
+# bypass the per-clone hooks these cases install).
+export HOME="$WORK/home" GIT_CONFIG_NOSYSTEM=1
+mkdir -p "$HOME"
+
 git init -q --bare -b main "$WORK/remote.git"
 
 SEED="$WORK/seed"

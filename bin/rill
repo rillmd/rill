@@ -240,6 +240,9 @@ _push_tracking_ref() {
     local branch remote
     branch="$(git symbolic-ref --short -q HEAD)" || return 0
     remote="$(_push_remote)"
+    # Same remote as the upstream: @{push} would have resolved if git meant
+    # to push there, so there is no same-named destination to assume.
+    [ "$(git config "branch.$branch.remote" 2>/dev/null || true)" != "$remote" ] || return 0
     [ -z "$(git config --get-all "remote.$remote.push" 2>/dev/null || true)" ] || return 0
     case "$(git config push.default 2>/dev/null || true)" in
         ''|simple|current) ;;
