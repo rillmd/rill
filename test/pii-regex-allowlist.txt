@@ -21,3 +21,4 @@ SPEC.md	[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}\.md	journal timestamp filename examp
 skills/distill/SKILL.md	[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}\.md	journal timestamp filename example, not a phone number
 skills/focus/SKILL.md	[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}\.md	journal timestamp filename example, not a phone number
 test/pii-regex-allowlist.txt	(090-1234-5678|080-9999-8888|90-1234-5678|\+81[- ]90-1234-5678|\+81 80 4232 1097)	self-reference: only the synthetic phone fixtures quoted above may appear here unescaped; any other email/phone/secret in this file still fails the scan
+test/cli/test-push-rebase.sh	(seed|\$name)@example\.com	test fixture git identities for the two writer clones
