@@ -12,6 +12,9 @@
 #   - a push rejected because another writer pushed between fetch and push
 #     is retried once and succeeds
 #   - a rebase already in progress is refused
+#   - unpushed merge commits are refused rather than flattened
+#   - a push rejected by a hook shows the hook's message
+#   - branch.<b>.pushRemote is honored (rebase and push go to that remote)
 #   - a clean, up-to-date vault reports "Nothing to push."
 #
 # Usage: bash test/cli/test-push-rebase.sh
@@ -169,6 +172,49 @@ rmdir "$WORK/a/.git/rebase-merge"
 rc=0; out="$(push_a)" || rc=$?
 assert_eq "$rc" "0" "an up-to-date vault exits 0"
 assert_out_contains "$out" "Nothing to push." "an up-to-date vault reports nothing to push"
+
+# --- 9. unpushed merge commits are refused, not flattened ------------------
+git -C "$WORK/a" checkout -q -b side
+echo "side" > "$WORK/a/side.md"
+git -C "$WORK/a" add side.md && git -C "$WORK/a" commit -q -m side
+git -C "$WORK/a" checkout -q main
+echo "- a-main" >> "$WORK/a/activity-log.md"
+git -C "$WORK/a" commit -q -am main-side
+git -C "$WORK/a" merge -q --no-ff -m merge side
+rc=0; out="$(push_b)" || rc=$?   # advance the remote
+echo "- b-advance" >> "$WORK/b/activity-log.md"
+rc=0; out="$(push_b)" || rc=$?
+before="$(remote_head)"
+rc=0; out="$(push_a)" || rc=$?
+assert_true "[ $rc -ne 0 ]" "push refuses to rebase unpushed merge commits"
+assert_out_contains "$out" "merge commits" "refusal explains the merge commits"
+assert_eq "$(remote_head)" "$before" "remote is untouched when merges are refused"
+assert_file_exists "$WORK/a/side.md" "the merged file is still in the working tree"
+git -C "$WORK/a" pull -q --no-rebase --no-edit origin main >/dev/null 2>&1
+git -C "$WORK/a" push -q origin main
+
+# --- 10. a hook's rejection message is shown -------------------------------
+rc=0; out="$(push_a)" || rc=$?   # bring a up to date
+printf '#!/bin/bash\necho "blocked by test hook" >&2\nexit 1\n' > "$WORK/a/.git/hooks/pre-push"
+chmod +x "$WORK/a/.git/hooks/pre-push"
+echo "- a-hook" >> "$WORK/a/activity-log.md"
+rc=0; out="$(push_a)" || rc=$?
+assert_true "[ $rc -ne 0 ]" "push rejected by a hook exits non-zero"
+assert_out_contains "$out" "blocked by test hook" "the hook's message reaches the user"
+rm -f "$WORK/a/.git/hooks/pre-push"
+rc=0; out="$(push_a)" || rc=$?
+assert_eq "$rc" "0" "the commit kept by the hook rejection is pushed next time"
+
+# --- 11. branch.<b>.pushRemote is honored ----------------------------------
+git clone -q --bare "$WORK/remote.git" "$WORK/private.git"
+git -C "$WORK/b" remote add private "$WORK/private.git"
+git -C "$WORK/b" config branch.main.pushRemote private
+origin_before="$(remote_head)"
+echo "- b-private" >> "$WORK/b/activity-log.md"
+rc=0; out="$(push_b)" || rc=$?
+assert_eq "$rc" "0" "push to the configured pushRemote exits 0"
+assert_eq "$(remote_head)" "$origin_before" "origin is untouched when pushRemote names another remote"
+assert_out_contains "$(git -C "$WORK/private.git" show main:activity-log.md)" "- b-private" "the commit reached the pushRemote"
 
 echo ""
 report_results
