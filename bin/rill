@@ -209,19 +209,10 @@ cmd_log() {
     fi
 }
 
-_push_tracking_ref() {
-    # Remote-tracking ref of the current branch's push destination. @{push}
-    # covers upstream, push refspecs, and push.default, but git cannot
-    # resolve it for push.default=simple when the push remote differs from
-    # the upstream remote, although `git push` itself then pushes to the
-    # same-named branch. Fall back to that same-named branch on the push
-    # remote (pushRemote, remote.pushDefault, upstream remote, or the only
-    # remote). Prints nothing when no such ref exists.
-    local ref
-    if ref="$(git rev-parse -q --symbolic-full-name '@{push}' 2>/dev/null)" && [ -n "$ref" ]; then
-        printf '%s' "$ref"
-        return 0
-    fi
+_push_remote() {
+    # The remote a plain `git push` sends the current branch to:
+    # branch.<b>.pushRemote, remote.pushDefault, the upstream remote, the
+    # only remote, or origin.
     local branch remote
     branch="$(git symbolic-ref --short -q HEAD)" || return 0
     remote="$(git config "branch.$branch.pushRemote" 2>/dev/null \
@@ -230,7 +221,30 @@ _push_tracking_ref() {
     if [ -z "$remote" ] && [ "$(git remote | wc -l | tr -d ' ')" = "1" ]; then
         remote="$(git remote)"
     fi
-    [ -n "$remote" ] || return 0
+    printf '%s' "${remote:-origin}"
+}
+
+_push_tracking_ref() {
+    # Remote-tracking ref of the current branch's push destination. @{push}
+    # covers upstream, push refspecs, and push.default, but git cannot
+    # resolve it for push.default=simple when the push remote differs from
+    # the upstream remote, although `git push` itself then pushes to the
+    # same-named branch. Fall back to that same-named branch only when no
+    # push refspec or other push.default could send it elsewhere. Prints
+    # nothing when no such ref exists.
+    local ref
+    if ref="$(git rev-parse -q --symbolic-full-name '@{push}' 2>/dev/null)" && [ -n "$ref" ]; then
+        printf '%s' "$ref"
+        return 0
+    fi
+    local branch remote
+    branch="$(git symbolic-ref --short -q HEAD)" || return 0
+    remote="$(_push_remote)"
+    [ -z "$(git config --get-all "remote.$remote.push" 2>/dev/null || true)" ] || return 0
+    case "$(git config push.default 2>/dev/null || true)" in
+        ''|simple|current) ;;
+        *) return 0 ;;
+    esac
     git rev-parse --verify -q "refs/remotes/$remote/$branch" >/dev/null \
         && printf '%s' "refs/remotes/$remote/$branch"
     return 0
@@ -296,9 +310,10 @@ cmd_push() {
     # pushRemote, push refspecs, push.default) applies as before. The rebase
     # target is the remote-tracking ref of that same destination; when there
     # is none yet (first push of a branch), there is nothing to rebase onto.
-    local push_ref err conflicts
-    for _ in 1 2; do
-        if ! err="$(git fetch -q --all 2>&1)"; then
+    local push_ref err conflicts remote attempt
+    remote="$(_push_remote)"
+    for attempt in 1 2; do
+        if ! err="$(git fetch -q "$remote" 2>&1)"; then
             echo "⚠️  Could not fetch; your changes are committed locally and were not pushed." >&2
             [ -n "$err" ] && printf '%s\n' "$err" | sed 's/^/      /' >&2
             return 1
@@ -325,7 +340,10 @@ cmd_push() {
                 fi
                 return 1
             fi
-            if [ "$(git rev-list --count "$push_ref..HEAD")" = "0" ]; then
+            # Only before any push attempt: after a failed push (e.g. one of
+            # several push.default=matching branches was rejected), an
+            # up-to-date current branch does not mean everything was sent.
+            if [ "$attempt" = "1" ] && [ "$(git rev-list --count "$push_ref..HEAD")" = "0" ]; then
                 echo "Nothing to push."
                 return 0
             fi
