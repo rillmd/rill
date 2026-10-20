@@ -6803,8 +6803,10 @@ Distill record (written only by these subcommands):
                          a note), candidates, analysis-complete marker
   distill outcome <id> --cid ID --status created|updated|skipped
                          [--path P] [--label L --reason R] [--into CID]
-  distill end <id> --result completed|failed|interrupted|deferred [--reason R]
+                         [--amend: supersede the earlier outcome, e.g. after a merge]
+  distill end <id> --run N --result completed|failed|interrupted|deferred [--reason R]
   distill show <id> [--json]
+  distill summary <id>   create workspace/<id>/_summary.md if missing; print its path
 
 Exit codes: 0 ok, 1 refused or failed, 3 another run holds the lock.
 EOF

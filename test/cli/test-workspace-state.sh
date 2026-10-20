@@ -193,11 +193,18 @@ assert_eq "$(rc w distill outcome ws-a --cid NOPE --status skipped --label IMPLE
 assert_eq "$(rc w distill outcome ws-a --cid L2-2 --status skipped --label IMPLEMENTATION_DETAIL --reason 'to save time')" "1" "forbidden skip reason is refused"
 assert_eq "$(rc env RILL_DISTILL_UNATTENDED=1 RILL_HOME="$VAULT" RILL_SOURCE="$REPO_ROOT" "$RILL" workspace distill outcome ws-a --cid L2-2 --status skipped --label USER_DECLINED --reason 'user said no')" "1" "USER_DECLINED refused in unattended runs"
 assert_eq "$(rc w distill outcome ws-a --cid L2-2 --status skipped --label NOT_A_LABEL --reason x)" "1" "unknown skip label is refused"
+assert_eq "$(rc w distill outcome ws-a --cid L2-2 --status updated --path workspace/ws-a/_workspace.md)" "1" "updated path outside knowledge/notes is refused"
+assert_eq "$(rc w distill outcome ws-a --cid L2-2 --status skipped --label EVERGREEN_DUPLICATE --path workspace/ws-a/002-notes.md --reason dup)" "1" "duplicate path outside knowledge/notes is refused"
 assert_eq "$(rc w distill outcome ws-a --cid L2-1 --status skipped --label MERGED_INTO_OTHER --into L1-1 --reason 'same point as the decision')" "0" "merged outcome recorded"
 assert_eq "$(rc w distill outcome ws-a --cid L2-2 --status skipped --label IMPLEMENTATION_DETAIL --reason 'layout specific to this mock')" "0" "skip outcome recorded"
 
+echo "=== amend supersedes an outcome ==="
+assert_eq "$(rc w distill outcome ws-a --cid L2-2 --status skipped --label IMPLEMENTATION_DETAIL --reason again)" "1" "plain second outcome is refused"
+assert_eq "$(rc w distill outcome ws-a --cid L2-2 --status skipped --label INTERMEDIATE_CONCLUSION --reason 'contradicted by 002' --amend)" "0" "--amend supersedes the earlier outcome"
+assert_eq "$(rc w distill outcome ws-a --cid L2-3 --status skipped --label IMPLEMENTATION_DETAIL --reason x --amend)" "1" "--amend without an earlier outcome is refused"
+
 echo "=== run end, stale lock takeover ==="
-o="$(out w distill end ws-a --result interrupted --reason test)"
+o="$(out w distill end ws-a --run 1 --result interrupted --reason test)"
 assert_match "$o" "*progress*" "end records progress"
 assert_file_not_exists "$VAULT/.rill/state/distill/ws-a.lock" "end releases the lock"
 assert_eq "$(w distill begin ws-a)" "2" "begin starts run 2"
@@ -208,18 +215,21 @@ d = json.load(open(p)); d["started"] = "2020-01-01T00:00+09:00"; json.dump(d, op
 EOF
 assert_eq "$(w distill begin ws-a)" "3" "stale lock is taken over by run 3"
 assert_true "grep -q '\"result\": \"abandoned\"' '$A/_distill.md'" "abandoned run recorded"
+assert_eq "$(rc w distill end ws-a --run 2 --result failed)" "1" "end from the abandoned run is refused"
+assert_file_exists "$VAULT/.rill/state/distill/ws-a.lock" "the new run keeps its lock"
 
 echo "=== complete ==="
 mknote sub-task-finding "workspace/ws-a/tasks/001-sub.md"
 assert_eq "$(rc w distill outcome ws-a --cid L2-3 --status updated --path knowledge/notes/sub-task-finding.md)" "0" "updated outcome recorded"
 o="$(out w complete ws-a)"
 assert_match "$o" "*_summary.md is missing*" "summary still required"
-printf -- '---\ntype: summary\n---\n# Summary\n' > "$A/_summary.md"
+assert_eq "$(w distill summary ws-a)" "workspace/ws-a/_summary.md" "distill summary creates _summary.md"
+assert_file_contains "$A/_summary.md" "type: summary" "summary frontmatter written"
 assert_eq "$(rc w complete ws-a)" "0" "complete passes once every check holds"
 assert_eq "$(status_of ws-a)" "completed" "status is completed"
 assert_file_contains "$A/_workspace.md" "distilled: " "distilled timestamp written"
 assert_file_contains "$A/.processed" "tasks/001-sub.md" ".processed lists coverage files"
-w distill end ws-a --result completed >/dev/null
+w distill end ws-a --run 3 --result completed >/dev/null
 assert_eq "$(rc w verify ws-a)" "0" "verify ok after completion"
 
 echo "=== verify catches later drift ==="
@@ -259,6 +269,30 @@ done
 wait
 n="$(w distill show ws-b --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["outcomes"])')"
 assert_eq "$n" "20" "all 20 concurrent outcomes landed"
+
+echo "=== unattended run refuses USER_DECLINED without the env var ==="
+mkws ws-u active
+printf -- '# one\n' > "$VAULT/workspace/ws-u/001-one.md"
+w close ws-u >/dev/null
+w distill begin ws-u --mode unattended >/dev/null
+printf '%s' '{"files":[{"path":"001-one.md"},{"path":"_workspace.md","note":"MOC"}],"candidates":[{"id":"C1","slug":"one","type":"record","source":"001-one.md"}]}' > "$WORK/analysis-u.json"
+w distill analysis ws-u --file "$WORK/analysis-u.json" >/dev/null
+assert_eq "$(rc w distill outcome ws-u --cid C1 --status skipped --label USER_DECLINED --reason 'user said no')" "1" "USER_DECLINED refused in a run begun with --mode unattended"
+
+echo "=== frontmatter comments and legacy metadata ==="
+mkws ws-c1 active
+python3 - "$VAULT/workspace/ws-c1/_workspace.md" <<'EOF'
+import sys
+p = sys.argv[1]
+text = open(p).read().replace("status: active\n", "status: active   # active | distill-pending | completed\n")
+open(p, "w").write(text)
+EOF
+assert_eq "$(rc w close ws-c1)" "0" "status with an end-of-line comment is read as active"
+mkdir -p "$VAULT/workspace/ws-legacy"
+printf -- '---\ntype: session\nstatus: active\n---\n# Legacy\n' > "$VAULT/workspace/ws-legacy/_session.md"
+assert_eq "$(rc w close ws-legacy)" "0" "legacy _session.md metadata is resolved"
+assert_file_contains "$VAULT/workspace/ws-legacy/_session.md" "status: distill-pending" "status written to _session.md"
+assert_file_not_exists "$VAULT/workspace/ws-legacy/_workspace.md" "legacy file is not renamed"
 
 echo "=== legacy on-hold ==="
 mkws ws-d on-hold

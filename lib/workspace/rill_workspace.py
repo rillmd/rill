@@ -83,6 +83,7 @@ CLOSE_KINDS = ("done", "concluded", "abandoned", "superseded")
 DISTILL_HINTS = ("full", "partial", "none")
 RECORD_NAME = "_distill.md"
 META_NAME = "_workspace.md"
+META_NAMES = ("_workspace.md", "_session.md", "_project.md")  # priority order; legacy names are never renamed
 SUMMARY_NAME = "_summary.md"
 DEFAULT_STALE_HOURS = 3.0
 STUCK_RUNS = 3
@@ -192,6 +193,10 @@ class Workspace(object):
         self.id = ws_id
         self.dir = os.path.join(vault, "workspace", ws_id)
         self.meta = os.path.join(self.dir, META_NAME)
+        for name in META_NAMES:
+            if os.path.isfile(os.path.join(self.dir, name)):
+                self.meta = os.path.join(self.dir, name)
+                break
         self.record = os.path.join(self.dir, RECORD_NAME)
         self.summary = os.path.join(self.dir, SUMMARY_NAME)
         self.lock = os.path.join(state_dir(vault), ws_id + ".lock")
@@ -209,15 +214,17 @@ def resolve_workspace(vault, arg):
         except ValueError:
             pass
     a = a.rstrip("/")
-    if a.endswith("/" + META_NAME):
-        a = a[: -len(META_NAME) - 1]
+    for name in META_NAMES:
+        if a.endswith("/" + name):
+            a = a[: -len(name) - 1]
+            break
     if a.startswith("workspace/"):
         a = a[len("workspace/"):]
     if not a or "/" in a or a in (".", ".."):
         raise RillError("not a workspace id or path: %s" % arg)
     ws = Workspace(vault, a)
     if not os.path.isfile(ws.meta):
-        raise RillError("no %s for workspace %s" % (META_NAME, a))
+        raise RillError("no metadata file (%s) for workspace %s" % (" / ".join(META_NAMES), a))
     return ws
 
 
@@ -233,6 +240,12 @@ def split_frontmatter(text):
 
 def unquote(v):
     v = v.strip()
+    if v and v[0] not in ("'", '"'):
+        # YAML end-of-line comment: whitespace then '#'
+        m = re.search(r"\s#", v)
+        if m:
+            v = v[: m.start()].rstrip()
+        return v
     if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
         if v[0] == '"':
             try:
@@ -400,6 +413,13 @@ class Record(object):
             m.setdefault(o.get("id"), []).append(o)
         return m
 
+    def effective_outcomes(self):
+        """Latest outcome per candidate (an `amend` outcome supersedes the earlier one)."""
+        eff = {}
+        for o in self.outcomes():
+            eff[o.get("id")] = o
+        return eff
+
     def pending_candidates(self):
         done = self.outcome_map()
         return [c for c in self.candidates() if c.get("id") not in done]
@@ -504,7 +524,7 @@ class Record(object):
         cands = self.candidates()
         om = self.outcome_map()
         counts = {}
-        for o in self.outcomes():
+        for o in self.effective_outcomes().values():
             k = o.get("status")
             if k == "skipped":
                 k = "skipped/" + str(o.get("label"))
@@ -624,22 +644,20 @@ def verify(ws, rec=None):
     no_outcome = [i for i in ids if i not in om]
     if no_outcome:
         failures.append("%d candidate(s) without an outcome: %s" % (len(no_outcome), ", ".join(no_outcome)))
-    multi = sorted(i for i, v in om.items() if len(v) > 1)
+    multi = sorted(i for i, v in om.items() if sum(1 for o in v if not o.get("amend")) > 1)
     if multi:
         failures.append("candidate(s) with more than one outcome: %s" % ", ".join(multi))
     orphan = sorted(i for i in om if i not in ids)
     if orphan:
         failures.append("outcome(s) for unknown candidates: %s" % ", ".join(orphan))
     # 4 + 5
-    created_or_updated = set()
-    for o in rec.outcomes():
-        if o.get("status") in ("created", "updated"):
-            created_or_updated.add(o.get("id"))
-    for o in rec.outcomes():
+    eff = rec.effective_outcomes()
+    created_or_updated = set(i for i, o in eff.items() if o.get("status") in ("created", "updated"))
+    for o in eff.values():
         failures.extend(check_outcome(ws, o, ids, created_or_updated))
     # 6
     totals = {"candidates": len(cands), "files": len(listed)}
-    for o in rec.outcomes():
+    for o in eff.values():
         k = o.get("status")
         totals[k] = totals.get(k, 0) + 1
     totals["without_outcome"] = len(no_outcome)
@@ -668,6 +686,14 @@ def note_source_in_workspace(vault, ws, path):
     return ("workspace/%s/" % ws.id) in " ".join(collected)
 
 
+def is_note_path(p):
+    p = p or ""
+    return (
+        p.startswith("knowledge/notes/") and p.endswith(".md") and ".." not in p.split("/")
+        and "/" not in p[len("knowledge/notes/"):]
+    )
+
+
 def check_outcome(ws, o, ids, created_or_updated):
     out = []
     cid = o.get("id")
@@ -675,8 +701,10 @@ def check_outcome(ws, o, ids, created_or_updated):
     vault = ws.vault
     if status in ("created", "updated"):
         p = o.get("path") or ""
-        if not p or not os.path.isfile(os.path.join(vault, p)):
-            out.append("%s: %s note does not exist: %s" % (cid, status, p or "(no path)"))
+        if not is_note_path(p):
+            out.append("%s: %s path must be a note in knowledge/notes/: %s" % (cid, status, p or "(no path)"))
+        elif not os.path.isfile(os.path.join(vault, p)):
+            out.append("%s: %s note does not exist: %s" % (cid, status, p))
         elif status == "created" and not note_source_in_workspace(vault, ws, p):
             out.append("%s: created note %s has no source inside workspace/%s/" % (cid, p, ws.id))
     elif status == "skipped":
@@ -687,8 +715,10 @@ def check_outcome(ws, o, ids, created_or_updated):
             out.append("%s: skipped without a reason" % cid)
         if label == "EVERGREEN_DUPLICATE":
             p = o.get("path") or ""
-            if not p or not os.path.isfile(os.path.join(vault, p)):
-                out.append("%s: EVERGREEN_DUPLICATE points at a missing note: %s" % (cid, p or "(no path)"))
+            if not is_note_path(p):
+                out.append("%s: EVERGREEN_DUPLICATE path must be a note in knowledge/notes/: %s" % (cid, p or "(no path)"))
+            elif not os.path.isfile(os.path.join(vault, p)):
+                out.append("%s: EVERGREEN_DUPLICATE points at a missing note: %s" % (cid, p))
         if label == "MERGED_INTO_OTHER":
             into = o.get("into")
             if into not in ids:
@@ -901,6 +931,11 @@ def cmd_end(vault, args):
         rec = Record.load(ws)
         require_open_run(rec, "distill end")
         run = rec.open_run()
+        if args.run != run["run"]:
+            raise RillError(
+                "distill end refused: run %d is not the open run (%d) -- it was abandoned and taken over"
+                % (args.run, run["run"])
+            )
         ev = {"event": "run-end", "run": run["run"], "at": iso(now()), "result": args.result,
               "progress": rec.progress_since(run["run"])}
         if args.reason:
@@ -1060,11 +1095,18 @@ def cmd_outcome(vault, args):
         require_open_run(rec, "distill outcome")
         if not rec.analysis_complete():
             raise RillError("distill outcome refused: the analysis is not recorded yet")
+        run_mode = (rec.open_run() or {}).get("start", {}).get("mode")
+        if ev.get("label") == "USER_DECLINED" and run_mode == "unattended":
+            raise RillError("USER_DECLINED is not allowed in an unattended run")
         ids = [c.get("id") for c in rec.candidates()]
         if args.cid not in ids:
             raise RillError("distill outcome refused: unknown candidate %s" % args.cid)
-        if args.cid in rec.outcome_map():
-            raise RillError("distill outcome refused: candidate %s already has an outcome" % args.cid)
+        if args.amend:
+            if args.cid not in rec.outcome_map():
+                raise RillError("distill outcome refused: --amend but candidate %s has no outcome yet" % args.cid)
+            ev["amend"] = True
+        elif args.cid in rec.outcome_map():
+            raise RillError("distill outcome refused: candidate %s already has an outcome (use --amend to supersede it)" % args.cid)
         if args.status == "skipped" and args.label == "MERGED_INTO_OTHER" and args.into == args.cid:
             raise RillError("a candidate cannot be merged into itself")
         problems = check_outcome(ws, ev, ids, set(ids))  # merged-target status is checked at verify
@@ -1074,6 +1116,17 @@ def cmd_outcome(vault, args):
         rec.append(ev)
         rec.save()
     print("%s: %s %s" % (ws.rel, args.cid, status if status != "skipped" else "skipped " + args.label))
+    return EXIT_OK
+
+
+def cmd_summary(vault, args):
+    ws = resolve_workspace(vault, args.workspace)
+    if not os.path.exists(ws.summary):
+        text = "---\ncreated: %s\ntype: summary\ntopic: %s\n---\n" % (iso(now()), ws.id)
+        with Mutex(vault, ws.id):
+            if not os.path.exists(ws.summary):
+                atomic_write(ws.summary, text)
+    print("%s/%s" % (ws.rel, SUMMARY_NAME))
     return EXIT_OK
 
 
@@ -1088,7 +1141,7 @@ def cmd_show(vault, args):
         "round": len(rec.rounds),
         "analysis_complete": rec.analysis_complete() if rec.rounds else False,
         "candidates": len(rec.candidates()) if rec.rounds else 0,
-        "outcomes": len(rec.outcomes()) if rec.rounds else 0,
+        "outcomes": len(rec.effective_outcomes()) if rec.rounds else 0,
         "pending": [dict(c, source_path="workspace/%s/%s" % (ws.id, c.get("source"))) for c in rec.pending_candidates()] if rec.rounds else [],
         "open_run": (rec.open_run() or {}).get("run") if rec.rounds else None,
         "no_progress_runs": rec.consecutive_no_progress(),
@@ -1126,7 +1179,7 @@ def list_workspaces(vault):
         d = os.path.join(root, name)
         if name.startswith(".") or not os.path.isdir(d):
             continue
-        if not os.path.isfile(os.path.join(d, META_NAME)):
+        if not any(os.path.isfile(os.path.join(d, m)) for m in META_NAMES):
             missing.append(name)
             continue
         out.append(Workspace(vault, name))
@@ -1396,8 +1449,12 @@ def build_parser():
     sp.add_argument("--reason")
     sp.add_argument("--into")
     sp.add_argument("--ref")
+    sp.add_argument("--amend", action="store_true", help="supersede this candidate's earlier outcome")
     sp.set_defaults(fn=cmd_outcome)
+    sp = ws(dsub.add_parser("summary", help="create _summary.md (if missing) and print its path"))
+    sp.set_defaults(fn=cmd_summary)
     sp = ws(dsub.add_parser("end", help="record the run end and release the lock"))
+    sp.add_argument("--run", type=int, required=True, help="the run number printed by `distill begin`")
     sp.add_argument("--result", required=True)
     sp.add_argument("--reason")
     sp.set_defaults(fn=cmd_end)
