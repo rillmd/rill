@@ -299,8 +299,8 @@ if [[ -f "$LOG_FILE" ]]; then
   HAS_CANDIDATES=$(grep_count 'candidates_total|Distillation candidates|Candidates enumerated|L1-[0-9]|L2-[0-9]|candidate' "$LOG_FILE")
   assert_gt "$HAS_CANDIDATES" 0 "CL-07: Analysis sub-agent enumeration output appears in log"
 
-  HAS_SELFCHECK=$(grep_count 'self-check|Atomic notes created|Uncovered|enumerated' "$LOG_FILE")
-  assert_gt "$HAS_SELFCHECK" 0 "SC-04: Self-check block appears in completion report"
+  HAS_SELFCHECK=$(grep_count 'Self-check|verify ok|Candidates: [0-9]' "$LOG_FILE")
+  assert_gt "$HAS_SELFCHECK" 0 "SC-04: Self-check (rill workspace verify) appears in completion report"
 
   HAS_VERIFY=$(grep_count 'Invalidated Approaches|cross-deliverable|IA-[0-9]' "$LOG_FILE")
   if [[ "$HAS_VERIFY" -gt 0 ]]; then

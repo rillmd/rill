@@ -112,7 +112,7 @@ Collect period-bounded inputs:
 
 | Source | Filter | Use |
 |---|---|---|
-| `workspace/*/_workspace.md` | `status: active` OR (`status: completed` AND `updated` in period) | Cross-WS Themes / Contradictions / Stale |
+| `workspace/*/_workspace.md` | `status: active` OR (`status: completed` or `distill-pending`, AND `updated` or `closed` in period) | Cross-WS Themes / Contradictions / Stale |
 | `workspace/*/[0-9]*-*.md` | `type: decision` AND `created` in period | Decision Digest |
 | `tasks/*/_task.md` | `status: done` AND `updated` in period | Decision Digest supplement |
 | `inbox/journal/*.md` | filename date in period (or `_organized/` mirror) | Self Observations candidates |
@@ -239,7 +239,7 @@ for each match:
    - For workspace decisions: Read the leading bullet section under the first `## ` heading that appears after the frontmatter (the artifact's primary "Decision" section in the user's vault language). The frontmatter `type: decision` is the canonical filter; the heading text is locale-specific and not pattern-matched
    - For completed tasks: use the task title (H1 or frontmatter-derived) plus its `## Goal` first line as the digest summary
 3. Score:
-   - Workspace decisions: `(WS status weight 1.0 active / 0.8 completed-in-period) × (count of mentions in decision body)`
+   - Workspace decisions: `(WS status weight 1.0 active / 0.8 closed-in-period — completed or distill-pending) × (count of mentions in decision body)`
    - Completed tasks: `(0.9) × (count of mentions in _task.md body)` — slightly below active-WS decisions but above completed-WS decisions, reflecting that finished tasks usually represent settled, lower-volatility outcomes
 4. Merge both source lists, sort by score, take top 7. Tag each entry with its source kind (`decision` / `task`) so the rendered digest can hint at provenance for the reader
 

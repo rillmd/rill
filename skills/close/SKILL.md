@@ -119,7 +119,7 @@ Tell the user, in their language: the workspace is closed and waiting for distil
 2. `status` must be `distill-pending`; otherwise stop (`active` → it must be closed first; `completed` → nothing to do)
 3. Lock ownership:
    - **Interactive** (no `--unattended`): run `rill workspace distill begin {id}` and keep the run number it prints as `{run}`. Exit 3 means another run holds the lock — stop and report it
-   - **Unattended**: the wrapper already ran `begin`; `{run}` is `open_run`. If `open_run` is null, stop with an error line — do not call `begin` yourself
+   - **Unattended**: the wrapper already ran `begin` and exported its number as `RILL_DISTILL_RUN`; that value is `{run}`. If `RILL_DISTILL_RUN` is unset, `open_run` is null, or the two differ (this run was taken over), stop with an error line — do not call `begin` yourself and never adopt `open_run` as your own
    - Pass `{run}` into both sub-agent templates; every `analysis` / `outcome` command they run carries `--run {run}`, so a worker of a run that was taken over cannot write into its successor
 
 ### S2.1 Shared context (once, in the parent)
@@ -240,13 +240,15 @@ After all batches, re-run `distill show --json`. Retry each candidate still in `
 
 ### S2.5 Duplicate notes created in the same run
 
-If two `created` outcomes in this round produced notes with near-identical slugs or overlapping content (take them from `effective_outcomes` in `distill show --json`): merge the content into the richer note, delete the other note, and amend **every** outcome that points at the deleted note so the record stays true — the deleted note's own outcome, and any `EVERGREEN_DUPLICATE` outcome whose `path` is the deleted note:
+If two `created` outcomes in this round produced notes with near-identical slugs or overlapping content (take them from `effective_outcomes` in `distill show --json`): merge the content into the richer note, delete the other note, and amend **every** outcome that points at the deleted note or its candidate so the record stays true — the deleted note's own outcome, any `EVERGREEN_DUPLICATE` outcome whose `path` is the deleted note, and any `MERGED_INTO_OTHER` outcome whose `into` is the loser (re-point it to the winner, so chains such as A→B then B→C end at C):
 
 ```bash
 # the deleted note's own candidate
 rill workspace distill outcome {id} --run {run} --cid {loser} --status skipped --label MERGED_INTO_OTHER --into {winner} --reason "duplicate created in the same run" --amend
 # each candidate that recorded the deleted note as its duplicate
 rill workspace distill outcome {id} --run {run} --cid {other} --status skipped --label EVERGREEN_DUPLICATE --path knowledge/notes/{winner-slug}.md --reason "duplicate of the merged note" --amend
+# each candidate that was merged into the loser
+rill workspace distill outcome {id} --run {run} --cid {merged} --status skipped --label MERGED_INTO_OTHER --into {winner} --reason "merged; target re-pointed after a later merge" --amend
 ```
 
 Then run `rill workspace verify {id}`; no failure may name the deleted note.
@@ -276,6 +278,7 @@ From `rill workspace verify {id} --json` (totals) and `effective_outcomes` in `d
 ## /close --distill complete — {workspace_id}
 
 - Status: completed | still distill-pending ({failed checks})
+- Self-check: `rill workspace verify` ok | failed
 - Candidates: {N} — created {X}, updated {Y}, skipped {Z} (by label), without outcome {W}
 - Created notes: knowledge/notes/... (one per line)
 - _summary.md: workspace/{id}/_summary.md
