@@ -606,9 +606,15 @@ _autosync_print_result() {
     # The tail end is where git puts the reason; cap it so escaping stays
     # quick on bash 3.2 even after a hook printed thousands of lines.
     msg="$(tail -n +5 "$last" | tail -c 4000)" || true
+    # A result file in another format (or a partial write) must still give
+    # valid JSON.
+    case "$rc" in ''|*[!0-9]*) rc=1 ;; esac
+    case "$at" in ''|*[!0-9]*) at=0 ;; esac
+    case "$pulled" in ''|*[!0-9]*) pulled=0 ;; esac
+    case "$outcome" in pushed|nothing|failed) ;; *) outcome=unknown ;; esac
     if [ "$fmt" = json ]; then
         printf '{"status":%s,"exit":%s,"at":%s,"pulled":%s,"message":%s}\n' \
-            "$(_json_str "$outcome")" "${rc:-1}" "${at:-0}" "${pulled:-0}" "$(_json_str "$msg")"
+            "$(_json_str "$outcome")" "$rc" "$at" "$pulled" "$(_json_str "$msg")"
     else
         printf '%s\n' "$msg"
     fi
