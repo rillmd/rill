@@ -670,7 +670,7 @@ $(sed -n '5,19p' "$last")"
 }
 
 _autosync_check() {
-    local fmt="$1" remote_sha local_sha track dirty=false unpushed=0 moved=false err
+    local fmt="$1" remote_sha local_sha track dirty=false unpushed=0 behind=0 moved=false err
     track="refs/remotes/$_as_remote/$_as_branch"
     if ! remote_sha="$(git ls-remote "$_as_remote" "refs/heads/$_as_branch" 2>"$_as_gitdir/rill-autosync.err")"; then
         err="$(cat "$_as_gitdir/rill-autosync.err" 2>/dev/null || true)"
@@ -687,16 +687,18 @@ _autosync_check() {
     [ -n "$(git status --porcelain 2>/dev/null | head -n 1)" ] && dirty=true
     if [ -n "$local_sha" ]; then
         unpushed="$(git rev-list --count "$track..HEAD" 2>/dev/null || echo 0)"
+        # The tracking ref may be ahead of HEAD when something else fetched.
+        behind="$(git rev-list --count "HEAD..$track" 2>/dev/null || echo 0)"
     else
         # No tracking ref yet (e.g. before the first push): count what no
         # ref of the remote has.
         unpushed="$(git rev-list --count HEAD --not --remotes="$_as_remote" 2>/dev/null || echo 0)"
     fi
     if [ "$fmt" = json ]; then
-        printf '{"status":"ok","branch":%s,"remote_moved":%s,"dirty":%s,"unpushed":%s}\n' \
-            "$(_json_str "$_as_branch")" "$moved" "$dirty" "$unpushed"
+        printf '{"status":"ok","branch":%s,"remote_moved":%s,"dirty":%s,"unpushed":%s,"behind":%s}\n' \
+            "$(_json_str "$_as_branch")" "$moved" "$dirty" "$unpushed" "$behind"
     else
-        echo "remote moved: $moved, local changes: $dirty, unpushed commits: $unpushed"
+        echo "remote moved: $moved, local changes: $dirty, unpushed commits: $unpushed, behind: $behind"
     fi
 }
 
