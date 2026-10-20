@@ -216,6 +216,7 @@ EOF
 assert_eq "$(w distill begin ws-a)" "3" "stale lock is taken over by run 3"
 assert_true "grep -q '\"result\": \"abandoned\"' '$A/_distill.md'" "abandoned run recorded"
 assert_eq "$(rc w distill end ws-a --run 2 --result failed)" "1" "end from the abandoned run is refused"
+assert_eq "$(rc env RILL_DISTILL_RUN=2 RILL_HOME="$VAULT" RILL_SOURCE="$REPO_ROOT" "$RILL" workspace distill outcome ws-a --cid L2-3 --status skipped --label IMPLEMENTATION_DETAIL --reason x)" "1" "a worker of the abandoned run cannot write outcomes"
 assert_file_exists "$VAULT/.rill/state/distill/ws-a.lock" "the new run keeps its lock"
 
 echo "=== complete ==="
@@ -229,6 +230,7 @@ assert_eq "$(rc w complete ws-a)" "0" "complete passes once every check holds"
 assert_eq "$(status_of ws-a)" "completed" "status is completed"
 assert_file_contains "$A/_workspace.md" "distilled: " "distilled timestamp written"
 assert_file_contains "$A/.processed" "tasks/001-sub.md" ".processed lists coverage files"
+assert_eq "$(rc w distill outcome ws-a --cid L2-2 --status skipped --label IMPLEMENTATION_DETAIL --reason late --amend)" "1" "outcome refused once the workspace is completed"
 w distill end ws-a --run 3 --result completed >/dev/null
 assert_eq "$(rc w verify ws-a)" "0" "verify ok after completion"
 
@@ -316,14 +318,14 @@ s = open(p).read().replace("status: distill-pending\n", "status: distill-pending
 open(p, "w").write(s)
 EOF
 }
-set_closed ws-q1 2026-03-02T10:00+09:00
-set_closed ws-q2 2026-03-01T10:00+09:00
+set_closed ws-q1 2026-03-01T02:00+00:00
+set_closed ws-q2 2026-03-01T09:00+09:00
 printf -- '---\ntype: summary\n---\n# Summary\n' > "$VAULT/workspace/ws-q3/_summary.md"
 assert_eq "$(rc w requeue ws-q3 --backfill)" "0" "requeue completed -> distill-pending (backfill)"
 assert_eq "$(rc w requeue ws-q4 --backfill)" "0" "requeue second backfill box"
 assert_file_contains "$VAULT/workspace/ws-q4/_workspace.md" "distill-queue: backfill" "backfill tier recorded"
 order="$(w queue --json | python3 -c 'import json,sys; print(" ".join(e["id"] for e in json.load(sys.stdin) if e["id"].startswith("ws-q")))')"
-assert_eq "$order" "ws-q2 ws-q1 ws-q4 ws-q3" "normal tier by closed time, then backfill without _summary.md first"
+assert_eq "$order" "ws-q2 ws-q1 ws-q4 ws-q3" "normal tier by closed time (timezone-aware), then backfill without _summary.md first"
 
 echo "=== snooze + check ==="
 mkws ws-g active

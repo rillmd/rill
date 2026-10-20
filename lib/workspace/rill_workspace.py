@@ -886,11 +886,28 @@ def cmd_verify(vault, args):
 # commands: distill record
 
 
-def require_open_run(rec, action):
+def require_open_run(rec, action, run=None):
+    """An open run must exist; when the caller names its run (--run or
+    RILL_DISTILL_RUN, exported by the job wrapper) it must be that run, so a
+    worker of a run that was taken over cannot write into its successor."""
     if not rec.rounds:
         raise RillError("%s refused: no distill round (workspace was never closed)" % action)
-    if rec.open_run() is None:
+    open_run = rec.open_run()
+    if open_run is None:
         raise RillError("%s refused: no run in progress -- call `rill workspace distill begin` first" % action)
+    if run is None:
+        env = os.environ.get("RILL_DISTILL_RUN", "").strip()
+        if env:
+            try:
+                run = int(env)
+            except ValueError:
+                raise RillError("RILL_DISTILL_RUN is not a run number: %r" % env)
+    if run is not None and run != open_run["run"]:
+        raise RillError(
+            "%s refused: run %d is not the open run (%d) -- it was abandoned and taken over"
+            % (action, run, open_run["run"])
+        )
+    return open_run
 
 
 def cmd_begin(vault, args):
@@ -929,13 +946,7 @@ def cmd_end(vault, args):
         raise RillError("--result must be completed, failed, interrupted, or deferred")
     with Mutex(vault, ws.id):
         rec = Record.load(ws)
-        require_open_run(rec, "distill end")
-        run = rec.open_run()
-        if args.run != run["run"]:
-            raise RillError(
-                "distill end refused: run %d is not the open run (%d) -- it was abandoned and taken over"
-                % (args.run, run["run"])
-            )
+        run = require_open_run(rec, "distill end", args.run)
         ev = {"event": "run-end", "run": run["run"], "at": iso(now()), "result": args.result,
               "progress": rec.progress_since(run["run"])}
         if args.reason:
@@ -961,8 +972,9 @@ def cmd_analysis(vault, args):
     except ValueError as e:
         raise RillError("analysis file is not valid JSON: %s" % e)
     with Mutex(vault, ws.id):
+        require_status(ws, ("distill-pending",), "distill analysis")
         rec = Record.load(ws)
-        require_open_run(rec, "distill analysis")
+        require_open_run(rec, "distill analysis", args.run)
         if rec.analysis_complete():
             raise RillError("distill analysis refused: this round already has a complete analysis; resume the pending candidates instead")
         files, cands, errors = validate_analysis(ws, data)
@@ -1091,8 +1103,9 @@ def cmd_outcome(vault, args):
     else:
         raise RillError("--status must be created, updated, or skipped")
     with Mutex(vault, ws.id):
+        require_status(ws, ("distill-pending",), "distill outcome")
         rec = Record.load(ws)
-        require_open_run(rec, "distill outcome")
+        require_open_run(rec, "distill outcome", args.run)
         if not rec.analysis_complete():
             raise RillError("distill outcome refused: the analysis is not recorded yet")
         run_mode = (rec.open_run() or {}).get("start", {}).get("mode")
@@ -1233,10 +1246,16 @@ def queue_entries(vault, stale_hours):
             "bytes": size,
         })
 
+    epoch = _dt.datetime(1970, 1, 1, tzinfo=_dt.timezone.utc)
+
+    def when(value):
+        ts = parse_iso(value or "")
+        return ts if ts is not None else epoch
+
     def key(e):
         if e["tier"] == "normal":
-            return (0, 0, e["closed"] or e["created"], e["id"])
-        return (1, 1 if e["has_summary"] else 0, e["created"], e["id"])
+            return (0, 0, when(e["closed"] or e["created"]), e["id"])
+        return (1, 1 if e["has_summary"] else 0, when(e["created"]), e["id"])
 
     entries.sort(key=key)
     return entries
@@ -1440,6 +1459,7 @@ def build_parser():
     sp.set_defaults(fn=cmd_begin)
     sp = ws(dsub.add_parser("analysis", help="record the analysis (JSON file)"))
     sp.add_argument("--file", required=True)
+    sp.add_argument("--run", type=int, help="the run number from `distill begin` (default: $RILL_DISTILL_RUN)")
     sp.set_defaults(fn=cmd_analysis)
     sp = ws(dsub.add_parser("outcome", help="record one candidate's outcome"))
     sp.add_argument("--cid", required=True)
@@ -1450,6 +1470,7 @@ def build_parser():
     sp.add_argument("--into")
     sp.add_argument("--ref")
     sp.add_argument("--amend", action="store_true", help="supersede this candidate's earlier outcome")
+    sp.add_argument("--run", type=int, help="the run number from `distill begin` (default: $RILL_DISTILL_RUN)")
     sp.set_defaults(fn=cmd_outcome)
     sp = ws(dsub.add_parser("summary", help="create _summary.md (if missing) and print its path"))
     sp.set_defaults(fn=cmd_summary)

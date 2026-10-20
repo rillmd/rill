@@ -6808,6 +6808,10 @@ Distill record (written only by these subcommands):
   distill show <id> [--json]
   distill summary <id>   create workspace/<id>/_summary.md if missing; print its path
 
+analysis / outcome / end check the caller's run (--run N, or
+$RILL_DISTILL_RUN exported by a job wrapper) against the open run, so a
+worker of a run that was taken over cannot write into its successor.
+
 Exit codes: 0 ok, 1 refused or failed, 3 another run holds the lock.
 EOF
             return 0 ;;
