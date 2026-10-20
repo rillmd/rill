@@ -448,7 +448,10 @@ Claude-Session: https://claude.ai/code/session_${sid#cse_}"
 #                               lives (e.g. a scheduled job that pushes once
 #                               at its end).
 #
-# Hook modes do nothing when RILL_AUTOSYNC=0. Every mode does nothing when
+# Hook modes do nothing when RILL_AUTOSYNC=0; hook-start alone does nothing
+# when RILL_AUTOSYNC_START=0 (a caller that opens a conversation only to show
+# it, and keeps the vault in step on its own, e.g. the GUI's timer, need not
+# wait for a run before the conversation appears). Every mode does nothing when
 # the checkout is not on the sync branch (worktrees, feature branches),
 # unless RILL_PUSH_BRANCH names the branch to push to. In a Claude Code cloud
 # session (CLAUDE_CODE_REMOTE=true) the checkout is a per-session branch, so
@@ -742,7 +745,8 @@ cmd_autosync() {
     esac
     case "$mode" in
         hook-*) cat >/dev/null 2>&1 || true   # drain the hook's JSON input
-                [ "${RILL_AUTOSYNC:-1}" = "0" ] && return 0 ;;
+                [ "${RILL_AUTOSYNC:-1}" = "0" ] && return 0
+                [ "$mode" = hook-start ] && [ "${RILL_AUTOSYNC_START:-1}" = "0" ] && return 0 ;;
     esac
 
     _autosync_setup
@@ -6755,7 +6759,9 @@ Modes:
   pause | resume   Hold all runs while the calling process lives.
 
 Nothing runs when the checkout is not on the sync branch, unless
-RILL_PUSH_BRANCH is set. RILL_AUTOSYNC=0 turns the hook modes off. In a
+RILL_PUSH_BRANCH is set. RILL_AUTOSYNC=0 turns the hook modes off;
+RILL_AUTOSYNC_START=0 turns off hook-start only (e.g. a GUI that opens a
+conversation just to show it and syncs on a timer of its own). In a
 Claude Code cloud session (CLAUDE_CODE_REMOTE=true) RILL_PUSH_BRANCH
 defaults to the sync branch.
 
