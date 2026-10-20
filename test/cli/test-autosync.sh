@@ -12,6 +12,7 @@
 #   - a failed run is reported once as a systemMessage by the next hook call
 #   - nothing runs when the checkout is not on the sync branch
 #   - RILL_AUTOSYNC=0 turns the hook modes off
+#   - RILL_AUTOSYNC_START=0 turns off hook-start only
 #   - CLAUDE_CODE_REMOTE=true sends a per-session branch's work to main
 #   - pause holds runs while the pausing process lives
 #   - a lock left by a dead process is taken over
@@ -55,7 +56,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 export HOME="$WORK/home" GIT_CONFIG_NOSYSTEM=1
 mkdir -p "$HOME"
-unset RILL_WRITER RILL_PUSH_BRANCH CLAUDE_CODE_REMOTE RILL_AUTOSYNC
+unset RILL_WRITER RILL_PUSH_BRANCH CLAUDE_CODE_REMOTE RILL_AUTOSYNC RILL_AUTOSYNC_START
 
 git init -q --bare -b main "$WORK/remote.git"
 
@@ -167,7 +168,12 @@ git -C "$WORK/a" switch -q main
 echo six > "$WORK/a/n6.md"
 echo '{}' | RILL_HOME="$WORK/a" RILL_AUTOSYNC=0 "$RILL" autosync hook-start >/dev/null 2>&1 || true
 assert_true "! remote_has n6.md" "RILL_AUTOSYNC=0 hook-start pushes nothing"
-rm -f "$WORK/a/n6.md"
+echo '{"source":"resume"}' | RILL_HOME="$WORK/a" RILL_AUTOSYNC_START=0 "$RILL" autosync hook-start >/dev/null 2>&1 || true
+assert_true "! remote_has n6.md" "RILL_AUTOSYNC_START=0 hook-start pushes nothing"
+assert_eq "$(git -C "$WORK/a" status --porcelain)" "?? n6.md" "RILL_AUTOSYNC_START=0 hook-start commits nothing"
+out="$(echo '{}' | RILL_HOME="$WORK/a" RILL_AUTOSYNC_START=0 "$RILL" autosync hook-stop 2>&1 || true)"
+assert_true "wait_remote_has n6.md" "RILL_AUTOSYNC_START=0 leaves hook-stop on"
+for _ in $(seq 1 50); do [ -d "$WORK/a/.git/rill-autosync.lock" ] || break; sleep 0.1; done
 
 # --- 8. cloud session branch goes to main ---------------------------------
 clone "$WORK/c" cloud
