@@ -55,6 +55,8 @@ Sub-agents run in the foreground (the parent waits in the same response) and ret
 
 ## Stage 1 — close (interactive, about a minute)
 
+`{meta}` below is the metadata file resolved in S1.0.
+
 ### S1.0 Identify the workspace
 
 1. If an argument is given, read the metadata file in `workspace/{id}/` (priority: `_workspace.md` > `_session.md` > `_project.md`; `rill workspace` resolves the same order and never renames legacy files)
@@ -66,7 +68,7 @@ Sub-agents run in the foreground (the parent waits in the same response) and ret
 
 ### S1.1 Ask how it ended (one question)
 
-Read `_workspace.md` (completion conditions, Next Steps, latest Session History) and propose defaults, then confirm with one AskUserQuestion carrying three choices:
+Read the metadata file resolved in S1.0 (`{meta}` below — `_workspace.md`, or a legacy `_session.md` / `_project.md`): completion conditions, Next Steps, latest Session History. Propose defaults, then confirm with one AskUserQuestion carrying three choices:
 
 - **Close kind** (`--kind`): `done` (completion conditions met), `concluded` (a conclusion was reached, even if loose), `abandoned` (stopped; record why), `superseded` (moved to another workspace or project; record where)
 - **Conclusion**: 1–3 sentences in the user's language stating what was decided or learned, drafted by you for the user to accept or edit
@@ -74,23 +76,23 @@ Read `_workspace.md` (completion conditions, Next Steps, latest Session History)
 
 Under `--auto-approve`, use the proposed defaults without asking.
 
-### S1.2 Record the close in `_workspace.md`
+### S1.2 Record the close in `{meta}`
 
-Edit the body (not the frontmatter):
+Edit the body of the resolved metadata file (not the frontmatter):
 
 - Add or replace a `## Closing` section: close kind, the conclusion, today's date, and for `superseded` a link to the successor
 - Append a line to `## Session History`
 
 ### S1.3 Task extraction from unchecked items
 
-- All checklist items `[x]` → skip
+- All checklist items `[x]` in `{meta}` → skip
 - Unchecked items → Read `.claude/commands/_distill/task-extraction.md`, extract task candidates, check duplicates against existing tickets, and create them with `rill task` (ADR-069: as draft)
 
 ### S1.4 Related task sync
 
 1. `Grep(pattern="{workspace id}", path="tasks/", glob="**/_task.md", output_mode="files_with_matches")` for tasks referencing the workspace in `source:` or `related:`
 2. Keep tasks with `status` `open` / `waiting` / `draft`
-3. Judge from `_workspace.md` and the conclusion whether each was completed within the workspace
+3. Judge from `{meta}` and the conclusion whether each was completed within the workspace
 4. Show the judgment table and confirm via AskUserQuestion; approved → `status: done` via Edit and a History line "Transitioned to done upon closing workspace {id}". Under `--auto-approve`, show the table and change nothing
 
 ### S1.5 Move to the queue
@@ -116,8 +118,9 @@ Tell the user, in their language: the workspace is closed and waiting for distil
 1. `rill workspace distill show {id} --json` and read `status`, `analysis_complete`, `pending`, `open_run`, `coverage`, `hint`
 2. `status` must be `distill-pending`; otherwise stop (`active` → it must be closed first; `completed` → nothing to do)
 3. Lock ownership:
-   - **Interactive** (no `--unattended`): run `rill workspace distill begin {id}` and keep the run number it prints. Exit 3 means another run holds the lock — stop and report it
-   - **Unattended**: the wrapper already ran `begin`. If `open_run` is null, stop with an error line — do not call `begin` yourself
+   - **Interactive** (no `--unattended`): run `rill workspace distill begin {id}` and keep the run number it prints as `{run}`. Exit 3 means another run holds the lock — stop and report it
+   - **Unattended**: the wrapper already ran `begin`; `{run}` is `open_run`. If `open_run` is null, stop with an error line — do not call `begin` yourself
+   - Pass `{run}` into both sub-agent templates; every `analysis` / `outcome` command they run carries `--run {run}`, so a worker of a run that was taken over cannot write into its successor
 
 ### S2.1 Shared context (once, in the parent)
 
@@ -203,6 +206,8 @@ A resumed run whose round already has a complete analysis skips straight to S2.4
 Read `.claude/commands/_close/analysis-agent.md` and fill in:
 
 - `{workspace_id}` — the id
+- `{run}` — the run number from S2.0
+- `{metadata_file_name}` — the metadata file name (`_workspace.md`, or legacy `_session.md` / `_project.md`)
 - `{coverage_files}` — the `coverage` list from `distill show --json`, one path per line (relative to the workspace directory)
 - `{distill_hint}` — the `hint` value (or `full` when absent)
 - `{analysis_file}` — `.rill/state/distill/{id}-analysis.json`
@@ -219,6 +224,7 @@ Read `.claude/commands/_close/distillation-agent.md` once. For each pending cand
 
 - `{candidate_json}` — the candidate object from `pending` (includes `source_path`)
 - `{workspace_id}` — the id
+- `{run}` — the run number from S2.0
 - `{deliverable_moc}` — every coverage file with a one-line description (build it from `_summary.md`'s Deliverables table)
 - `{invalidated_list}` — the `invalidated` entries
 - `{shared_context}` — from S2.1
@@ -234,19 +240,26 @@ After all batches, re-run `distill show --json`. Retry each candidate still in `
 
 ### S2.5 Duplicate notes created in the same run
 
-If two `created` outcomes in this run produced notes with near-identical slugs or overlapping content: merge the content into the richer note, delete the other note, and amend the deleted note's outcome so the record stays true:
+If two `created` outcomes in this round produced notes with near-identical slugs or overlapping content (take them from `effective_outcomes` in `distill show --json`): merge the content into the richer note, delete the other note, and amend **every** outcome that points at the deleted note so the record stays true — the deleted note's own outcome, and any `EVERGREEN_DUPLICATE` outcome whose `path` is the deleted note:
 
 ```bash
-rill workspace distill outcome {id} --cid {loser} --status skipped --label MERGED_INTO_OTHER --into {winner} --reason "duplicate created in the same run" --amend
+# the deleted note's own candidate
+rill workspace distill outcome {id} --run {run} --cid {loser} --status skipped --label MERGED_INTO_OTHER --into {winner} --reason "duplicate created in the same run" --amend
+# each candidate that recorded the deleted note as its duplicate
+rill workspace distill outcome {id} --run {run} --cid {other} --status skipped --label EVERGREEN_DUPLICATE --path knowledge/notes/{winner-slug}.md --reason "duplicate of the merged note" --amend
 ```
+
+Then run `rill workspace verify {id}`; no failure may name the deleted note.
 
 ### S2.6 Post-processing
 
-- For each `NNN-*` deliverable without `mentions` / `tags`, add them from the shared context (frontmatter Edit; deliverables are otherwise immutable)
+Take the targets from the record, not from this run's returns, so a resumed run also post-processes the notes an earlier run created: the created notes are the `effective_outcomes` (from `distill show --json`) with `status: created`.
+
+- For each `NNN-*.md` deliverable without `mentions` / `tags`, add them from the shared context (frontmatter Edit; deliverables are otherwise immutable; HTML artifacts carry no frontmatter and are never edited)
 - `rill strip-entity-tags` on the created notes
 - Append new tags (if any) to `taxonomy.md`
 - Entity detection: new entities in the created notes' `mentions` → create the entity files if missing
-- Pages pending update: write the workspace metadata path plus every **created** note path (not updated ones) to a tmp file, one per line, and run `rill pages-pending-update --sources-file "$tmp" --origin close`. Do not pass `--force` on a `⚠ bulk update detected` warning — report it instead
+- Pages pending update: write the workspace metadata path plus every created note path from the record (not updated ones) to a tmp file, one per line, and run `rill pages-pending-update --sources-file "$tmp" --origin close`. Do not pass `--force` on a `⚠ bulk update detected` warning — report it instead
 
 ### S2.7 Verify, complete, end
 
@@ -257,7 +270,7 @@ rill workspace distill outcome {id} --cid {loser} --status skipped --label MERGE
 
 ### S2.8 Report
 
-From `rill workspace verify {id} --json` (totals) and the one-line returns:
+From `rill workspace verify {id} --json` (totals) and `effective_outcomes` in `distill show --json` (created notes, including those from earlier runs):
 
 ```markdown
 ## /close --distill complete — {workspace_id}

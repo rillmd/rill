@@ -8,7 +8,8 @@
 
 - Workspace ID: `{workspace_id}`
 - Workspace path: `workspace/{workspace_id}/`
-- Metadata file: `_workspace.md`
+- Metadata file: `{metadata_file_name}` (`_workspace.md`, or legacy `_session.md` / `_project.md`)
+- Distill run: `{run}` (pass it as `--run {run}` to the record command)
 - Distill hint: `{distill_hint}` (`full` / `partial` / `none` — the closer's estimate of how much reusable knowledge the workspace holds. It sets expectations only: you still read and account for every coverage file)
 - Analysis file to write: `{analysis_file}`
 - Coverage files — every one must be read and accounted for (paths relative to the workspace directory):
@@ -251,7 +252,7 @@ Rules the CLI enforces: `files` lists every coverage file exactly once and nothi
 ### 2. Record it
 
 ```bash
-bin/rill workspace distill analysis {workspace_id} --file {analysis_file}
+bin/rill workspace distill analysis {workspace_id} --run {run} --file {analysis_file}
 ```
 
 Exit 0 means the analysis is recorded. Exit 1 prints the problems (a missed file, a file without candidates or note, a bad field): read them, fix the JSON — read any file you missed — and run the command again. Give up after three refusals.

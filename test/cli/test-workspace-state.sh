@@ -271,6 +271,8 @@ done
 wait
 n="$(w distill show ws-b --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["outcomes"])')"
 assert_eq "$n" "20" "all 20 concurrent outcomes landed"
+n="$(w distill show ws-b --json | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["effective_outcomes"]))')"
+assert_eq "$n" "20" "show --json lists the effective outcomes"
 
 echo "=== unattended run refuses USER_DECLINED without the env var ==="
 mkws ws-u active

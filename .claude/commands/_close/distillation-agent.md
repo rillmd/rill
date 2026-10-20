@@ -29,6 +29,7 @@ Example of what this looks like filled in (`source` and `related` are relative t
 ### Workspace context
 
 - Workspace ID: `{workspace_id}`
+- Distill run: `{run}` (pass it as `--run {run}` to every record command)
 - `_summary.md` path: `workspace/{workspace_id}/_summary.md`
 - All deliverables in this workspace:
 
@@ -102,9 +103,9 @@ This step exists to catch errors propagated from `_summary.md`. Do not skip it.
 4. Classify what those deliverables say about your claim:
    - **Consistent** (supports or does not contradict) → OK, continue
    - **Not mentioned** → OK, continue
-   - **Contradicted** (another deliverable says the opposite) → **STOP**. Return `skipped` with `INTERMEDIATE_CONCLUSION`, include the contradicting deliverable:line
-   - **Invalidated** (later deliverable invalidates the approach) → **STOP**. Return `skipped` with `INTERMEDIATE_CONCLUSION`, reference the IA entry if applicable
-5. Also cross-check the `Invalidated Approaches` list above. If your candidate's claims overlap with any IA → **STOP** with `INTERMEDIATE_CONCLUSION`
+   - **Contradicted** (another deliverable says the opposite) → **STOP** and go to Step 7: record `skipped` with `INTERMEDIATE_CONCLUSION`, naming the contradicting deliverable:line in the reason
+   - **Invalidated** (later deliverable invalidates the approach) → **STOP** and go to Step 7: record `skipped` with `INTERMEDIATE_CONCLUSION`, referencing the IA entry if applicable
+5. Also cross-check the `Invalidated Approaches` list above. If your candidate's claims overlap with any IA → **STOP** and go to Step 7 with `INTERMEDIATE_CONCLUSION`
 
 **Budget discipline**: The verify step should consume no more than 3-5 tool calls total (Grep + up to 2 extra Reads). Do not exhaustively read every deliverable — the Analysis sub-agent already did that; your job is targeted verification.
 
@@ -118,7 +119,7 @@ Follow the procedure from `.claude/commands/_distill/knowledge-agent.md` section
 4. If a file on the same topic is found:
    - Read only the **frontmatter** (first 10 lines) of the candidate file
    - If `type` differs → **create new**, add the existing file to `related`
-   - If `type` matches and content covers the same topic → **STOP**. Return `skipped` with `EVERGREEN_DUPLICATE`, name the existing file
+   - If `type` matches and content covers the same topic → **STOP** and go to Step 7: record `skipped` with `EVERGREEN_DUPLICATE` and the existing file as `--path`
 5. If no matches → proceed to Step 6
 6. If related (but different topic) files found → note their paths for the `related` field in Step 6
 
@@ -154,23 +155,23 @@ Then `Edit` the created file to append the body. Body requirements:
 
 ## Step 7: Record the outcome (MANDATORY)
 
-Record exactly one outcome with the CLI. The workspace cannot complete until every candidate has one, and the CLI checks what you record (the note exists; a created note's `source` is inside this workspace; a skip has a valid label and reason). Use `bin/rill`, never bare `rill`:
+Every path through Steps 1–6 ends here — a skip decided in Step 4 or 5 included. Record exactly one outcome with the CLI. The workspace cannot complete until every candidate has one, and the CLI checks what you record (the note exists; a created note's `source` is inside this workspace; a skip has a valid label and reason). Use `bin/rill`, never bare `rill`:
 
 ```bash
 # Case A — created a new note
-bin/rill workspace distill outcome {workspace_id} --cid {candidate.id} --status created --path knowledge/notes/{slug}.md
+bin/rill workspace distill outcome {workspace_id} --run {run} --cid {candidate.id} --status created --path knowledge/notes/{slug}.md
 
 # Case B — updated an existing note (Evergreen merge; only if it adds new content)
-bin/rill workspace distill outcome {workspace_id} --cid {candidate.id} --status updated --path knowledge/notes/{existing_slug}.md
+bin/rill workspace distill outcome {workspace_id} --run {run} --cid {candidate.id} --status updated --path knowledge/notes/{existing_slug}.md
 
 # Case C — skipped with a valid justification
-bin/rill workspace distill outcome {workspace_id} --cid {candidate.id} --status skipped \
+bin/rill workspace distill outcome {workspace_id} --run {run} --cid {candidate.id} --status skipped \
   --label EVERGREEN_DUPLICATE --path knowledge/notes/{existing}.md --reason "same topic, same type, covers the same content"
-bin/rill workspace distill outcome {workspace_id} --cid {candidate.id} --status skipped \
+bin/rill workspace distill outcome {workspace_id} --run {run} --cid {candidate.id} --status skipped \
   --label INTERMEDIATE_CONCLUSION --ref workspace/{workspace_id}/NNN-file.md --reason "claim X is contradicted by Y which says Z"
-bin/rill workspace distill outcome {workspace_id} --cid {candidate.id} --status skipped \
+bin/rill workspace distill outcome {workspace_id} --run {run} --cid {candidate.id} --status skipped \
   --label IMPLEMENTATION_DETAIL --reason "one-line explanation"
-bin/rill workspace distill outcome {workspace_id} --cid {candidate.id} --status skipped \
+bin/rill workspace distill outcome {workspace_id} --run {run} --cid {candidate.id} --status skipped \
   --label MERGED_INTO_OTHER --into {other candidate id} --reason "one-line explanation"
 ```
 

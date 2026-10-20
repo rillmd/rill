@@ -46,6 +46,7 @@ if [[ -z "$VAULT_DIR" ]]; then
   mkdir -p "$VAULT_DIR/.claude/skills"
   cp -r "$REPO_DIR/skills/"* "$VAULT_DIR/.claude/skills/"
   cp -r "$REPO_DIR/bin" "$VAULT_DIR/bin"
+  cp -r "$REPO_DIR/lib" "$VAULT_DIR/lib"   # rill workspace resolves lib/ next to bin/
   [[ -d "$REPO_DIR/plugins" ]] && cp -r "$REPO_DIR/plugins" "$VAULT_DIR/plugins"
   # Overlay system files from repo
   [[ -f "$REPO_DIR/taxonomy.md" ]] && cp "$REPO_DIR/taxonomy.md" "$VAULT_DIR/taxonomy.md"
