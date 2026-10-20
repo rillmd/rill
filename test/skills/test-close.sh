@@ -86,10 +86,15 @@ if ! $SKIP_EXECUTE; then
   # Isolate rill resolution to the test vault (see lib.sh for details)
   isolate_test_vault "$VAULT_DIR"
 
+  # Stage 1: close to distill-pending; Stage 2: distill and complete.
   claude -p "/close $WS_DIR --auto-approve" \
     --output-format text \
-    --max-turns 120 \
+    --max-turns 60 \
     2>&1 | tee "$RESULTS_DIR/close-output.log"
+  claude -p "/close --distill $WS_DIR --auto-approve" \
+    --output-format text \
+    --max-turns 120 \
+    2>&1 | tee -a "$RESULTS_DIR/close-output.log"
 
   echo ""
   echo "=== /close execution complete ==="
@@ -127,6 +132,8 @@ echo ""
 echo "=== INV-03: Workspace status ==="
 WS_STATUS_AFTER=$(fm_get "$WS_DIR/_workspace.md" "status")
 assert_eq "$WS_STATUS_AFTER" "completed" "INV-03: _workspace.md status is 'completed'"
+assert_file_exists "$WS_DIR/_distill.md" "INV-03: distill record exists"
+assert_true "RILL_HOME='$VAULT_DIR' '$TEST_DIR/../bin/rill' workspace verify '$WS_DIR' >/dev/null 2>&1" "INV-03: rill workspace verify passes"
 echo ""
 
 # 4. _summary.md section structure (SM-01 to SM-05)

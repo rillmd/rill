@@ -14,7 +14,8 @@ kebab-case.
 ```
 workspace/{id}/
 ├── _workspace.md   # MOC + state management (required)
-├── _summary.md     # Generated on completion
+├── _summary.md     # Written by /close Stage 2
+├── _distill.md     # Distill record (written only by `rill workspace`)
 ├── _log.md         # Optional, session history
 └── NNN-description.md  # Numbered deliverables
 ```
@@ -27,7 +28,7 @@ created: 2026-02-16T17:00+09:00
 type: workspace
 id: rill-development
 name: Rill Development
-status: active                  # active | completed | on-hold | pilot | planning
+status: active                  # active | distill-pending | completed (written only by `rill workspace`)
 icon: "🔭"                       # one emoji, chosen at creation (GUI identity)
 origin: inbox/journal/X.md      # Origin file
 tags: [rill]

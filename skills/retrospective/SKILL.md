@@ -225,8 +225,9 @@ for each match:
   age_days = (period_end - updated) / 86400
   if age_days > 7:
     classify:
+      snooze-until set and in the future → skip (waiting by decision)
       no artifact created in past 30 days → "close candidate"
-      otherwise → "on-hold candidate"
+      otherwise → "snooze candidate" (keep active with a date: rill workspace snooze)
 ```
 
 **Decision Digest**:
@@ -300,7 +301,7 @@ Multi-WS:
 
 | WS | Last updated | Days stale | Suggestion |
 |---|---|---|---|
-| [{name}](../../workspace/{id}/_workspace.md) | YYYY-MM-DD | Nd | close / on-hold |
+| [{name}](../../workspace/{id}/_workspace.md) | YYYY-MM-DD | Nd | close / snooze |
 
 (If no stale workspaces, write "(no stale workspaces)")
 

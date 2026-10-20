@@ -43,8 +43,9 @@ $ARGUMENTS — one of the following:
      - A path under `workspace/{id}/.view/` (derived snapshot) → do not Read it; just resume the workspace (snapshots are disposable read-moment renders regenerable from the MD sources)
    - Read the metadata file in that directory (priority: `_workspace.md` > `_session.md` > `_project.md`)
    - `status: active` → Resume workspace → Go to Phase 3
-   - `status: completed` → Ask "This workspace is completed. Would you like to reopen it?" via the harness's question primitive. Yes → Set status back to active, go to Phase 3
-   - `status: on-hold` → Ask "This workspace is on hold. Would you like to resume it?" via the harness's question primitive
+   - `status: completed` or `status: distill-pending` → Ask "This workspace is closed (completed / waiting for distillation). Would you like to reopen it?" via the harness's question primitive. Yes → run `rill workspace reopen {id}` (never Edit `status`), go to Phase 3. Exit 3 means a distill run is in progress — tell the user to retry after it ends
+   - `status: on-hold` (legacy) → Ask "This workspace is on hold. Would you like to resume it?" via the harness's question primitive. Yes → `rill workspace reopen {id}`, go to Phase 3
+   - `status: active` with `snooze-until` → resume as usual; mention what it was waiting for (`snooze-reason`) and offer `rill workspace unsnooze {id}`
 2. If argument is omitted:
    - Scan all directories directly under `workspace/` (exclude `daily`)
    - Search for `_workspace.md` OR `_session.md` OR `_project.md` with `status: active`
@@ -130,7 +131,7 @@ After session start (or resume), interact with the following flow:
 
 1. Display the metadata file (`_workspace.md` / `_session.md` / `_project.md`) contents to user (overview, issues, next steps)
 2. On resume, collect additional context:
-   - Read deliverables within the workspace — `.md` files only; skip derived HTML (regenerable from MD sources). Read an HTML file only when it is the canonical artifact the resumed work targets, or the user explicitly points at it (`rill-html-output.md` principle 3)
+   - Read deliverables within the workspace — `.md` files only; skip derived HTML (regenerable from MD sources) and `_distill.md` (the machine-written distill record; `rill workspace distill show {id}` summarizes it). Read an HTML file only when it is the canonical artifact the resumed work targets, or the user explicitly points at it (`rill-html-output.md` principle 3)
    - Related information from knowledge/notes/ based on tags
    - Recent relevant entries from inbox/journal/
    - Related reports from reports/ (newsletters, dailies, etc.) (ADR-061)
@@ -158,7 +159,7 @@ After session start (or resume), interact with the following flow:
    - Update checkboxes for completed issues
    - Append progress to "Session History"
    - Update "Next Steps"
-   - **Do NOT change `status`** — never transition the workspace to `completed` from /focus. See the Rules section below for the completion protocol
+   - **Do NOT change `status`** — never transition the workspace to `completed` or `distill-pending` from /focus. See the Rules section below for the completion protocol. If the user decides to wait on something with a date, record it with `rill workspace snooze {id} --until YYYY-MM-DD --reason "..."`
 
 ### Decision digest at judgment points (read-moment HTML)
 
@@ -184,7 +185,7 @@ type: research
 
 ## Rules
 
-- **Never transition `status` to `completed` in /focus**. Workspace completion is exclusively performed by `/close`, which runs the mandatory knowledge distillation via sub-agents (ADR-073). Setting `status: completed` from /focus bypasses distillation and silently loses the session's knowledge. If the user signals that the session is done, or you judge the workspace has reached its completion conditions, **propose running `/close`** (e.g., "This workspace looks ready to complete. Shall I hand off to /close to run distillation?") rather than editing the status directly. The only status transitions /focus may perform are the reopen/resume paths already specified in Phase 0 (`completed` → `active` on reopen, `on-hold` → `active` on resume)
+- **Never edit `status` in /focus**. Workspace status changes only through `rill workspace` subcommands, and only `rill workspace complete` writes `completed` — after the distill record verifies (ADR-073 distillation runs in `/close` Stage 2). If the user signals that the session is done, or you judge the workspace has reached its completion conditions, **propose running `/close`** (e.g., "This workspace looks ready to close. Shall I hand off to /close? Distillation follows in the night job.") rather than touching the status. The only transitions /focus performs are the Phase 0 reopen paths (`rill workspace reopen`) and `rill workspace snooze` / `unsnooze` on request
 - **File-first principle**: Save analytical/report-type output to files. Leave them as workspace files, not assistant text output. The workspace's value lies in accumulated deliverables
 - **Never modify inbox/journal/ and inbox/*/ original files** (read-only)
 - Workspace files use numbered `NNN-description.md` naming

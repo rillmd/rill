@@ -1,9 +1,9 @@
 ---
 name: close
-description: "Complete a Rill workspace: set status to completed, generate _summary.md, and run the mandatory knowledge distillation via the two-layer sub-agent architecture (ADR-073). Use when the user asks to close, complete, or wrap up a workspace, or when /focus proposes completion."
+description: "Close a Rill workspace in two stages. Stage 1 (default, interactive, about a minute) records how it ended and the conclusion, turns open items into tasks, and moves it to distill-pending with `rill workspace close`. Stage 2 (`--distill <id>`, interactive or `--unattended` for the night distill job) runs the analysis and distillation sub-agents, records every candidate and outcome in the CLI-owned distill record, and reaches completed only through `rill workspace complete`, which verifies the record. Use when the user asks to close, complete, or wrap up a workspace, or when /focus proposes completion."
 gui:
   label: "/close"
-  hint: "Complete workspace and generate summary"
+  hint: "Close workspace (distillation follows)"
   match:
     - "workspace/**/*.md"
   arg: workspace-id
@@ -11,72 +11,124 @@ gui:
   mode: auto
 ---
 
-# /close — Workspace Completion
+# /close — Workspace Close and Distillation
 
 **Conduct all conversation with the user — and write all generated output — in the language defined by `.claude/rules/personal-language.md`** (or the user's input language if that file is absent). Follow the language rules in full — exceptions and translation quality are defined in the Language Rules of `.claude/rules/rill-core.md` and the vault's `personal-*.md` overrides, never restated per skill. The English instructions below are for skill clarity, not for output style.
 
 > **Tool references in this skill** (`Read`, `Edit`, `Grep`, `AskUserQuestion`, the `Agent` tool's `subagent_type`, `model: "sonnet"`) describe **intent**, not Claude-specific tool calls. Each harness should map them to its native equivalent. On Codex CLI: sub-agent fan-out (`Agent` / `subagent_type`, including the parallel Distillation sub-agents below) maps to Codex's own sub-agent mechanism where one is available, or runs sequentially in the current session when it isn't; a named `model` is a preference for an equivalent lighter/faster model, falling back to the session default. `AskUserQuestion` maps to a plain free-text question in an interactive session; in an unattended run it must not block — write a `[DECISION-QUEUE]` entry instead, per the decision-loop contract (ADR-084, `.claude/rules/rill-autonomous-execution.md` §9).
 
-Completes an active workspace with exhaustive knowledge distillation. Uses a two-layer sub-agent architecture (ADR-073) to isolate heavy work from the parent session's context budget and to enforce multi-layer defense against error propagation.
+Closes a workspace in two stages so that closing is cheap and distillation is never skipped. Stage 1 runs in the conversation and takes about a minute. Stage 2 — the knowledge distillation — runs later, usually unattended in the night distill job, and the workspace reaches `completed` only when the distill record verifies.
+
+## State model (read first)
+
+`_workspace.md` `status` takes three values (`rill-workspace.md`):
+
+| Value | Meaning |
+|---|---|
+| `active` | being worked on (a waiting workspace stays `active` with `snooze-until` + `snooze-reason`) |
+| `distill-pending` | closed; knowledge distillation not yet verified. The set of these workspaces is the distill queue |
+| `completed` | closed, and the distill record passed `rill workspace verify` |
+
+**Never write `status` (or `closed`, `distilled`, `distill-*`, `snooze-*`) with Edit, and never edit `_distill.md`.** Every transition goes through `rill workspace` (`close`, `reopen`, `requeue`, `complete`, `snooze`), and only `rill workspace complete` writes `completed` — after it verifies the record mechanically. Legacy `on-hold` workspaces are accepted as the source of Stage 1 during the migration.
 
 ## Arguments
 
 $ARGUMENTS — one of the following:
 
-- workspace/ path or id (e.g., `workspace/2026-02-13-rill-development/` or `rill-development`) → Complete the specified workspace
-- Omitted → Auto-detect active workspaces
-- Add `--auto-approve` to suppress the skill's approval / confirmation prompts (used by integration tests running under `claude -p`). When present: the Phase 0.5 /promote predeclare is skipped, the Phase 5.3 rejected-candidate decision is reported instead of prompted and does not block (see Phase 5.3), and the Phase 8.2 related-task-sync confirmation is skipped (statuses left unchanged). Phase 3 is informational in every mode (no approval gate — see Phase 3). Pass an explicit workspace argument when running non-interactively, so Phase 0 has no multi-workspace selection to prompt for.
+- workspace/ path or id (e.g., `workspace/2026-02-13-rill-development/` or `rill-development`) → **Stage 1**: close the workspace
+- Omitted → Stage 1 with auto-detection (`active` workspaces)
+- `--distill <id>` → **Stage 2** in this session (interactive): distill a `distill-pending` workspace now and complete it if the record verifies
+- `--distill <id> --unattended` → **Stage 2** as run by the night distill job under `claude -p`. The job wrapper owns `rill workspace distill begin`, `rill workspace complete`, and `rill workspace distill end`; the skill only records the analysis and outcomes, never prompts, and never calls `complete`
+- Add `--auto-approve` to suppress approval / confirmation prompts in an interactive run (integration tests under `claude -p`): Stage 1 infers the close kind, conclusion, and hint and leaves related task statuses unchanged; Stage 2 behaves as interactive without prompts (it still owns begin / complete / end)
 
 ## Architecture (why this skill is structured the way it is)
 
-Historically /close ran all phases directly in the parent context (ADR-072). This failed on large workspaces: the parent would run out of context budget during distillation and silently skip most candidates ("Let me be pragmatic..."). ADR-073 replaces that with a two-layer structure:
+Earlier versions did everything in one pass and set `status: completed` in the parent at the end, with the coverage self-check held only in the parent's context. Two problems followed: closing a small workspace cost a full distillation, so workspaces were left open; and nothing on disk showed whether a `completed` workspace had really been distilled.
 
-1. **Parent session** (this skill): orchestration + user interaction + final phases
-2. **Analysis sub-agent** (fresh context): reads all deliverables, writes `_summary.md`, enumerates distillation candidates
-3. **Distillation sub-agents** (fresh context, launched as one background queue with harness-capped concurrency): one candidate → one atomic note, with mandatory cross-deliverable verification
-4. **Handbook sub-agent** (fresh context, launched into the same background queue): authors the aggregated workspace handbook HTML into `workspace/{id}/.view/` — the "workspace completion" read moment of `rill-html-output.md`. Independent of the distillation pipeline; its failure is non-fatal
+The two-stage design fixes both:
 
-The parent session stays lightweight and never runs out of budget regardless of workspace size. Each sub-agent has a fresh context (independent budget). Narrative consistency is preserved because the Analysis sub-agent reads everything in a single fresh context, and each Distillation sub-agent cross-verifies against other deliverables before writing.
+1. **Stage 1** records how the workspace ended and moves it to `distill-pending` — the queue.
+2. **Stage 2** keeps the ADR-073 two-layer structure — an **Analysis sub-agent** (fresh context, reads every coverage file, writes `_summary.md`, enumerates candidates) and one **Distillation sub-agent** per candidate (fresh context, cross-deliverable verification, one atomic note or one justified skip) — but every result goes to the CLI-owned distill record (`_distill.md`) instead of the parent's memory.
+3. **`rill workspace complete`** is the only path to `completed`. It recounts the record and refuses unless the analysis finished, every coverage file was accounted for, every candidate has exactly one outcome, every referenced note exists, and `_summary.md` exists. A crashed, interrupted, or partial run therefore leaves the workspace `distill-pending`, and the next run resumes from the candidates without outcomes.
 
-See ADR-073 (private, rill-dev `docs/decisions/`) for the full rationale.
+Sub-agents run in the foreground (the parent waits in the same response) and return one line each; details live in files. This keeps the parent's context flat regardless of workspace size.
 
-## Procedure
+## Stage 1 — close (interactive, about a minute)
 
-### Phase 0: Workspace Identification
+### S1.0 Identify the workspace
 
-1. If argument provided: Read the metadata file in that directory (priority: `_workspace.md` > `_session.md` > `_project.md`)
-2. If argument omitted:
-   - Scan all directories directly under `workspace/` (exclude `daily`)
-   - Search for `_workspace.md` OR `_session.md` OR `_project.md` with `status: active`
-   - If multiple found, use AskUserQuestion to prompt selection
-   - If no active workspaces found, display "No active workspaces" and exit
-3. Verify the metadata file's `status` is `active`
-   - If `completed`, display "This workspace is already completed" and exit
+1. If an argument is given, read the metadata file in `workspace/{id}/` (priority: `_workspace.md` > `_session.md` > `_project.md`; `rill workspace` resolves the same order and never renames legacy files)
+2. If omitted, list workspaces with `status: active`; if several, ask which one (AskUserQuestion); if none, say so and exit
+3. Check `status`:
+   - `active` (or legacy `on-hold`) → continue
+   - `distill-pending` → say it is already closed and queued; offer `/close --distill {id}` to distill now; exit
+   - `completed` → say it is already completed; exit
 
-### Phase 0.5: /promote predeclare (ADR-080 D80-7)
+### S1.1 Ask how it ended (one question)
 
-Decide up-front whether this `/close` should chain into `/promote` at the end. The decision is made *now* (before Phase 1) because users want to know the full plan before the long-running distillation begins, but the actual `/promote` invocation must happen *after* Phase 9 (because `/promote` requires `_summary.md`, which is produced by Phase 2's analysis sub-agent).
+Read `_workspace.md` (completion conditions, Next Steps, latest Session History) and propose defaults, then confirm with one AskUserQuestion carrying three choices:
 
-1. Read the workspace metadata file's frontmatter `mentions`. Extract `projects/{id}` entries
-2. Branch:
-   - **Workspace has actionable items** (`- [ ] ...`), with or without a `projects/{id}` mention → ask via AskUserQuestion: "After this /close completes, should I chain /promote {id} to crystallise this workspace into a project? You'll pick new-project vs an existing one (when eligible) during /promote." Store the answer (yes / no) in parent state. Do not name a specific mentioned project in the prompt — `/promote` defaults to new-project creation regardless of `mentions`, and naming an existing project here mis-sets the user's expectation
-   - **No actionable items** → skip the predeclare (no promotion candidates)
-3. The stored answer is applied in Phase 9.5 (new). Non-interactive `--auto-approve` mode skips this predeclare entirely (the user can run `/promote` manually after `/close` returns)
+- **Close kind** (`--kind`): `done` (completion conditions met), `concluded` (a conclusion was reached, even if loose), `abandoned` (stopped; record why), `superseded` (moved to another workspace or project; record where)
+- **Conclusion**: 1–3 sentences in the user's language stating what was decided or learned, drafted by you for the user to accept or edit
+- **Distill hint** (`--hint`): `full`, `partial`, or `none` — your estimate of how much reusable knowledge the workspace holds. It is a hint passed to the Analysis sub-agent, **never a reason to skip distillation**: every workspace is distilled
 
-### Phase 1: Shared Context Preparation (parent)
+Under `--auto-approve`, use the proposed defaults without asking.
 
-Prepare context data once in the parent, so both the Analysis sub-agent and the Distillation sub-agents can use it without re-computing.
+### S1.2 Record the close in `_workspace.md`
+
+Edit the body (not the frontmatter):
+
+- Add or replace a `## Closing` section: close kind, the conclusion, today's date, and for `superseded` a link to the successor
+- Append a line to `## Session History`
+
+### S1.3 Task extraction from unchecked items
+
+- All checklist items `[x]` → skip
+- Unchecked items → Read `.claude/commands/_distill/task-extraction.md`, extract task candidates, check duplicates against existing tickets, and create them with `rill task` (ADR-069: as draft)
+
+### S1.4 Related task sync
+
+1. `Grep(pattern="{workspace id}", path="tasks/", glob="**/_task.md", output_mode="files_with_matches")` for tasks referencing the workspace in `source:` or `related:`
+2. Keep tasks with `status` `open` / `waiting` / `draft`
+3. Judge from `_workspace.md` and the conclusion whether each was completed within the workspace
+4. Show the judgment table and confirm via AskUserQuestion; approved → `status: done` via Edit and a History line "Transitioned to done upon closing workspace {id}". Under `--auto-approve`, show the table and change nothing
+
+### S1.5 Move to the queue
+
+```bash
+rill workspace close {id} --kind {kind} --hint {hint}
+```
+
+This writes `status: distill-pending` and `closed:`, clears `snooze-*`, and starts a new round in `_distill.md`. If it refuses (for example exit 3: a distill run holds the lock), report the message and stop.
+
+### S1.6 /pulse refresh
+
+Invoke `/pulse` via the Skill mechanism (synchronous; it has its own cooldown). Failure is non-fatal: log one line and continue.
+
+### S1.7 Report
+
+Tell the user, in their language: the workspace is closed and waiting for distillation; its position from `rill workspace queue`; that a scheduled distill job (if the vault runs one) will distill it, and `/close --distill {id}` does it now; the tasks created or synced. Until distillation completes the workspace stays `distill-pending` — it is not `completed` yet. If the workspace had actionable items, mention that `/promote {id}` is available after distillation (it needs `_summary.md`).
+
+## Stage 2 — distill (`--distill {id}`)
+
+### S2.0 Preconditions and the run lock
+
+1. `rill workspace distill show {id} --json` and read `status`, `analysis_complete`, `pending`, `open_run`, `coverage`, `hint`
+2. `status` must be `distill-pending`; otherwise stop (`active` → it must be closed first; `completed` → nothing to do)
+3. Lock ownership:
+   - **Interactive** (no `--unattended`): run `rill workspace distill begin {id}` and keep the run number it prints. Exit 3 means another run holds the lock — stop and report it
+   - **Unattended**: the wrapper already ran `begin`. If `open_run` is null, stop with an error line — do not call `begin` yourself
+
+### S2.1 Shared context (once, in the parent)
 
 1. Read the "Topic Tags" table from `taxonomy.md` and generate **YAML list format (name + desc)** (exclude deprecated tags)
-2. **Run `rill context-map` once** and capture its output (deterministic, 0 LLM tokens, sub-second — frontmatter only). Its `### People mapping` / `### Orgs mapping` / `### Projects mapping` sections are the one-line entity mappings, and `### Entity IDs` is the entity-ID list for post-processing `rill strip-entity-tags`. Do not read the entity files in the parent (this replaces the old ~620 KB per-run compression pass; container `CLAUDE.md`/`AGENTS.md` are ignored). (`rill context-map` also emits a `### Tier dict` section; /close does not use it — ignore it.)
+2. **Run `rill context-map` once** and capture its output (deterministic, 0 LLM tokens, sub-second — frontmatter only). Its `### People mapping` / `### Orgs mapping` / `### Projects mapping` sections are the one-line entity mappings, and `### Entity IDs` is the entity-ID list for post-processing `rill strip-entity-tags`. Do not read the entity files in the parent. (`### Tier dict` is not used here.)
 
-This is the same `rill context-map` preparation /distill Step 1 uses. Hold the result in parent state for injection into sub-agent prompts.
+### S2.2 Build language args
 
-### Phase 1.5: Build language args
+Before launching the Analysis sub-agent (S2.3) or the Distillation sub-agents (S2.4), call `build_language_args()` to decide whether to inject narrative-language args into each sub-agent invocation. Distribution default is English (sub-agent prompts are written in English), so absence of a personal override means no args are injected.
 
-Before launching the Analysis sub-agent (Phase 2), the Distillation sub-agents (Phase 4), or the Handbook sub-agent (Phase 4), call `build_language_args()` to decide whether to inject narrative-language args into each sub-agent invocation. The function is intentionally trivial — distribution default is English (sub-agent prompts are written in English), so absence of a personal override means no args are injected and the sub-agent's English default takes over naturally. No fallback logic needed on either side.
-
-The top-of-file "Conduct ALL conversation with the user in the language defined by `.claude/rules/personal-language.md`" instruction governs the orchestrator's (main session's) user-facing utterances; this prologue governs argument injection into sub-agent invocations. They share a trigger file but operate on different surfaces — the user-facing rule has no effect on sub-agent output, which is exactly what this prologue closes.
+The top-of-file language instruction governs the orchestrator's user-facing utterances; this prologue governs argument injection into sub-agent invocations.
 
 ```bash
 # build_language_args()
@@ -142,313 +194,98 @@ else
 fi
 ```
 
-When `inject_args` is non-empty, append it as additional YAML lines to **each** sub-agent invocation's prompt in Phase 2 and Phase 4 (Distillation and Handbook alike), alongside the existing placeholder substitutions (`{workspace_id}`, `{shared_context_placeholder}`, `{candidate_yaml}`, `{deliverable_moc}`, etc.). The `style_guide` string is hardcoded in English on purpose: the public `rillmd/rill` repo stays ASCII-only, and the string is itself an English instruction. The `output_language` value is the only locale-dependent runtime input; broader-locale support (`ko`, `zh`, `fr`, `de`, `es`, `pt`, `it`) extends the detection branch above (and requires a corresponding bin/rill change to mark `personal-language.md` with the chosen locale) without touching the sub-agent prompts or the `style_guide` content.
+When `inject_args` is non-empty, append it as additional YAML lines to **each** sub-agent prompt in S2.3 and S2.4, alongside the placeholder substitutions.
 
-### Phase 2: Spawn Analysis Sub-agent
+### S2.3 Analysis (skip when `analysis_complete` is true)
 
-Read `.claude/commands/_close/analysis-agent.md` and fill in the placeholders with actual values:
+A resumed run whose round already has a complete analysis skips straight to S2.4 — the candidates are in the record.
 
-- `{workspace_id}` — resolved workspace id
-- `{metadata_file_name}` — `_workspace.md` / `_session.md` / `_project.md`
-- `{shared_context_placeholder}` — the tag vocabulary, people/orgs/projects mappings from Phase 1
+Read `.claude/commands/_close/analysis-agent.md` and fill in:
 
-After substituting placeholders, append `inject_args` (from Phase 1.5) to the bottom of the rendered prompt when non-empty. Skip the append when `inject_args` is empty (English-default vault) — the sub-agent prompt is written in English so absence of args naturally yields English output.
+- `{workspace_id}` — the id
+- `{coverage_files}` — the `coverage` list from `distill show --json`, one path per line (relative to the workspace directory)
+- `{distill_hint}` — the `hint` value (or `full` when absent)
+- `{analysis_file}` — `.rill/state/distill/{id}-analysis.json`
+- `{shared_context_placeholder}` — tag vocabulary and entity mappings from S2.1
 
-Spawn the sub-agent via the Agent tool (`subagent_type: general-purpose`), passing the filled-in template as the `prompt` parameter.
+Append `inject_args` when non-empty. Spawn one sub-agent (Agent tool, `subagent_type: general-purpose`) in the **foreground** and wait. It writes `_summary.md`, records the analysis with `rill workspace distill analysis`, and returns one line:
 
-**Wait for the sub-agent to return** before proceeding. Its output is:
+- `ANALYSIS_RECORDED files={N} candidates={M}` → re-run `rill workspace distill show {id} --json` and take `pending` (each entry has `source_path`) and `invalidated`
+- anything else → the analysis is not recorded; go to S2.7 with the run failed (reason `analysis`)
 
-- `_summary.md` has been written at `workspace/{workspace_id}/_summary.md`
-- A structured YAML report containing:
-  - `candidates[]` — distillation candidates (Layer 1 + Layer 2)
-  - `invalidated_approaches[]` — approaches rejected within the workspace
-  - counts: `decisions_count`, `candidates_total`, etc.
+### S2.4 Distillation (one sub-agent per pending candidate)
 
-Parse the YAML report and hold it in parent state.
+Read `.claude/commands/_close/distillation-agent.md` once. For each pending candidate fill in:
 
-### Phase 3: Display Analysis Result
+- `{candidate_json}` — the candidate object from `pending` (includes `source_path`)
+- `{workspace_id}` — the id
+- `{deliverable_moc}` — every coverage file with a one-line description (build it from `_summary.md`'s Deliverables table)
+- `{invalidated_list}` — the `invalidated` entries
+- `{shared_context}` — from S2.1
 
-Display the Analysis result so it lands in the execution log, then proceed **directly to Phase 4**. There is no approval gate here.
+Append `inject_args` when non-empty. Dispatch with **`model: "sonnet"`** (Tier 2 LLM-as-judge eval, 2026-04-19: 3/3 EQUIVALENT vs Opus on this workload at about half the cost), **in the foreground, in batches of up to 5 Agent calls per response**; wait for the batch to return before sending the next. Never use `run_in_background` — an unattended run must not end its turn while sub-agents are still writing.
 
-Earlier versions paused for a user Approve / Re-analyze / Abort decision — ADR-073's "first layer of defense against error propagation." In practice the candidate list (2N to 5N entries for N deliverables) is too large to verify item-by-item, and the parent gives the user no per-candidate evidence to judge from, so the gate degraded into a rubber stamp. A gate the user cannot act on meaningfully is worse than none, so it was removed (ADR-083). Distillation is reversible via git, and completeness is still defended downstream without a human in the loop: the Analysis sub-agent reads every deliverable in one fresh context (Phase 2), each Distillation sub-agent cross-verifies its claims against other deliverables before writing (Phase 4, CV-rules), and the parent runs a mandatory self-check that STOPs on any uncovered candidate (Phase 5).
+Each sub-agent writes its note (or decides a skip) and records its own outcome with `rill workspace distill outcome`, then returns one line: `OUTCOME {cid} {status} {path-or-label}` or `OUTCOME_FAILED {cid} {reason}`. Keep only these lines in the parent.
 
-Display (informational — for the log, not a prompt):
+After all batches, re-run `distill show --json`. Retry each candidate still in `pending` once (same template). Candidates still pending after the retry:
 
-```markdown
-## /close Phase 2 complete — analysis result
+- interactive → list them and ask: retry again, record a skip the user approves (`--label USER_DECLINED --reason "{user's reason}"`), or stop. Never record `USER_DECLINED` without the user's explicit answer
+- unattended / `--auto-approve` → leave them pending; go to S2.7 with the run failed (reason `pending candidates`). The next run resumes them
 
-### _summary.md
-Generated at `workspace/{workspace_id}/_summary.md`.
+### S2.5 Duplicate notes created in the same run
 
-- Decisions: {N}
-- Invalidated Approaches: {M}
-- Open Issues: {K}
+If two `created` outcomes in this run produced notes with near-identical slugs or overlapping content: merge the content into the richer note, delete the other note, and amend the deleted note's outcome so the record stays true:
 
-### Distillation candidates ({total})
-
-Layer 1 (from Decisions): {NL1}
-Layer 2 (from per-deliverable scan): {NL2}
-
-| ID | Layer | Slug | Type | Source | Rationale |
-|----|-------|------|------|--------|-----------|
-| L1-1 | 1 | example-slug | insight | 001-example.md | ... |
-| ... |
-
-### Invalidated approaches ({M})
-
-| ID | Slug | Proposed in | Invalidated by |
-|----|------|-------------|----------------|
-| IA-1 | ... | ... | ... |
+```bash
+rill workspace distill outcome {id} --cid {loser} --status skipped --label MERGED_INTO_OTHER --into {winner} --reason "duplicate created in the same run" --amend
 ```
 
-Then proceed directly to Phase 4 with the full candidate list from the Analysis report — do not call AskUserQuestion. If the result looks wrong, the user fixes it after the run by editing or `git`-reverting the generated `knowledge/notes/` (distillation is reversible). To re-run the analysis from scratch, reopen the workspace (set its metadata `status` from `completed` back to `active` — an allowed transition) and re-invoke `/close`.
+### S2.6 Post-processing
 
-### Phase 4: Spawn Distillation + Handbook Sub-agents (parallel, harness-capped)
-
-Read `.claude/commands/_close/distillation-agent.md` once. For each candidate from the Analysis report, fill in the placeholders:
-
-- `{candidate_yaml}` — the candidate's full YAML block
-- `{workspace_id}` — workspace id
-- `{deliverable_moc}` — list of all deliverables with 1-line descriptions (parent builds this from the Analysis sub-agent's report + deliverable frontmatter)
-- `{invalidated_list}` — the invalidated approaches from the Analysis report
-- `{shared_context}` — tag vocabulary + entity mappings from Phase 1
-
-After substituting placeholders, append `inject_args` (from Phase 1.5) to the bottom of each rendered prompt when non-empty. Skip the append when `inject_args` is empty (English-default vault). The same `inject_args` value computed in Phase 1.5 is reused across all parallel Distillation sub-agent invocations.
-
-**Dispatch strategy**:
-
-- Spawn each sub-agent via the Agent tool with **`model: "sonnet"`** (Tier 2 LLM-as-judge eval, 2026-04-19: 3/3 EQUIVALENT vs Opus baseline across evergreen-duplicate, novel-verified, and verification-contradicted fixtures; both models caught the planted cross-deliverable contradiction; verification rigor equivalent; 0/3 DEGRADED; cost reduced ~50% vs Opus on this workload). Monitor the `related:` field usage in production — Sonnet occasionally mixes workspace deliverable paths into `related` where the spec calls for knowledge/notes/ paths only; roll back if this appears systematically
-- **Record all candidates as an explicit queue, then spawn one sub-agent per candidate in the background** (`run_in_background: true`) — launch the whole queue; do not hand-maintain a fixed-size pool or wait at round boundaries. The harness caps effective concurrency and re-invokes on each completion, so a slow sub-agent no longer blocks a round. Collect results as completions arrive.
-
-**Collect results**: each sub-agent returns one of `created` / `updated` / `skipped`. Parent maintains a result table:
-
-```
-candidate_id | status | path_or_justification
-```
-
-#### Handbook sub-agent (parallel, non-fatal)
-
-**Lifecycle (parent-owned)**: at this step's start — before the skip decision, and regardless of whether a new handbook will be generated — delete any prior handbook output: `workspace/{id}/.view/handbook.html` and/or the `handbook/` directory. A reopened-and-re-closed workspace must not keep the previous close's view (even when the user skips regeneration), and a leftover from an interrupted earlier run is cleared here too.
-
-Then, alongside the distillation queue, spawn **one Handbook sub-agent** into the same background batch (`subagent_type: general-purpose`, `run_in_background: true`). Read `.claude/commands/_close/handbook-agent.md`, fill in `{workspace_id}` and `{deliverable_moc}` (the same MOC built for the Distillation sub-agents, including HTML-canonical artifacts), append `inject_args` when non-empty, and pass the result as the prompt.
-
-The agent authors the aggregated workspace handbook into `workspace/{id}/.view/` — a stable-named view (`handbook.html`, or a `handbook/` directory with a hub `index.html` + detail pages for large workspaces; single vs multi-page is the agent's qualitative call per the design language's "Two document shapes"). The start page re-expresses `_summary.md` with navigation to every artifact. Authoring follows `.claude/commands/_view/design-language.md`.
-
-Operational rules:
-
-- **Stable name, not a dated snapshot.** Unlike /focus decision digests (volatile-phase snapshots, dated, never regenerated), the handbook aggregates content that is final at close time — the staleness problem that forbids in-place regeneration does not arise. It is regenerated (overwritten) only when the workspace is reopened and re-closed
-- **Not `rill book build`.** The handbook is a bespoke authored view generated once at close; `rill book build` is the deterministic reading-view builder for continuously-updated `pages/` books. Do not route the handbook through it
-- **Skip line**: if the user asks to skip the handbook (or says the Markdown summary is enough), do not spawn the agent. `--auto-approve` runs spawn it by default
-- **Result handling**: the agent returns `status: created` (with shape / path / page count) or `status: error`. The handbook result is **excluded from the Phase 5 coverage equation** — it is not a distillation candidate. On `error` (or a malformed return), delete both output paths (`workspace/{id}/.view/handbook.html` and/or the `handbook/` directory — the agent may have written partial pages before failing), log a one-line warning, and continue; handbook generation failure is non-fatal to /close (`rill-html-output.md` principle 8), and a partial view must not be left for a reader to open later
-
-### Phase 5: Parent-side Aggregation
-
-#### 5.1 Validate justifications
-
-For each `skipped` result:
-
-- Check that the `justification` field is one of the four valid labels: `EVERGREEN_DUPLICATE`, `INTERMEDIATE_CONCLUSION`, `IMPLEMENTATION_DETAIL`, `MERGED_INTO_OTHER`
-- Check that required `details` fields are present (e.g., `existing_file` for EVERGREEN_DUPLICATE)
-- If a sub-agent returned an invalid justification (vague reason, missing details), re-spawn that sub-agent once with instructions to provide a valid justification. If it fails again, mark as `rejected` and surface to the user in Phase 9
-
-#### 5.2 Evergreen race resolution
-
-If two sub-agents happened to `create` notes with similar slugs or overlapping content:
-
-1. Detect candidate pairs with slug edit-distance ≤ 3 or high content overlap
-2. For each detected pair:
-   - Read both notes
-   - If truly duplicate → Edit one to merge the content (prefer the file with richer body), `related` field gets both candidate sources
-   - Delete the loser note via direct file removal
-   - Record the merge in parent state
-
-#### 5.3 Self-check
-
-Compute coverage over **distillation candidates only** (the Handbook sub-agent's result is tracked separately in Phase 4 and never enters this equation):
-
-```
-enumerated = candidates_total (from Analysis sub-agent)
-created    = count(status == "created")
-updated    = count(status == "updated")
-skipped    = count(status == "skipped" AND valid justification)
-rejected   = count(status == "skipped" AND invalid justification, even after re-spawn)
-uncovered  = enumerated - (created + updated + skipped + rejected)
-```
-
-**If `uncovered > 0`**: STOP. Display an error listing the uncovered candidates:
-
-```markdown
-## ⚠ Distillation incomplete
-
-{uncovered} candidates were enumerated but never processed:
-- {candidate_id}: {slug} (source: {source})
-- ...
-
-Possible causes: sub-agent timeout, invalid return, race resolution error.
-Not proceeding to Phase 6+. Please investigate.
-```
-
-**Handbook retraction on an incomplete close**: if the run stops or errors anywhere before Phase 7 sets `status: completed` — the Phase 5 STOP (`uncovered > 0`), a user abort on rejected candidates, or a failure in Phase 5–7 — and the Handbook sub-agent already returned `created`, delete its output (`workspace/{id}/.view/handbook.html` and/or the `handbook/` directory) before exiting. A completion-time view must not survive a close that did not complete; the next successful /close regenerates it. Interruption paths no skill text can catch (a hard crash) are covered by the parent-owned pre-delete at the Phase 4 handbook step, which clears leftovers on the next run. After `status: completed` lands, the handbook is the workspace's legitimate view — later failures do not retract it.
-
-**If `rejected > 0`**: display the rejected candidates and their invalid justifications, ask the user whether to retry, skip them, or abort.
-
-**Non-interactive mode** (`--auto-approve`): do not prompt and do not STOP. Leave the rejected candidates undistilled, keep them counted in the `rejected` bucket (the SC-01 equation still balances), surface them in the Phase 9 completion report, and proceed to Phase 6. Their content remains in the workspace deliverables and `_summary.md`, so nothing is lost — they are simply not auto-distilled into notes this run.
-
-`uncovered > 0` always STOPs (both modes). `rejected > 0` STOPs for a user decision in interactive mode; under `--auto-approve` it is reported and does not block. Otherwise (`uncovered == 0` and no blocking `rejected`), proceed to Phase 6.
-
-### Phase 6: Deliverable Frontmatter Update (parent)
-
-For each numbered deliverable (`NNN-*.md`):
-
-- If `mentions` / `tags` are not set in frontmatter, match against the shared context from Phase 1 and add them
-- Use Edit to update the frontmatter
-
-### Phase 7: Workspace Status Update + .processed (parent)
-
-1. Change the metadata file's (`_workspace.md` / `_session.md` / `_project.md`) `status` to `completed`
-2. Append a completion record to the workspace's `## Session History` section
-3. Append all deliverable filenames to `workspace/{id}/.processed`
-
-### Phase 8: Task Extraction and Related Task Sync (parent)
-
-#### 8.1 Task extraction from unchecked items
-
-- Check the checklist completion status in `_workspace.md`
-- All items `[x]` → skip task extraction
-- Unchecked items exist → Read `.claude/commands/_distill/task-extraction.md` and follow its rules to extract task candidates
-- After duplicate check against existing tickets, create tickets with `rill task` (ADR-069: create as draft)
-
-#### 8.2 Related task sync
-
-1. `Grep(pattern=..., path="tasks/", glob="**/_task.md", output_mode="files_with_matches")` to find tasks referencing the workspace id (directory name) in `source:` or `related:`
-2. Read each detected task, target those with `status` of `open` / `waiting` / `draft` (skip `done` / `cancelled`)
-3. Compare each target task's goal against the `_summary.md` generated in Phase 2, with AI judging whether it was completed within the workspace
-4. Present judgment results to user in a list and request confirmation via AskUserQuestion:
-   ```
-   ## Related Task Sync
-
-   | Task | Current status | Judgment |
-   |------|---------------|----------|
-   | [Task name](tasks/xxx/_task.md) | open | ✅ Completed (reason: ...) |
-   | [Task name](tasks/yyy/_task.md) | waiting | ❓ Cannot determine (reason: ...) |
-
-   May I update the status of the above tasks?
-   ```
-   - Approved → Change to `status: done` via Edit. Append "Transitioned to done upon completion of workspace {id}" to "## History"
-   - Selective → Update only specified tasks
-   - Rejected → No changes
-5. If 0 related tasks found → skip (no display)
-
-**Non-interactive mode**: If `--auto-approve` was passed, skip the AskUserQuestion and leave related task statuses unchanged (do not auto-update statuses). Display the judgment table in the log but make no modifications. The user can sync related tasks manually after reviewing the log.
-
-### Phase 9: Post-processing and Completion Report (parent)
-
-#### 9.1 Post-processing
-
-- Run `rill strip-entity-tags` on created `knowledge/notes/` files
+- For each `NNN-*` deliverable without `mentions` / `tags`, add them from the shared context (frontmatter Edit; deliverables are otherwise immutable)
+- `rill strip-entity-tags` on the created notes
 - Append new tags (if any) to `taxonomy.md`
-- Entity detection: detect new entities from `mentions` in created notes → auto-create entity files if missing
-- **Pages pending update** (the "new candidates" push into `pages/.pending`):
-  1. Build a sources list containing:
-     - The workspace metadata file path: `workspace/{workspace_id}/_workspace.md` (or `_session.md` / `_project.md` for legacy workspaces)
-     - Every newly-created `knowledge/notes/*.md` path from Phase 4 (paths where Distillation sub-agent status == `created`). Exclude `updated` notes — those are Evergreen updates already covered by /page Session Start Layer 1
-  2. Write the list to a tmp file (one path per line) and invoke:
-     ```bash
-     rill pages-pending-update --sources-file "$tmp" --origin close
-     ```
-  3. The CLI matches each source's `mentions` (Layer 2) or `tags` (Layer 3 fallback, pages without mentions only) against `pages/*.md` and upserts entries into `pages/.pending`
-  4. Do NOT pass `--force` if the CLI prints `⚠ bulk update detected` — investigate first (Phase 4 likely produced an unusually large batch; decide manually whether to push all into pending)
+- Entity detection: new entities in the created notes' `mentions` → create the entity files if missing
+- Pages pending update: write the workspace metadata path plus every **created** note path (not updated ones) to a tmp file, one per line, and run `rill pages-pending-update --sources-file "$tmp" --origin close`. Do not pass `--force` on a `⚠ bulk update detected` warning — report it instead
 
-Design essence: pages carried no `mentions` at all when matching was first designed, so the matcher is layered — `mentions` intersection first, `tags` fallback only for pages without mentions — and a bulk-update threshold keeps migrations / mass refreshes from flooding `pages/.pending` with noise a human would have to ack away.
+### S2.7 Verify, complete, end
 
-#### 9.2 Completion summary display
+- **Interactive**:
+  1. `rill workspace complete {id}` — it runs every verify check and writes `completed` only if all pass. On refusal it prints the failed checks; the workspace stays `distill-pending`
+  2. `rill workspace distill end {id} --run {run} --result completed` when `complete` succeeded; otherwise `--result failed --reason "{first failed check}"` (`{run}` is the number `begin` printed)
+- **Unattended**: do **not** call `complete` or `end`. Finish the turn; the wrapper runs `complete` only if `claude -p` exits 0 and then records the run end. If you stopped early (analysis not recorded, candidates left pending), say so in the final line so the log shows why
 
-Display the following to the user as the final output of /close:
+### S2.8 Report
+
+From `rill workspace verify {id} --json` (totals) and the one-line returns:
 
 ```markdown
-## /close complete — {workspace_id}
+## /close --distill complete — {workspace_id}
 
-### _summary.md
-workspace/{id}/_summary.md
-
-### Handbook
-{path returned by the Handbook sub-agent — workspace/{id}/.view/handbook.html for single-page, workspace/{id}/.view/handbook/index.html for multi-page} ({shape}, {N} page{s})
-(or: "generation failed — non-fatal; the Markdown summary above is complete" / "skipped at user request")
-
-### Distillation self-check
-- Candidates enumerated: {N}
-- Atomic notes created: {X}
-- Existing notes updated (Evergreen merge): {Y}
-- Skipped with justification: {Z}
-  - EVERGREEN_DUPLICATE: {count}
-  - INTERMEDIATE_CONCLUSION: {count}
-  - IMPLEMENTATION_DETAIL: {count}
-  - MERGED_INTO_OTHER: {count}
-- Rejected (invalid justification, not distilled): {R}
-- Uncovered: 0 ✓
-
-### Created notes
-- knowledge/notes/xxx.md
-- ...
-
-### Extracted tasks (if any)
-- tasks/xxx/_task.md (status: draft)
-- ...
-
-### Synced related tasks (if any)
-- tasks/xxx/_task.md: open → done
-- ...
-
-### Rejected candidates (not distilled, if any)
-- {candidate_id}: {slug} — {invalid justification} (content remains in the workspace deliverables and `_summary.md`)
-- ...
-
-### Open issues (carried forward)
-- [ ] Issue 1 (from _summary.md)
+- Status: completed | still distill-pending ({failed checks})
+- Candidates: {N} — created {X}, updated {Y}, skipped {Z} (by label), without outcome {W}
+- Created notes: knowledge/notes/... (one per line)
+- _summary.md: workspace/{id}/_summary.md
 ```
-
-### Phase 9.5: /promote chain (if predeclared in Phase 0.5)
-
-If Phase 0.5 stored a `yes` answer, chain into `/promote {workspace-id}` now. By this point `_summary.md` exists (written in Phase 2) and `/promote`'s prerequisite is satisfied.
-
-1. Invoke `/promote {workspace-id}` via the harness's Skill mechanism. Synchronous wait
-2. `/promote` runs its own AskUserQuestion flow for candidate review — `/close` does not need to relay anything
-3. After `/promote` returns, continue to Phase 10
-
-If Phase 0.5 stored `no` (or was skipped), continue directly to Phase 10 without chaining.
-
-### Phase 10: /pulse refresh (NEW)
-
-After Phase 9 (Post-processing and Completion Report) completes, invoke `/pulse` via the harness's Skill tool to refresh `knowledge/self/current-state.md`. The just-closed workspace will drop out of the Active Workspaces section in the new snapshot:
-
-```
-Skill(name: "pulse", args: "")
-```
-
-The invocation is synchronous. /pulse handles its own 12h cooldown — if a recent /close or /distill already ran /pulse within the window, this is a silent no-op. Do **not** display /pulse's output as part of the close report.
-
-**Non-recursion guarantee**: /pulse only reads from `workspace/` + `tasks/` + `knowledge/self/` (and writes only to `current-state.md`), and never invokes /close back. The chain is structurally one-way.
-
-If the /pulse invocation fails, log a 1-line warning to stdout and treat the /close run as successful — /pulse refresh failure is not fatal.
 
 ## Rules
 
-- **Never modify `inbox/journal/` and `inbox/*/` original files** (read-only)
-- Knowledge distillation runs in Distillation sub-agents (ADR-073), NOT in parent context. The parent only orchestrates
-- Include frontmatter in all files (exception: generated HTML files carry no frontmatter and are written directly, not via `rill mkfile` — see `rill-html-output.md`)
-- **Backward compatibility**: also handle workspaces that only have `_session.md` or `_project.md` (treat as metadata file)
-- **Forbidden justifications**: parent MUST reject `pragmatic scope reduction`, `to save time`, `not novel enough`, `context budget running low`, `already sufficient coverage`, and any unlabeled reason. See `.claude/commands/_close/distillation-agent.md` for the authoritative list
-- `uncovered > 0` must trigger a STOP, not a warning. Do not proceed to Phase 6+ with uncovered candidates
-- The workspace handbook is a derived `.view/` render (gitignored, regenerable — `rill-html-output.md`); its generation failure never blocks /close, and its result never gates the distillation self-check
+- **Never write workspace `status` by hand** and never edit `_distill.md`; use `rill workspace` subcommands. Only `rill workspace complete` writes `completed`
+- **Every workspace is distilled.** The distill hint and the close kind never skip Stage 2
+- Knowledge distillation runs in sub-agents (ADR-073), not in the parent. Sub-agents run in the foreground and return one line
+- **Forbidden justifications**: `pragmatic scope reduction`, `to save time`, `not novel enough`, `context budget running low`, `already sufficient coverage`, and any unlabeled reason. The CLI refuses them too. See `.claude/commands/_close/distillation-agent.md`
+- `USER_DECLINED` only with the user's explicit answer in an interactive run (the CLI refuses it when `RILL_DISTILL_UNATTENDED=1`)
+- Never modify `inbox/journal/` and `inbox/*/` original files (read-only)
+- Include frontmatter in all files (generated HTML excepted — `rill-html-output.md`)
+- No workspace handbook and no `/promote` chain in /close: the handbook is generated only on explicit request, and `/promote` runs after Stage 2 when the user wants it
 
 ## Related files
 
-- `.claude/commands/_close/analysis-agent.md` — Phase 2 Analysis sub-agent prompt template
-- `.claude/commands/_close/distillation-agent.md` — Phase 4 Distillation sub-agent prompt template
-- `.claude/commands/_close/handbook-agent.md` — Phase 4 Handbook sub-agent prompt template
-- `.claude/commands/_view/design-language.md` — authoring checklist the handbook follows
-- `.claude/commands/_distill/knowledge-agent.md` — referenced by distillation-agent.md for Evergreen check procedure
-- `.claude/commands/_distill/task-extraction.md` — referenced by Phase 8.1 for task extraction rules
+- `.claude/commands/_close/analysis-agent.md` — Stage 2 Analysis sub-agent prompt template
+- `.claude/commands/_close/distillation-agent.md` — Stage 2 Distillation sub-agent prompt template
+- `.claude/commands/_close/handbook-agent.md` — handbook template (not invoked by /close; explicit request only)
+- `.claude/commands/_distill/knowledge-agent.md` — Evergreen check procedure used by distillation-agent.md
+- `.claude/commands/_distill/task-extraction.md` — task extraction rules (S1.3)
+- `lib/workspace/rill_workspace.py` — `rill workspace`: transitions, distill record, verify, queue, check
 - ADR-073 (private, rill-dev `docs/decisions/`) — two-layer sub-agent delegation rationale
-- ADR-083 (private, rill-dev `docs/decisions/`) — Phase 3 user checkpoint removed; downstream defenses retained
 - `docs/skill-specs/close.md` — IAD (rule table for testing)

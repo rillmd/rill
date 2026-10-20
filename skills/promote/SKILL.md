@@ -46,11 +46,12 @@ $ARGUMENTS — one of:
 1. Resolve the argument to a workspace directory: `workspace/{id}/`
 2. Verify `workspace/{id}/_workspace.md` (or legacy `_session.md` / `_project.md`) exists. If not, exit with one-line error
 3. Check `workspace/{id}/_summary.md`:
-   - **Missing** → exit with: "_summary.md not found. This workspace has not been closed yet. Run `/close {workspace-id}` first." Do not attempt to run `/close` automatically
+   - **Missing** → exit with: "_summary.md not found. This workspace has not been distilled yet. Run `/close {workspace-id}` (and `/close --distill {workspace-id}`, or wait for the night distill job) first." Do not attempt to run `/close` automatically
    - **Present** → continue
 4. Read the workspace's frontmatter `status`:
    - If `status: active` (but `_summary.md` exists for some reason — e.g. user reopened after close) → warn and ask whether to proceed
    - If `status: completed` (the expected case) → continue
+   - If `status: distill-pending` with `_summary.md` (an earlier close's summary; distillation of this round still pending) → warn that the summary may be stale and ask whether to proceed
    - Otherwise → continue with a note
 
 ### Phase 1: Target project resolution
@@ -177,7 +178,7 @@ This phase runs only if Phase 3 succeeded (Key Facts appended, tasks created wit
 
 3. Invoke `/refresh-project {target-slug}` (deferred from Phase 3 Step 4). Running it here, after the workspace's `mentions` backlink has been written, ensures the project's `## Related Workspaces` regenerates with the just-promoted workspace included. `## Active Tasks` also picks up the new tickets created in Phase 3
 
-Do not change the workspace's frontmatter `status` — that stays `completed`. `/promote` does not close, reopen, or otherwise modify the workspace's lifecycle.
+Do not change the workspace's frontmatter `status` — status changes go through `rill workspace` only. `/promote` does not close, reopen, or otherwise modify the workspace's lifecycle.
 
 ### Phase 6: Completion report
 

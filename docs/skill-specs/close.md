@@ -4,6 +4,8 @@ Behavioral specification for /close. A skill that completes an active workspace,
 
 **2026-04-08 Update**: Redesigned to a two-layer sub-agent architecture per ADR-073. Phases 2-4 are delegated to Analysis sub-agent / Distillation sub-agents, while the parent only orchestrates.
 
+**2026-10-20 Update**: Split into two stages. Stage 1 closes the workspace to `distill-pending` (`rill workspace close`); Stage 2 (`--distill <id>`, interactive or `--unattended` for the night distill job) runs the sub-agents, which record the analysis and every outcome in `_distill.md` through the CLI. `completed` is written only by `rill workspace complete` after `verify` passes. Where the tables below say `status: completed` is set by /close or describe the parent-side SC-01 equation, read them through this change: the equation is now recounted by `rill workspace verify` from the record (`test/cli/test-workspace-state.sh`), and the handbook and `/promote` chain are no longer part of /close.
+
 ---
 
 ## 1. Input/Output Definition

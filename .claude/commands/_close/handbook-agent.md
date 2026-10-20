@@ -1,6 +1,6 @@
 # /close Handbook Sub-agent
 
-/close Phase 4 sub-agent prompt (spawned in parallel with the Distillation sub-agents). Authors the **aggregated workspace handbook** — the human-readable HTML view of the completed workspace — into `workspace/{workspace_id}/.view/`, implementing the "workspace completion" read moment defined in `rill-html-output.md` ("When HTML Is Generated").
+Handbook sub-agent prompt — **not invoked by /close** since the two-stage split; used only when the user explicitly asks for a workspace handbook. Authors the **aggregated workspace handbook** — the human-readable HTML view of the completed workspace — into `workspace/{workspace_id}/.view/`, implementing the "workspace completion" read moment defined in `rill-html-output.md` ("When HTML Is Generated").
 
 **IMPORTANT**: This file is a template. The parent /close skill reads this file, fills in the placeholders (workspace id, summary path, deliverable MOC), and passes the result as the `prompt` parameter when spawning the sub-agent via the Agent tool. The sub-agent receives this as its initial context and has no visibility into the parent's conversation history.
 

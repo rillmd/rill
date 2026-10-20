@@ -36,7 +36,7 @@ HTML is generated at **read moments** — the points where a human reads in orde
 | Read moment | Producer | Output |
 |---|---|---|
 | Decision point during a live session | `/focus` | Decision digest snapshot → `workspace/{id}/.view/` (dated; a snapshot serves that one read moment and is disposable afterwards — the judged content and the decision record live in MD, so losing the sidecar loses nothing durable) |
-| Workspace completion | `/close` | Aggregated handbook (single or multi-page) → `workspace/{id}/.view/` |
+| Workspace completion | explicit request (`/close` no longer generates it) | Aggregated handbook (single or multi-page) → `workspace/{id}/.view/`, authored with `.claude/commands/_close/handbook-agent.md` |
 | Project review (status / end of an autonomous run) | `/project` | Project digest with pending decisions → `projects/{slug}/.view/` |
 | Book reading | `rill book build` | Fixed-style reading view → `pages/{id}/.view/` |
 | Explicit user request | any skill | Ad-hoc render, placed per the class rules above |
