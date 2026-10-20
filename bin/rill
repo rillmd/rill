@@ -6770,6 +6770,45 @@ Hook setup (.claude/settings.json):
   SessionStart: rill autosync hook-start  (timeout 90)
 EOF
             return 0 ;;
+        workspace)
+            cat <<'EOF'
+Usage: rill workspace <subcommand> <id> [options]
+
+Workspace state machine and the distill record. `status` takes three
+values: active, distill-pending (closed; knowledge distillation not yet
+verified -- the set of these workspaces is the distill queue), and
+completed. Only `complete` writes completed, and only after `verify`
+passes. Legacy `on-hold` is accepted only as the source of close/reopen.
+
+State:
+  close <id> [--kind done|concluded|abandoned|superseded] [--hint full|partial|none]
+                         active (or on-hold) -> distill-pending; starts a round
+  reopen <id>            distill-pending | completed | on-hold -> active
+  requeue <id> [--backfill]
+                         completed -> distill-pending; starts a round
+  complete <id>          distill-pending -> completed if verify passes
+  snooze <id> --until YYYY-MM-DD --reason TEXT
+  unsnooze <id>          active only
+  verify <id> [--json]   check the latest round of workspace/<id>/_distill.md
+  queue [--json] [--next]
+                         distill-pending workspaces in queue order
+  check [--json] [--idle-days N]
+                         vault-wide invariant check (no AI); exit 1 on violations
+
+Distill record (written only by these subcommands):
+  distill begin <id> [--mode interactive|unattended]
+                         take the run lock (.rill/state/distill/<id>.lock)
+  distill analysis <id> --file analysis.json
+                         record the analysis: files (each with candidates or
+                         a note), candidates, analysis-complete marker
+  distill outcome <id> --cid ID --status created|updated|skipped
+                         [--path P] [--label L --reason R] [--into CID]
+  distill end <id> --result completed|failed|interrupted|deferred [--reason R]
+  distill show <id> [--json]
+
+Exit codes: 0 ok, 1 refused or failed, 3 another run holds the lock.
+EOF
+            return 0 ;;
         book)
             cat <<'EOF'
 Usage: rill book build <id> [--out <dir>]
@@ -6901,6 +6940,7 @@ Agent helpers — invoked by skills inside your vault, not typed manually:
   pages-pending-update  Match new sources to pages via mentions/tags
   context-map           Emit deterministic shared context (entity maps + Tier dict)
   processed <sub>       .processed state: set | count | list | normalize
+  workspace <sub>       Workspace states + distill record (close, reopen, complete, verify, queue, check, distill)
   guard <path>          Check if a file is managed (used by agent hooks)
   codex-hook <event>    Normalize Codex hook payloads for Rill helpers
 
@@ -7032,6 +7072,35 @@ cmd_book() {
     fi
 }
 
+# rill workspace — workspace state machine and distill record.
+# Implementation: lib/workspace/rill_workspace.py (python3 >= 3.9, stdlib only),
+# resolved from the rill distribution like lib/book. Status values are
+# active | distill-pending | completed; only `rill workspace complete` writes
+# completed, and only after the distill record verifies.
+cmd_workspace() {
+    case "${1:-}" in
+        ""|-h|--help|help) cmd_help workspace; return 0 ;;
+    esac
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "Error: 'rill workspace' needs python3 (>= 3.9)." >&2
+        return 1
+    fi
+    if [ -z "${RILL_HOME:-}" ] || [ ! -d "$RILL_HOME" ]; then
+        echo "Error: no vault resolved — run inside a vault or set RILL_HOME." >&2
+        return 1
+    fi
+    local source_root
+    source_root="$(_resolve_rill_source)" || source_root=""
+    local impl="$source_root/lib/workspace/rill_workspace.py"
+    if [ -z "$source_root" ] || [ ! -f "$impl" ]; then
+        echo "Error: workspace helper not found under ${source_root:-<unresolved source>}/lib/workspace/ — update the rill source (rill update --global-only) or set RILL_SOURCE." >&2
+        return 1
+    fi
+    local rc=0
+    RILL_HOME="$RILL_HOME" python3 -I "$impl" "$@" || rc=$?
+    return "$rc"
+}
+
 # dispatch below — which shows their own help, or reports "Unknown command"
 # and exits non-zero for a typo. Keep this list in sync with the file-creating
 # / side-effecting commands in the dispatch.
@@ -7042,7 +7111,7 @@ if [ "$#" -ge 2 ]; then
         open)
             [ "$2" = "--help" ] && { cmd_help open; exit 0; }
             ;;
-        log|interactive|i|clip|push|autosync|status|edit|plugin|sync|index|task|activity-log|touch|mkfile|strip-entity-tags|context-map|processed|book)
+        log|interactive|i|clip|push|autosync|status|edit|plugin|sync|index|task|activity-log|touch|mkfile|strip-entity-tags|context-map|processed|book|workspace)
             case "$2" in
                 -h|--help) cmd_help "$1"; exit 0 ;;
             esac
@@ -7074,6 +7143,7 @@ case "${1:-help}" in
     context-map) shift; cmd_context_map "$@" ;;
     processed) shift; cmd_processed "$@" ;;
     book)   shift; cmd_book "$@" ;;
+    workspace) shift; cmd_workspace "$@" ;;
 
     init)   shift; cmd_init "$@" ;;
     update) shift; cmd_update "$@" ;;
