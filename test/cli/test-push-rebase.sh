@@ -20,6 +20,8 @@
 #   - an invalid RILL_PUSH_BRANCH is refused
 #   - git config rill.writer is the writer when RILL_WRITER is unset
 #   - a clean, up-to-date vault reports "Nothing to push."
+#   - a file written during the fetch is committed too instead of failing
+#     the rebase; one that conflicts stops like any other conflict
 #
 # Usage: bash test/cli/test-push-rebase.sh
 # Requires: bash, git. No claude CLI, no network.
@@ -48,7 +50,7 @@ assert_out_contains() {
 }
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+[ -n "${KEEP_WORK:-}" ] || trap 'rm -rf "$WORK"' EXIT
 
 # Isolate from the user's git config (e.g. a global core.hooksPath would
 # bypass the per-clone hooks these cases install).
@@ -265,6 +267,46 @@ echo "- configured" >> "$WORK/c/activity-log.md"
 rc=0; out="$(unset RILL_WRITER; RILL_HOME="$WORK/c" RILL_PUSH_BRANCH=main "$RILL" push 2>&1)" || rc=$?
 trailer="$(git -C "$WORK/remote.git" log -1 --format='%(trailers:key=Rill-Writer,valueonly)' main | tr -d '\n')"
 assert_eq "$trailer" "configured-writer" "rill.writer names the writer when RILL_WRITER is unset"
+
+# --- 14. a file written during the fetch is committed and pushed too --------
+# A git shim writes to a tracked file right after `git fetch`, as a second
+# session or a hook writing its log could between the commit and the rebase.
+REAL_GIT="$(command -v git)"
+SHIM="$WORK/shim"; mkdir -p "$SHIM"
+cat > "$SHIM/git" <<SHIMEOF
+#!/bin/bash
+"$REAL_GIT" "\$@"; rc=\$?
+case " \$* " in *" fetch "*)
+  [ -n "\${SHIM_WRITE:-}" ] && echo "- written during sync" >> "\$SHIM_WRITE"
+  [ -n "\${SHIM_OVERWRITE:-}" ] && echo "focus: written during sync" > "\$SHIM_OVERWRITE" ;;
+esac
+exit \$rc
+SHIMEOF
+chmod +x "$SHIM/git"
+rc=0; out="$(push_a)" || rc=$?   # bring a up to date
+echo "- remote-side" >> "$WORK/b/activity-log.md"; rc=0; out="$(push_b)" || rc=$?
+mkdir -p "$WORK/a/notes"; echo "local" > "$WORK/a/notes/n.md"
+rc=0; out="$(PATH="$SHIM:$PATH" SHIM_WRITE="$WORK/a/knowledge/self/current-state.md" \
+  RILL_HOME="$WORK/a" RILL_WRITER=mac "$RILL" push 2>&1)" || rc=$?
+assert_eq "$rc" "0" "a push with a file written mid-sync exits 0"
+assert_true "git -C '$WORK/remote.git' show main:notes/n.md >/dev/null 2>&1" "the committed change reached the remote"
+assert_out_contains "$(git -C "$WORK/remote.git" show main:knowledge/self/current-state.md)" "- written during sync" "the mid-sync write was committed and pushed"
+assert_eq "$(git -C "$WORK/a" status --porcelain)" "" "the working tree is clean afterwards"
+
+# --- 15. a mid-sync write that conflicts with the remote stops the sync ------
+clone "$WORK/f" f
+clone "$WORK/g" g
+printf 'focus: remote edit\n' > "$WORK/f/knowledge/self/current-state.md"
+rc=0; out="$(RILL_HOME="$WORK/f" RILL_WRITER=f "$RILL" push 2>&1)" || rc=$?
+before="$(remote_head)"
+echo "local2" > "$WORK/g/n2.md"
+rc=0; out="$(PATH="$SHIM:$PATH" SHIM_OVERWRITE="$WORK/g/knowledge/self/current-state.md" \
+  RILL_HOME="$WORK/g" RILL_WRITER=g "$RILL" push 2>&1)" || rc=$?
+assert_true "[ $rc -ne 0 ]" "a mid-sync write that conflicts exits non-zero"
+assert_out_contains "$out" "knowledge/self/current-state.md" "the conflict names the file"
+assert_eq "$(remote_head)" "$before" "nothing is pushed on the conflict"
+assert_eq "$(cat "$WORK/g/knowledge/self/current-state.md")" "focus: written during sync" "the mid-sync write is kept"
+assert_eq "$(git -C "$WORK/g" status --porcelain)" "" "the mid-sync write is kept in a local commit"
 
 echo ""
 report_results
