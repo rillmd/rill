@@ -459,7 +459,16 @@ _autosync_setup() {
         _as_skip="no vault"
         return 0
     fi
-    if ! _as_gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)"; then
+    # Absolute, so the re-check under the lock and child processes find the
+    # same vault after this cd.
+    RILL_HOME="$(pwd)"
+    export RILL_HOME
+    # The common git directory, so linked worktrees of one clone share the
+    # lock and the pause markers.
+    local common
+    if ! common="$(git rev-parse --git-common-dir 2>/dev/null)" \
+        || ! _as_gitdir="$(cd "$common" 2>/dev/null && pwd)"; then
+        _as_gitdir=""
         _as_skip="not a git repository"
         return 0
     fi
@@ -594,7 +603,9 @@ _autosync_print_result() {
     at="$(sed -n 2p "$last")"
     outcome="$(sed -n 3p "$last")"
     pulled="$(sed -n 4p "$last")"
-    msg="$(tail -n +5 "$last")"
+    # The tail end is where git puts the reason; cap it so escaping stays
+    # quick on bash 3.2 even after a hook printed thousands of lines.
+    msg="$(tail -n +5 "$last" | tail -c 4000)" || true
     if [ "$fmt" = json ]; then
         printf '{"status":%s,"exit":%s,"at":%s,"pulled":%s,"message":%s}\n' \
             "$(_json_str "$outcome")" "${rc:-1}" "${at:-0}" "${pulled:-0}" "$(_json_str "$msg")"
@@ -615,7 +626,7 @@ _autosync_report_failure() {
     echo "$at" > "$seen"
     local msg
     msg="Vault auto-sync (rill push) failed. The commit is kept locally and the next turn retries.
-$(tail -n +5 "$last" | head -n 15)"
+$(sed -n '5,19p' "$last")"
     printf '{"systemMessage":%s}\n' "$(_json_str "$msg")"
 }
 
@@ -637,6 +648,10 @@ _autosync_check() {
     [ -n "$(git status --porcelain 2>/dev/null | head -n 1)" ] && dirty=true
     if [ -n "$local_sha" ]; then
         unpushed="$(git rev-list --count "$track..HEAD" 2>/dev/null || echo 0)"
+    else
+        # No tracking ref yet (e.g. before the first push): count what no
+        # ref of the remote has.
+        unpushed="$(git rev-list --count HEAD --not --remotes="$_as_remote" 2>/dev/null || echo 0)"
     fi
     if [ "$fmt" = json ]; then
         printf '{"status":"ok","branch":%s,"remote_moved":%s,"dirty":%s,"unpushed":%s}\n' \
