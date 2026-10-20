@@ -312,7 +312,15 @@ cmd_push() {
 
     git add -A
     if ! git diff --cached --quiet; then
-        git commit -q -m "journal: $(date '+%Y-%m-%d %H:%M')" -m "Rill-Writer: $writer"
+        # In a Claude Code cloud session, link the commit to the conversation
+        # that wrote it, as Claude's own commits there do.
+        local trailers="Rill-Writer: $writer"
+        local sid="${CLAUDE_CODE_REMOTE_SESSION_ID:-}"
+        if [[ "$sid" =~ ^cse_[A-Za-z0-9_-]+$ ]]; then
+            trailers="$trailers
+Claude-Session: https://claude.ai/code/session_${sid#cse_}"
+        fi
+        git commit -q -m "journal: $(date '+%Y-%m-%d %H:%M')" -m "$trailers"
     fi
 
     if [ -z "$(git remote)" ]; then
@@ -426,6 +434,9 @@ _rill_writer() {
 
 _json_str() {
     local s="$1"
+    # Drop ANSI color sequences and control characters JSON would need
+    # escaped (tab, newline and CR are escaped below).
+    s="$(printf '%s' "$s" | LC_ALL=C sed $'s/\x1b\\[[0-9;]*[A-Za-z]//g' | LC_ALL=C tr -d '\000-\010\013\014\016-\037')"
     s="${s//\\/\\\\}"
     s="${s//\"/\\\"}"
     s="${s//$'\n'/\\n}"
@@ -452,14 +463,18 @@ _autosync_setup() {
         _as_skip="not a git repository"
         return 0
     fi
-    _as_branch="${RILL_PUSH_BRANCH:-$(git config rill.syncBranch 2>/dev/null || echo main)}"
-    if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] && [ -z "${RILL_PUSH_BRANCH:-}" ]; then
-        export RILL_PUSH_BRANCH="$_as_branch"
-    fi
-    if [ -z "${RILL_PUSH_BRANCH:-}" ] && [ "$(git symbolic-ref --short -q HEAD || true)" != "$_as_branch" ]; then
+    # _as_user_branch is the caller's RILL_PUSH_BRANCH, kept by cmd_autosync
+    # before this function exports its own.
+    local explicit="$_as_user_branch"
+    _as_branch="${explicit:-$(git config rill.syncBranch 2>/dev/null || echo main)}"
+    [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] && explicit="$_as_branch"
+    if [ -z "$explicit" ] && [ "$(git symbolic-ref --short -q HEAD || true)" != "$_as_branch" ]; then
         _as_skip="not on $_as_branch"
         return 0
     fi
+    # Fetch, rebase onto, and push to the sync branch by name, whatever the
+    # branch's upstream or push.default say, so that check and run agree.
+    export RILL_PUSH_BRANCH="$_as_branch"
     if [ -z "$(git remote)" ]; then
         _as_skip="no git remote"
         return 0
@@ -483,9 +498,19 @@ _autosync_lock() {
     local lock="$_as_gitdir/rill-autosync.lock" waited=0 pid
     until mkdir "$lock" 2>/dev/null; do
         pid="$(cat "$lock/pid" 2>/dev/null || true)"
-        if [ -n "$pid" ] && ! _pid_alive "$pid"; then
-            rm -rf "$lock"
-            continue
+        # A dead holder, or a holder that died before writing its pid (lock
+        # older than a minute), is replaced. The takeover itself runs under
+        # a second lock and re-reads the pid, so two callers that saw the
+        # same dead pid cannot remove a lock the other has just taken.
+        if { [ -n "$pid" ] && ! _pid_alive "$pid"; } \
+            || { [ -z "$pid" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]; }; then
+            if mkdir "$lock.reclaim" 2>/dev/null; then
+                [ "$(cat "$lock/pid" 2>/dev/null || true)" = "$pid" ] && rm -rf "$lock"
+                rmdir "$lock.reclaim" 2>/dev/null || true
+                continue
+            elif [ -n "$(find "$lock.reclaim" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+                rmdir "$lock.reclaim" 2>/dev/null || true
+            fi
         fi
         [ "$waited" -ge "$_AUTOSYNC_LOCK_WAIT" ] && return 1
         sleep 1
@@ -499,6 +524,17 @@ _autosync_unlock() {
     rm -rf "$_as_gitdir/rill-autosync.lock"
 }
 
+# Re-run the gate under the lock: the branch may have changed, or a pause
+# begun, while this caller waited.
+_autosync_recheck() {
+    local held="$_as_gitdir"
+    _autosync_setup
+    # Keep the lock's directory even if the vault vanished meanwhile, so
+    # the caller can still release it.
+    [ -n "$_as_gitdir" ] || { _as_gitdir="$held"; return 1; }
+    [ -z "$_as_skip" ]
+}
+
 # One run under the lock. Writes the result file:
 #   line 1: exit code of rill push
 #   line 2: end time (epoch seconds)
@@ -509,7 +545,9 @@ _autosync_run_locked() {
     local h0 h1 out rc outcome pulled=0 writer
     h0="$(git rev-parse -q --verify HEAD 2>/dev/null || true)"
     rc=0
-    out="$( (cmd_push) 2>&1 )" || rc=$?
+    # A separate process: called inside `||`, cmd_push would run without
+    # set -e and could report success after a failed commit.
+    out="$(bash "$_RILL_SELF" push 2>&1)" || rc=$?
     h1="$(git rev-parse -q --verify HEAD 2>/dev/null || true)"
     if [ "$rc" != "0" ]; then
         outcome=failed
@@ -608,6 +646,7 @@ _autosync_check() {
 
 cmd_autosync() {
     local mode="${1:-}" fmt=text
+    _as_user_branch="${RILL_PUSH_BRANCH:-}"
     [ "${2:-}" = "--json" ] && fmt=json
     case "$mode" in
         hook-stop|hook-start|_bg) ;;
@@ -698,13 +737,27 @@ cmd_autosync() {
                 rm -f "$_as_gitdir/rill-autosync.pending"
                 return 0
             fi
+            # Another run may have pushed while this one waited.
+            now="$(date +%s)"
+            last_push="$(cat "$_as_gitdir/rill-autosync.pushed-at" 2>/dev/null || echo 0)"
+            case "$last_push" in ''|*[!0-9]*) last_push=0 ;; esac
+            if [ $((now - last_push)) -lt "$_AUTOSYNC_MIN_INTERVAL" ]; then
+                sleep $((_AUTOSYNC_MIN_INTERVAL - (now - last_push)))
+            fi
             rm -f "$_as_gitdir/rill-autosync.pending"
-            _autosync_run_locked || true
+            if _autosync_recheck; then
+                _autosync_run_locked || true
+            fi
             _autosync_unlock
             return 0 ;;
         hook-start|run)
             if ! _autosync_lock; then
                 [ "$mode" = run ] && _autosync_print_result "$fmt" busy "another run holds the lock"
+                return 0
+            fi
+            if ! _autosync_recheck; then
+                _autosync_unlock
+                [ "$mode" = run ] && _autosync_print_result "$fmt" skipped "$_as_skip"
                 return 0
             fi
             local rc=0

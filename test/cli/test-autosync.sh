@@ -16,6 +16,10 @@
 #   - pause holds runs while the pausing process lives
 #   - a lock left by a dead process is taken over
 #   - hook-stop right after a push is delayed, not dropped
+#   - cloud commits carry a Claude-Session link (valid ids only)
+#   - a run that waited for the lock is re-checked (pause, branch)
+#   - the sync branch is the destination whatever the upstream says
+#   - colored hook output still yields valid JSON
 #
 # Usage: bash test/cli/test-autosync.sh
 # Requires: bash, git, perl. No claude CLI, no network.
@@ -195,6 +199,63 @@ echo ten > "$WORK/a/n10.md"
 echo '{}' | RILL_HOME="$WORK/a" "$RILL" autosync hook-stop >/dev/null 2>&1
 echo '{}' | RILL_HOME="$WORK/a" "$RILL" autosync hook-stop >/dev/null 2>&1
 assert_true "wait_remote_has n10.md" "a hook-stop within the minimum interval still pushes"
+
+# --- 12. cloud commits link the conversation (Claude-Session trailer) -----
+echo eleven > "$WORK/c/n11.md"
+echo '{}' | RILL_HOME="$WORK/c" CLAUDE_CODE_REMOTE=true CLAUDE_CODE_REMOTE_SESSION_ID=cse_01AbC-x_9 \
+  "$RILL" autosync hook-start >/dev/null 2>&1 || true
+sess="$(git -C "$WORK/remote.git" log -1 --format='%(trailers:key=Claude-Session,valueonly)' main | tr -d '\n')"
+assert_eq "$sess" "https://claude.ai/code/session_01AbC-x_9" "a cloud commit carries the Claude-Session link"
+wr="$(git -C "$WORK/remote.git" log -1 --format='%(trailers:key=Rill-Writer,valueonly)' main | tr -d '\n')"
+assert_eq "$wr" "cloud" "the Rill-Writer trailer is still there"
+echo twelve > "$WORK/c/n12.md"
+echo '{}' | RILL_HOME="$WORK/c" CLAUDE_CODE_REMOTE=true CLAUDE_CODE_REMOTE_SESSION_ID='cse_bad id' \
+  "$RILL" autosync hook-start >/dev/null 2>&1 || true
+sess="$(git -C "$WORK/remote.git" log -1 --format='%(trailers:key=Claude-Session,valueonly)' main | tr -d '\n')"
+assert_eq "$sess" "" "an invalid session id adds no link"
+
+# --- 13. a pause that starts while a run waits for the lock holds it -------
+as_a run >/dev/null || true
+sleep 30 &
+holder=$!
+mkdir "$WORK/a/.git/rill-autosync.lock"
+echo "$holder" > "$WORK/a/.git/rill-autosync.lock/pid"
+echo thirteen > "$WORK/a/n13.md"
+as_a run --json > "$WORK/run13.out" &
+runner=$!
+sleep 1
+( RILL_HOME="$WORK/a" "$RILL" autosync pause; sleep 4 ) &
+pauser=$!
+sleep 1
+rm -rf "$WORK/a/.git/rill-autosync.lock"
+kill "$holder" 2>/dev/null || true
+wait "$runner" || true
+assert_out_contains "$(cat "$WORK/run13.out")" '"status":"skipped"' "a run that waited is re-checked and skipped while paused"
+assert_true "! remote_has n13.md" "nothing was pushed during the pause"
+wait "$pauser" || true
+
+# --- 14. the sync branch is the destination, whatever the upstream says ----
+clone "$WORK/e" e2
+(cd "$WORK/e" && git push -q origin HEAD:refs/heads/other)
+git -C "$WORK/e" branch -q -u origin/other
+git -C "$WORK/e" config push.default upstream
+echo fourteen > "$WORK/e/n14.md"
+rc=0; out="$(RILL_HOME="$WORK/e" "$RILL" autosync run --json 2>&1)" || rc=$?
+assert_eq "$rc" "0" "run with a different upstream exits 0"
+assert_true "remote_has n14.md" "the work went to the sync branch"
+assert_true "! git -C '$WORK/remote.git' show other:n14.md >/dev/null 2>&1" "not to the upstream branch"
+out="$(RILL_HOME="$WORK/e" "$RILL" autosync check --json 2>&1)"
+assert_out_contains "$out" '"unpushed":0' "check agrees nothing is left to push"
+
+# --- 15. colored hook output still gives valid JSON ------------------------
+mkdir -p "$WORK/a/.git/hooks"
+printf '#!/bin/sh\nprintf "\\033[31mrejected by hook\\033[0m\\n" >&2\nexit 1\n' > "$WORK/a/.git/hooks/pre-push"
+chmod +x "$WORK/a/.git/hooks/pre-push"
+echo fifteen > "$WORK/a/n15.md"
+out="$(as_a run --json || true)"
+assert_true "printf '%s' '$out' | python3 -c 'import json,sys; json.load(sys.stdin)'" "run --json stays valid JSON with colored hook output"
+assert_out_contains "$out" "rejected by hook" "the hook's message is kept"
+rm -f "$WORK/a/.git/hooks/pre-push"
 
 echo ""
 report_results
