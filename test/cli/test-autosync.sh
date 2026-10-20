@@ -279,5 +279,11 @@ assert_true "! remote_has n17.md" "a branch switch before the background run sto
 git -C "$WORK/a" switch -q main
 rm -f "$WORK/a/n17.md"
 
+# --- 18. a result file in another format still gives valid JSON ------------
+printf '0\nPushed.\n' > "$WORK/a/.git/rill-autosync.last"
+out="$(as_a status --json)"
+assert_true "printf '%s' '$out' | python3 -c 'import json,sys; json.load(sys.stdin)'" "status --json is valid JSON for an old-format result file"
+assert_out_contains "$out" '"status":"unknown"' "an unreadable result reports unknown"
+
 echo ""
 report_results
