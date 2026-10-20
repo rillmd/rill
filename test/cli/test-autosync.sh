@@ -21,6 +21,7 @@
 #   - the sync branch is the destination whatever the upstream says
 #   - colored hook output still yields valid JSON
 #   - pauses are per process
+#   - check reports HEAD behind its tracking ref
 #
 # Usage: bash test/cli/test-autosync.sh
 # Requires: bash, git, perl. No claude CLI, no network.
@@ -284,6 +285,14 @@ printf '0\nPushed.\n' > "$WORK/a/.git/rill-autosync.last"
 out="$(as_a status --json)"
 assert_true "printf '%s' '$out' | python3 -c 'import json,sys; json.load(sys.stdin)'" "status --json is valid JSON for an old-format result file"
 assert_out_contains "$out" '"status":"unknown"' "an unreadable result reports unknown"
+
+# --- 19. check reports HEAD behind a tracking ref someone else fetched ------
+as_a run >/dev/null || true
+echo nineteen > "$WORK/b/n19.md"; push_b
+git -C "$WORK/a" fetch -q origin
+out="$(as_a check --json)"
+assert_out_contains "$out" '"remote_moved":false' "after a fetch the remote matches the tracking ref"
+assert_out_contains "$out" '"behind":1' "check reports HEAD one commit behind"
 
 echo ""
 report_results
