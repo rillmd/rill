@@ -95,7 +95,6 @@ The app and CLI read the same vault. Start with either; they stay in sync throug
 | `/retrospective` | Generate a weekly retrospective across workspaces and decisions |
 | `/focus` | Start or resume a deep thinking workspace |
 | `/close` | Complete a workspace and distill insights to knowledge |
-| `/promote` | Crystallize a closed workspace's results into a project |
 | `/project` | Manage a project execution hub — status, next task, or an autonomous run |
 | `/refresh-project` | Recompute a project's active tasks and related workspaces |
 | `/refresh-decisions` | Recompute a project's pending human-decision digest |

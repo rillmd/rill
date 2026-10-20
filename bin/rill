@@ -5406,9 +5406,9 @@ cmd_mkfile() {
         echo "---"
         echo ""
         # Skeleton body. Projects ship with the full canonical section set
-        # so downstream skills (/promote appends to ## Key Facts, /project
-        # status reads ## Current Focus, /refresh-project owns ## Active
-        # Tasks and ## Related Workspaces) can write into the file without
+        # so downstream skills (/project status reads ## Current Focus,
+        # /refresh-project owns ## Active Tasks and ## Related Workspaces,
+        # /distill appends to ## Key Facts) can write into the file without
         # first having to scaffold missing headings. Author fills the Goal
         # bullet after creation. Other directories get an empty body: a
         # placeholder line here was easy to leave behind above the real

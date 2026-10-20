@@ -102,7 +102,7 @@ human readers. The GUI and classification flows do not parse it.
 
 | Section | Owner | Update timing |
 |---|---|---|
-| Goal | `/promote` | At creation and on scope changes |
+| Goal | `/project new`, then manual | At creation and on scope changes |
 | Current Focus | `/distill` profile-agent | Weekly |
 | Pending Decisions | `/refresh-decisions` | After queue writes / resolutions (deterministic derived view, ADR-084) |
 | Active Tasks | `/refresh-project` | Before `/project` invocation |
@@ -125,7 +125,7 @@ When a project transitions to `status: done`, generate `_summary.md` (same conve
 
 ## Relationship with Workspaces
 
-One project ↔ N workspaces (ADR-042). Workspaces = divergent thinking; projects = execution. Results crystallize via `/promote`.
+One project ↔ N workspaces (ADR-042), linked by the workspace's `mentions: [projects/{id}]`; `/refresh-project` lists them under `## Related Workspaces`. A workspace's own tasks and decisions stay with the workspace; there is no separate step that copies a closed workspace's results into a project.
 
 ## Relationship with Tasks
 
@@ -150,8 +150,7 @@ rill mkfile projects --slug rill --type project \
 `rill mkfile projects` rejects the call when either `name` or `description`
 is missing or empty — both fields are required for the GUI preview and the
 classification skills to work. For interactive creation use the `/project new`
-skill, which prompts the user for them. For workspace crystallisation use
-`/promote`, which seeds the four `/project new` inputs from `_summary.md`.
+skill, which prompts the user for them.
 
 ## After Completion
 
