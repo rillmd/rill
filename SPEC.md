@@ -1101,7 +1101,6 @@ Grouped by audience, matching `rill help`'s own grouping: commands you type your
 | `/retrospective` | Manual or weekly briefing nudge | Weekly retrospective report: cross-workspace themes, contradictions, stale workspaces, decision digest, self observations |
 | `/focus` | Manual | Start/resume workspace (D28) |
 | `/close` | Manual | Complete workspace (D28) |
-| `/promote` | Manual, after /close | Crystallize a closed workspace's `_summary.md` into its target project — proposes Key Facts and new tasks |
 | `/project` | Manual | Operate a project execution hub: status, next unblocked task, autonomous run, dependency review, list, or create |
 | `/refresh-project` | Before /project invocation, or manual | Recompute a project's Active Tasks and Related Workspaces via mention reverse-lookup |
 | `/refresh-decisions` | After a decision queue write or resolution | Recompute a project's Pending Decisions digest (ADR-084) |

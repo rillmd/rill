@@ -2,7 +2,7 @@
 model: sonnet
 effort: low
 name: refresh-project
-description: Recompute the auto-maintained sections (`## Active Tasks`, `## Related Workspaces`) of `projects/{slug}/_project.md` via mention reverse-lookup, sorted by dependency-resolved priority. Idempotent. Use when refreshing a project's surface, or as a leaf invoked internally by `/project` and `/promote`.
+description: Recompute the auto-maintained sections (`## Active Tasks`, `## Related Workspaces`) of `projects/{slug}/_project.md` via mention reverse-lookup, sorted by dependency-resolved priority. Idempotent. Use when refreshing a project's surface, or as a leaf invoked internally by `/project`.
 gui:
   label: "/refresh-project"
   hint: "Recompute Active Tasks and Related Workspaces in _project.md"
@@ -97,7 +97,7 @@ Rewrite `## Active Tasks` and `## Related Workspaces` in `projects/{slug}/_proje
 
 - If `Unblocked` is empty, omit the heading and write `_None — see Blocked below or `/project {slug} continue` to investigate._`
 - If `Blocked` is empty, omit the heading
-- If both are empty, write `_No active tasks. Use `rill task` or `/promote` to create one._`
+- If both are empty, write `_No active tasks. Use `rill task` to create one._`
 - For each blocked task, list one representative blocker (the first unmet `depends-on` entry). Cycle annotations and broken-link warnings are deferred to `/project review`.
 
 #### Format — `## Related Workspaces`
@@ -183,7 +183,6 @@ There are no time-based or random inputs. Repeat invocations are safe and cheap.
 Typical callers:
 
 - `/project {slug} status|continue|review` — calls `/refresh-project {slug}` at the start so subsequent reads see fresh data
-- `/promote {workspace-id}` — calls `/refresh-project {target-slug}` after appending a workspace reference, so the project's surface reflects the promotion
 - Direct user invocation: `/refresh-project rill` or `/refresh-project --all`
 - Future automation (cron-style): periodic `/refresh-project --all` to keep the surface fresh without manual prompting
 
@@ -203,4 +202,3 @@ This skill does not invoke other skills. It is a pure read-grep-write leaf.
 - `.claude/rules/rill-projects.md` — section ownership table, body structure
 - `.claude/rules/rill-tasks.md` — `depends-on` / `blocks` frontmatter schema
 - `/project` skill — uses this skill as its first phase
-- `/promote` skill — calls this skill after appending a workspace reference

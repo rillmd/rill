@@ -109,7 +109,7 @@ Invoke `/pulse` via the Skill mechanism (synchronous; it has its own cooldown). 
 
 ### S1.7 Report
 
-Tell the user, in their language: the workspace is closed and waiting for distillation; its position from `rill workspace queue`; that a scheduled distill job (if the vault runs one) will distill it, and `/close --distill {id}` does it now; the tasks created or synced. Until distillation completes the workspace stays `distill-pending` — it is not `completed` yet. If the workspace had actionable items, mention that `/promote {id}` is available after distillation (it needs `_summary.md`).
+Tell the user, in their language: the workspace is closed and waiting for distillation; its position from `rill workspace queue`; that a scheduled distill job (if the vault runs one) will distill it, and `/close --distill {id}` does it now; the tasks created or synced. Until distillation completes the workspace stays `distill-pending` — it is not `completed` yet.
 
 ## Stage 2 — distill (`--distill {id}`)
 
@@ -293,7 +293,7 @@ From `rill workspace verify {id} --json` (totals) and `effective_outcomes` in `d
 - `USER_DECLINED` only with the user's explicit answer in an interactive run (the CLI refuses it when `RILL_DISTILL_UNATTENDED=1`)
 - Never modify `inbox/journal/` and `inbox/*/` original files (read-only)
 - Include frontmatter in all files (generated HTML excepted — `rill-html-output.md`)
-- No workspace handbook and no `/promote` chain in /close: the handbook is generated only on explicit request, and `/promote` runs after Stage 2 when the user wants it
+- No workspace handbook in /close: the handbook is generated only on explicit request
 
 ## Related files
 

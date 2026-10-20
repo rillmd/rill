@@ -30,7 +30,7 @@ Operates on a Rill project — the execution-hub unit that bundles multiple task
 
 `continue` and `run` are siblings: `continue` is user-steered (asks before each task, recursion depth 1), `run` is policy-gated and autonomous (approve a policy once, then it loops). `run` is the project-level counterpart of `/solve`'s autonomous mode.
 
-`/project` (execution surface, convergent) is the counterpart of `/focus` (workspace surface, divergent). The bridge between them is `/promote`.
+`/project` (execution surface, convergent) is the counterpart of `/focus` (workspace surface, divergent). A workspace joins a project by mentioning it (`mentions: [projects/{slug}]`); `/refresh-project` then lists it.
 
 ## Arguments
 
@@ -332,7 +332,7 @@ Create a new `projects/{slug}/_project.md` interactively.
 
    Next:
    - Create a task with `rill task` and tag it `mentions: [projects/{slug}]`
-   - Crystallise from a closed workspace with `/promote {workspace-id}`
+   - Link a workspace by adding `projects/{slug}` to its `mentions`
    - Run `/project {slug}` to view status (will be empty until tasks/workspaces are linked)
    ```
 
@@ -599,13 +599,9 @@ Invoked synchronously right before digest generation at both read moments (§"Pr
 
 `run` mode delegates each task to `/solve` in **autonomous mode** (via a sub-agent, one task per fresh context). There, the per-task Plan gate is replaced by the run's approved policy + Codex PASS, and `/solve`'s interactive decision points route to the human-decision queue instead of asking. See `solve.md` §Autonomous Mode and `rill-autonomous-execution.md` §8–§11.
 
-### `/promote`
-
-`/promote` may invoke `/project new {slug}` when crystallising a workspace into a project that does not yet exist. Otherwise `/project` does not call `/promote`.
-
 ### `/close`
 
-No direct invocation. `/close` may chain to `/promote` (see `/close` Phase 0); `/promote` then enters `/project new` if needed.
+No direct invocation in either direction.
 
 ### `/briefing`
 
@@ -617,7 +613,7 @@ Reads `knowledge/self/current-state.md` and may include project-level next-actio
 |---|---|
 | Slug does not exist (any mode) | Propose similar slugs + offer `new` mode |
 | `_project.md` frontmatter is malformed | Print a warning, fall back to filename slug, continue with empty status |
-| Active Tasks section is empty (project has zero tasks) | Display "No tasks yet. Use `rill task` or `/promote` to link tasks to this project." |
+| Active Tasks section is empty (project has zero tasks) | Display "No tasks yet. Use `rill task` and add `mentions: [projects/{slug}]` to link tasks to this project." |
 | All tasks are `done` | Display "All tasks complete." Offer `/project {slug} complete` (future) to generate `_summary.md` |
 | Cycle detected | `status` / `continue` mode skip cycle members; `review` mode surfaces them |
 | `/refresh-project` lock cannot be acquired (timeout) | Continue with the existing stale data — print a one-line warning so the user knows |
@@ -645,6 +641,5 @@ Reads `knowledge/self/current-state.md` and may include project-level next-actio
 - `.claude/commands/_view/design-language.md` — authoring checklist the digest follows
 - `/refresh-project` skill — auto-section computation
 - `/refresh-decisions` skill — `## Pending Decisions` recompute, invoked before digest generation
-- `/promote` skill — workspace → project crystallisation
 - `/solve` skill — task execution (chain target of `continue`; autonomous-mode delegate of `run`)
 - `/focus` skill — workspace counterpart (divergent surface)
