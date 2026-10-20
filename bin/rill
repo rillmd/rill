@@ -568,6 +568,27 @@ _autosync_unlock() {
     rm -rf "$_as_gitdir/rill-autosync.lock"
 }
 
+# Claude Code sessions mid-turn or waiting for approval, from the session
+# ledger `rill session-hook` writes (.rill/state/sessions/<id>.jsonl): a
+# session counts when its latest turn event is a prompt, a tool use, or a
+# permission request. Ledgers untouched for 3 hours are ignored, so a session
+# that crashed mid-turn stops counting.
+_autosync_active_sessions() {
+    local dir="$RILL_HOME/.rill/state/sessions" f last n=0
+    if [ -d "$dir" ]; then
+        for f in "$dir"/*.jsonl; do
+            [ -f "$f" ] || continue
+            case "${f##*/}" in _*) continue ;; esac
+            [ -n "$(find "$f" -mmin -180 2>/dev/null)" ] || continue
+            last="$(grep -oE '"event":"(UserPromptSubmit|PermissionRequest|PostToolUse|PostToolUseFailure|Stop|StopFailure|SessionEnd)"' "$f" 2>/dev/null | tail -n 1)" || true
+            case "$last" in
+                *UserPromptSubmit*|*PermissionRequest*|*PostToolUse*) n=$((n + 1)) ;;
+            esac
+        done
+    fi
+    echo "$n"
+}
+
 # Re-run the gate under the lock: the branch may have changed, or a pause
 # begun, while this caller waited.
 _autosync_recheck() {
@@ -703,9 +724,15 @@ _autosync_check() {
 }
 
 cmd_autosync() {
-    local mode="${1:-}" fmt=text
+    local mode="${1:-}" fmt=text if_idle=false arg
     _as_user_branch="${RILL_PUSH_BRANCH:-}"
-    [ "${2:-}" = "--json" ] && fmt=json
+    shift || true
+    for arg in "$@"; do
+        case "$arg" in
+            --json) fmt=json ;;
+            --if-idle) if_idle=true ;;
+        esac
+    done
     case "$mode" in
         hook-stop|hook-start|_bg) ;;
         run|check|status|pause|resume) ;;
@@ -821,6 +848,13 @@ cmd_autosync() {
             if ! _autosync_recheck; then
                 _autosync_unlock
                 [ "$mode" = run ] && _autosync_print_result "$fmt" skipped "$_as_skip"
+                return 0
+            fi
+            # Decided under the lock, right before anything is changed: a
+            # turn that began while this caller waited is not synced under.
+            if $if_idle && [ "$(_autosync_active_sessions)" != "0" ]; then
+                _autosync_unlock
+                _autosync_print_result "$fmt" skipped "a Claude session is mid-turn"
                 return 0
             fi
             local rc=0
@@ -6712,7 +6746,9 @@ Modes:
                    and returns at once. Reports the previous run's failure
                    as a systemMessage. Background pushes are kept 10s apart.
   hook-start       Claude Code SessionStart hook. Runs and waits.
-  run [--json]     Run now and wait. Prints the result.
+  run [--json] [--if-idle]
+                   Run now and wait. Prints the result. --if-idle skips
+                   while a Claude session is mid-turn (session ledger).
   check [--json]   Has the remote branch moved (one ls-remote, nothing
                    fetched)? Are there local changes or unpushed commits?
   status [--json]  The last run's result.

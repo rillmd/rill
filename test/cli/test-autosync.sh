@@ -22,6 +22,7 @@
 #   - colored hook output still yields valid JSON
 #   - pauses are per process
 #   - check reports HEAD behind its tracking ref
+#   - run --if-idle skips while a session is mid-turn (decided under the lock)
 #
 # Usage: bash test/cli/test-autosync.sh
 # Requires: bash, git, perl. No claude CLI, no network.
@@ -293,6 +294,19 @@ git -C "$WORK/a" fetch -q origin
 out="$(as_a check --json)"
 assert_out_contains "$out" '"remote_moved":false' "after a fetch the remote matches the tracking ref"
 assert_out_contains "$out" '"behind":1' "check reports HEAD one commit behind"
+
+# --- 20. run --if-idle skips while a session is mid-turn -------------------
+as_a run >/dev/null || true
+mkdir -p "$WORK/a/.rill/state/sessions"
+printf '{"t":1,"event":"UserPromptSubmit","session_id":"s1"}\n' > "$WORK/a/.rill/state/sessions/s1.jsonl"
+echo twenty > "$WORK/a/n20.md"
+out="$(as_a run --json --if-idle)"
+assert_out_contains "$out" '"status":"skipped"' "run --if-idle skips while a session is mid-turn"
+assert_true "! remote_has n20.md" "nothing is pushed"
+printf '{"t":2,"event":"Stop","session_id":"s1"}\n' >> "$WORK/a/.rill/state/sessions/s1.jsonl"
+out="$(as_a run --json --if-idle)"
+assert_out_contains "$out" '"status":"pushed"' "run --if-idle pushes once the turn ended"
+rm -rf "$WORK/a/.rill/state"
 
 echo ""
 report_results
