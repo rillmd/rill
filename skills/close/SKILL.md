@@ -38,7 +38,7 @@ $ARGUMENTS — one of the following:
 - workspace/ path or id (e.g., `workspace/2026-02-13-rill-development/` or `rill-development`) → **Stage 1**: close the workspace
 - Omitted → Stage 1 with auto-detection (`active` workspaces)
 - `--distill <id>` → **Stage 2** in this session (interactive): distill a `distill-pending` workspace now and complete it if the record verifies
-- `--distill <id> --unattended` → **Stage 2** as run by the night distill job under `claude -p`. The job wrapper owns `rill workspace distill begin`, `rill workspace complete`, and `rill workspace distill end`; the skill only records the analysis and outcomes, never prompts, and never calls `complete`
+- `--distill <id> --unattended` → **Stage 2** as run by the night distill job under `claude -p`. The job wrapper owns `rill workspace distill begin`, `rill workspace complete`, and `rill workspace distill end`; the skill only records the analysis and outcomes, never prompts, and never calls `complete`. The wrapper exports `RILL_DISTILL_RUN` (the run number `begin` printed) and `RILL_DISTILL_UNATTENDED=1`; the record commands read them, so a worker of a run that was taken over cannot write into its successor
 - Add `--auto-approve` to suppress approval / confirmation prompts in an interactive run (integration tests under `claude -p`): Stage 1 infers the close kind, conclusion, and hint and leaves related task statuses unchanged; Stage 2 behaves as interactive without prompts (it still owns begin / complete / end)
 
 ## Architecture (why this skill is structured the way it is)
