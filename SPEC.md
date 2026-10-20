@@ -1057,6 +1057,7 @@ Grouped by audience, matching `rill help`'s own grouping: commands you type your
 | `rill book build <id>` | Build a book's fixed-style HTML reading view into `pages/<id>/.view/` |
 | `rill context-map` | Emit deterministic shared context — people/orgs/projects one-line mappings, entity-ID list, Tier dict (frontmatter-only, 0 LLM tokens). Used by `/distill` Step 1 and `/close` Phase 1 |
 | `rill processed <sub>` | `.processed` state management: `set` / `count` / `list --status` / `normalize` (last-wins, one line per file; preserves bare journal-style and `filename:status` forms) |
+| `rill workspace <sub>` | Workspace state machine and distill record (`lib/workspace/rill_workspace.py`, python3 >= 3.9). State: `close` / `reopen` / `requeue [--backfill]` / `complete` / `snooze` / `unsnooze`; status takes `active`, `distill-pending`, `completed`, and only `complete` writes `completed`, after `verify` passes on `workspace/<id>/_distill.md`. Record (written only by the CLI): `distill begin|analysis|outcome|end|show`, with the run lock in `.rill/state/distill/<id>.lock`. Vault-wide: `queue` (distill queue order) and `check` (invariant check, no AI) |
 | `rill guard <path>` | Check if a file is managed (used by agent hooks) |
 | `rill codex-hook <event>` | Normalize Codex hook payloads for Rill helpers |
 
