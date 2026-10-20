@@ -96,7 +96,7 @@ echo ""
 
 # 1. Inbox immutability (INV-01)
 echo "=== INV-01: Inbox immutability ==="
-bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE" || true
+run_assertion bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE"
 echo ""
 
 # 2. Organized files created and validated (OR-01-04)
@@ -105,7 +105,7 @@ for journal in inbox/journal/2026-*.md; do
   name=$(basename "$journal")
   assert_file_exists "inbox/journal/_organized/$name" "Organized version: $name"
 done
-bash "$ASSERTIONS_DIR/check-organized.sh" "inbox/journal/_organized" "inbox/journal" || true
+run_assertion bash "$ASSERTIONS_DIR/check-organized.sh" "inbox/journal/_organized" "inbox/journal"
 echo ""
 
 # 2b. Existing file immutability (INV-02, INV-03)
@@ -136,10 +136,10 @@ for f in knowledge/notes/*.md; do
     echo "  New note: $name"
 
     # Run all assertion checks on each new note
-    bash "$ASSERTIONS_DIR/check-frontmatter.sh" "$f" --required "created,type,source" || true
-    bash "$ASSERTIONS_DIR/check-taxonomy.sh" "$f" taxonomy.md || true
-    bash "$ASSERTIONS_DIR/check-mentions.sh" "$f" || true
-    bash "$ASSERTIONS_DIR/check-file-naming.sh" "$f" || true
+    run_assertion bash "$ASSERTIONS_DIR/check-frontmatter.sh" "$f" --required "created,type,source"
+    run_assertion bash "$ASSERTIONS_DIR/check-taxonomy.sh" "$f" taxonomy.md
+    run_assertion bash "$ASSERTIONS_DIR/check-mentions.sh" "$f"
+    run_assertion bash "$ASSERTIONS_DIR/check-file-naming.sh" "$f"
     echo ""
   fi
 done
@@ -252,7 +252,7 @@ echo ""
 
 # 9. Key fact accumulation check (KF-01, KF-02, KF-04)
 echo "=== KF: Key fact accumulation ==="
-bash "$ASSERTIONS_DIR/check-keyfacts.sh" "." "$FIXTURES_DIR" || true
+run_assertion bash "$ASSERTIONS_DIR/check-keyfacts.sh" "." "$FIXTURES_DIR"
 echo ""
 
 # 10. Profile immutability check (PF-02)
@@ -293,7 +293,7 @@ cat > "$RESULTS_DIR/summary.json" <<EOF
 }
 EOF
 
-report_results || true
+report_results
 
 echo ""
 echo "Vault preserved at: $VAULT_DIR"
