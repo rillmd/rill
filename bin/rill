@@ -307,12 +307,20 @@ cmd_push() {
     # Callers set RILL_WRITER (e.g. a scheduled job or a cloud environment);
     # otherwise `git config rill.writer` (set once per machine), then the
     # short host name.
-    local writer="${RILL_WRITER:-$(git config rill.writer 2>/dev/null || hostname -s 2>/dev/null || echo unknown)}"
-    writer="${writer//[^A-Za-z0-9_.@-]/_}"
+    local writer
+    writer="$(_rill_writer)"
 
     git add -A
     if ! git diff --cached --quiet; then
-        git commit -q -m "journal: $(date '+%Y-%m-%d %H:%M')" -m "Rill-Writer: $writer"
+        # In a Claude Code cloud session, link the commit to the conversation
+        # that wrote it, as Claude's own commits there do.
+        local trailers="Rill-Writer: $writer"
+        local sid="${CLAUDE_CODE_REMOTE_SESSION_ID:-}"
+        if [[ "$sid" =~ ^cse_[A-Za-z0-9_-]+$ ]]; then
+            trailers="$trailers
+Claude-Session: https://claude.ai/code/session_${sid#cse_}"
+        fi
+        git commit -q -m "journal: $(date '+%Y-%m-%d %H:%M')" -m "$trailers"
     fi
 
     if [ -z "$(git remote)" ]; then
@@ -383,6 +391,407 @@ cmd_push() {
     echo "⚠️  Push failed twice. Your commit is kept locally. Git said:" >&2
     printf '%s\n' "$err" | sed 's/^/      /' >&2
     return 1
+}
+
+# --- rill autosync -------------------------------------------------------
+#
+# Keeps a vault and one branch of its push remote (main by default) in step,
+# for callers that run without a person watching: Claude Code hooks, a GUI
+# timer, a scheduled job. Each run is `rill push` (commit everything, rebase
+# onto the remote branch, push, never force) under a lock shared by every
+# caller of the clone, with its result kept in .git/ so the next caller can
+# report a failure.
+#
+#   rill autosync hook-stop     Stop hook: start a run in the background and
+#                               return at once; report the previous failure.
+#   rill autosync hook-start    SessionStart hook: run and wait, so the
+#                               session starts from the latest remote branch.
+#   rill autosync run [--json]  Run now and wait (GUI, manual, scheduled job).
+#   rill autosync check [--json]  Cheap: has the remote branch moved (one
+#                               ls-remote, no objects fetched)? Are there
+#                               local changes or unpushed commits?
+#   rill autosync status [--json] The last run's result.
+#   rill autosync pause|resume  Hold every run while the calling process
+#                               lives (e.g. a scheduled job that pushes once
+#                               at its end).
+#
+# Hook modes do nothing when RILL_AUTOSYNC=0. Every mode does nothing when
+# the checkout is not on the sync branch (worktrees, feature branches),
+# unless RILL_PUSH_BRANCH names the branch to push to. In a Claude Code cloud
+# session (CLAUDE_CODE_REMOTE=true) the checkout is a per-session branch, so
+# RILL_PUSH_BRANCH defaults to the sync branch there.
+
+# Absolute path of this script, taken before any cd, for re-running it in
+# the background.
+_RILL_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/$(basename "${BASH_SOURCE[0]}")"
+_AUTOSYNC_MIN_INTERVAL=10   # seconds between background pushes
+_AUTOSYNC_LOCK_WAIT=60      # seconds a caller waits for another run
+
+_rill_writer() {
+    local writer="${RILL_WRITER:-$(git config rill.writer 2>/dev/null || hostname -s 2>/dev/null || echo unknown)}"
+    printf '%s' "${writer//[^A-Za-z0-9_.@-]/_}"
+}
+
+_json_str() {
+    local s="$1"
+    # Drop ANSI color sequences and control characters JSON would need
+    # escaped (tab, newline and CR are escaped below).
+    s="$(printf '%s' "$s" | LC_ALL=C sed $'s/\x1b\\[[0-9;]*[A-Za-z]//g' | LC_ALL=C tr -d '\000-\010\013\014\016-\037')" || true
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '"%s"' "$s"
+}
+
+_pid_alive() {
+    [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null
+}
+
+# Sets _as_gitdir, _as_branch, _as_remote, _as_skip (reason, empty if not
+# skipped) for the vault at $RILL_HOME. Exports RILL_PUSH_BRANCH in a cloud
+# session.
+_autosync_setup() {
+    _as_skip=""
+    _as_gitdir="" _as_branch="" _as_remote=""
+    if [ -z "${RILL_HOME:-}" ] || ! cd "$RILL_HOME" 2>/dev/null; then
+        _as_skip="no vault"
+        return 0
+    fi
+    # Absolute, so the re-check under the lock and child processes find the
+    # same vault after this cd.
+    RILL_HOME="$(pwd)"
+    export RILL_HOME
+    # The common git directory, so linked worktrees of one clone share the
+    # lock and the pause markers.
+    local common
+    if ! common="$(git rev-parse --git-common-dir 2>/dev/null)" \
+        || ! _as_gitdir="$(cd "$common" 2>/dev/null && pwd)"; then
+        _as_gitdir=""
+        _as_skip="not a git repository"
+        return 0
+    fi
+    # _as_user_branch is the caller's RILL_PUSH_BRANCH, kept by cmd_autosync
+    # before this function exports its own.
+    local explicit="$_as_user_branch"
+    _as_branch="${explicit:-$(git config rill.syncBranch 2>/dev/null || echo main)}"
+    [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] && explicit="$_as_branch"
+    if [ -z "$explicit" ] && [ "$(git symbolic-ref --short -q HEAD || true)" != "$_as_branch" ]; then
+        _as_skip="not on $_as_branch"
+        return 0
+    fi
+    # Fetch, rebase onto, and push to the sync branch by name, whatever the
+    # branch's upstream or push.default say, so that check and run agree.
+    export RILL_PUSH_BRANCH="$_as_branch"
+    if [ -z "$(git remote)" ]; then
+        _as_skip="no git remote"
+        return 0
+    fi
+    _as_remote="$(_push_remote)"
+    # One marker per pausing process; markers of processes that have ended
+    # are dropped.
+    local marker
+    for marker in "$_as_gitdir"/rill-autosync.pause.d/*; do
+        [ -f "$marker" ] || continue
+        if _pid_alive "${marker##*/}"; then
+            _as_skip="paused"
+        else
+            rm -f "$marker"
+        fi
+    done
+    return 0
+}
+
+# Take the clone's lock, waiting up to _AUTOSYNC_LOCK_WAIT seconds. A lock
+# whose holder died is taken over. Returns 1 when still busy.
+_autosync_lock() {
+    local lock="$_as_gitdir/rill-autosync.lock" waited=0 pid
+    until mkdir "$lock" 2>/dev/null; do
+        pid="$(cat "$lock/pid" 2>/dev/null || true)"
+        # A dead holder, or a holder that died before writing its pid (lock
+        # older than a minute), is replaced. The takeover itself runs under
+        # a second lock and re-reads the pid, so two callers that saw the
+        # same dead pid cannot remove a lock the other has just taken.
+        if { [ -n "$pid" ] && ! _pid_alive "$pid"; } \
+            || { [ -z "$pid" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]; }; then
+            if mkdir "$lock.reclaim" 2>/dev/null; then
+                [ "$(cat "$lock/pid" 2>/dev/null || true)" = "$pid" ] && rm -rf "$lock"
+                rmdir "$lock.reclaim" 2>/dev/null || true
+                continue
+            elif [ -n "$(find "$lock.reclaim" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+                rmdir "$lock.reclaim" 2>/dev/null || true
+            fi
+        fi
+        [ "$waited" -ge "$_AUTOSYNC_LOCK_WAIT" ] && return 1
+        sleep 1
+        waited=$((waited + 1))
+    done
+    echo "$$" > "$lock/pid"
+    return 0
+}
+
+_autosync_unlock() {
+    rm -rf "$_as_gitdir/rill-autosync.lock"
+}
+
+# Re-run the gate under the lock: the branch may have changed, or a pause
+# begun, while this caller waited.
+_autosync_recheck() {
+    local held="$_as_gitdir"
+    _autosync_setup
+    # Keep the lock's directory even if the vault vanished meanwhile, so
+    # the caller can still release it.
+    [ -n "$_as_gitdir" ] || { _as_gitdir="$held"; return 1; }
+    [ -z "$_as_skip" ]
+}
+
+# One run under the lock. Writes the result file:
+#   line 1: exit code of rill push
+#   line 2: end time (epoch seconds)
+#   line 3: pushed | nothing | failed
+#   line 4: commits brought in from other writers
+#   rest:   rill push output
+_autosync_run_locked() {
+    local h0 h1 out rc outcome pulled=0 writer
+    h0="$(git rev-parse -q --verify HEAD 2>/dev/null || true)"
+    rc=0
+    # A separate process: called inside `||`, cmd_push would run without
+    # set -e and could report success after a failed commit.
+    out="$(bash "$_RILL_SELF" push 2>&1)" || rc=$?
+    h1="$(git rev-parse -q --verify HEAD 2>/dev/null || true)"
+    if [ "$rc" != "0" ]; then
+        outcome=failed
+    elif [[ "$out" == *"Nothing to push."* ]]; then
+        outcome=nothing
+    else
+        outcome=pushed
+        date +%s > "$_as_gitdir/rill-autosync.pushed-at"
+    fi
+    if [ -n "$h0" ] && [ -n "$h1" ] && [ "$h0" != "$h1" ]; then
+        writer="$(_rill_writer)"
+        # Commits on the new HEAD that are neither a rebased copy of a local
+        # commit (--cherry-pick drops patch-equal pairs) nor this writer's
+        # new commit.
+        pulled="$(git rev-list --count --cherry-pick --right-only --invert-grep \
+            --grep="^Rill-Writer: $writer\$" "$h0...$h1" 2>/dev/null || echo 0)"
+    fi
+    printf '%s\n%s\n%s\n%s\n%s\n' "$rc" "$(date +%s)" "$outcome" "$pulled" "$out" \
+        > "$_as_gitdir/rill-autosync.last.tmp"
+    mv "$_as_gitdir/rill-autosync.last.tmp" "$_as_gitdir/rill-autosync.last"
+    return "$rc"
+}
+
+_autosync_print_result() {
+    # $1 = json|text, $2 = status override (skipped/busy/paused) or empty
+    local fmt="$1" override="${2:-}" reason="${3:-}"
+    if [ -n "$override" ]; then
+        if [ "$fmt" = json ]; then
+            printf '{"status":%s,"reason":%s}\n' "$(_json_str "$override")" "$(_json_str "$reason")"
+        else
+            echo "autosync: $override${reason:+ ($reason)}"
+        fi
+        return 0
+    fi
+    local last="$_as_gitdir/rill-autosync.last"
+    if [ ! -f "$last" ]; then
+        if [ "$fmt" = json ]; then echo '{"status":"none"}'; else echo "autosync: no run yet"; fi
+        return 0
+    fi
+    local rc at outcome pulled msg
+    rc="$(sed -n 1p "$last")"
+    at="$(sed -n 2p "$last")"
+    outcome="$(sed -n 3p "$last")"
+    pulled="$(sed -n 4p "$last")"
+    # The tail end is where git puts the reason; cap it so escaping stays
+    # quick on bash 3.2 even after a hook printed thousands of lines.
+    msg="$(tail -n +5 "$last" | tail -c 4000)" || true
+    if [ "$fmt" = json ]; then
+        printf '{"status":%s,"exit":%s,"at":%s,"pulled":%s,"message":%s}\n' \
+            "$(_json_str "$outcome")" "${rc:-1}" "${at:-0}" "${pulled:-0}" "$(_json_str "$msg")"
+    else
+        printf '%s\n' "$msg"
+    fi
+}
+
+# Print the last run's failure once (hook modes), as a message Claude Code
+# shows to the user.
+_autosync_report_failure() {
+    local last="$_as_gitdir/rill-autosync.last" seen="$_as_gitdir/rill-autosync.reported"
+    [ -f "$last" ] || return 0
+    [ "$(sed -n 1p "$last")" != "0" ] || return 0
+    local at
+    at="$(sed -n 2p "$last")"
+    [ "$(cat "$seen" 2>/dev/null || true)" != "$at" ] || return 0
+    echo "$at" > "$seen"
+    local msg
+    msg="Vault auto-sync (rill push) failed. The commit is kept locally and the next turn retries.
+$(sed -n '5,19p' "$last")"
+    printf '{"systemMessage":%s}\n' "$(_json_str "$msg")"
+}
+
+_autosync_check() {
+    local fmt="$1" remote_sha local_sha track dirty=false unpushed=0 moved=false err
+    track="refs/remotes/$_as_remote/$_as_branch"
+    if ! remote_sha="$(git ls-remote "$_as_remote" "refs/heads/$_as_branch" 2>"$_as_gitdir/rill-autosync.err")"; then
+        err="$(cat "$_as_gitdir/rill-autosync.err" 2>/dev/null || true)"
+        if [ "$fmt" = json ]; then
+            printf '{"status":"error","reason":%s}\n' "$(_json_str "$err")"
+        else
+            echo "autosync: cannot reach $_as_remote: $err" >&2
+        fi
+        return 1
+    fi
+    remote_sha="${remote_sha%%[[:space:]]*}"
+    local_sha="$(git rev-parse -q --verify "$track" 2>/dev/null || true)"
+    [ "$remote_sha" != "$local_sha" ] && moved=true
+    [ -n "$(git status --porcelain 2>/dev/null | head -n 1)" ] && dirty=true
+    if [ -n "$local_sha" ]; then
+        unpushed="$(git rev-list --count "$track..HEAD" 2>/dev/null || echo 0)"
+    else
+        # No tracking ref yet (e.g. before the first push): count what no
+        # ref of the remote has.
+        unpushed="$(git rev-list --count HEAD --not --remotes="$_as_remote" 2>/dev/null || echo 0)"
+    fi
+    if [ "$fmt" = json ]; then
+        printf '{"status":"ok","branch":%s,"remote_moved":%s,"dirty":%s,"unpushed":%s}\n' \
+            "$(_json_str "$_as_branch")" "$moved" "$dirty" "$unpushed"
+    else
+        echo "remote moved: $moved, local changes: $dirty, unpushed commits: $unpushed"
+    fi
+}
+
+cmd_autosync() {
+    local mode="${1:-}" fmt=text
+    _as_user_branch="${RILL_PUSH_BRANCH:-}"
+    [ "${2:-}" = "--json" ] && fmt=json
+    case "$mode" in
+        hook-stop|hook-start|_bg) ;;
+        run|check|status|pause|resume) ;;
+        *)
+            cmd_help autosync
+            return 1 ;;
+    esac
+    case "$mode" in
+        hook-*) cat >/dev/null 2>&1 || true   # drain the hook's JSON input
+                [ "${RILL_AUTOSYNC:-1}" = "0" ] && return 0 ;;
+    esac
+
+    _autosync_setup
+    if [ -z "$_as_gitdir" ]; then
+        # No vault or not a repository: hooks stay silent.
+        case "$mode" in hook-*|_bg) return 0 ;; esac
+        _autosync_print_result "$fmt" skipped "$_as_skip"
+        return 0
+    fi
+
+    case "$mode" in
+        pause)
+            mkdir -p "$_as_gitdir/rill-autosync.pause.d"
+            : > "$_as_gitdir/rill-autosync.pause.d/$PPID"
+            return 0 ;;
+        resume)
+            rm -f "$_as_gitdir/rill-autosync.pause.d/$PPID"
+            return 0 ;;
+        status)
+            _autosync_print_result "$fmt"
+            return 0 ;;
+    esac
+
+    if [ -n "$_as_skip" ]; then
+        case "$mode" in
+            hook-*|_bg) return 0 ;;
+        esac
+        _autosync_print_result "$fmt" skipped "$_as_skip"
+        return 0
+    fi
+
+    case "$mode" in
+        check)
+            _autosync_check "$fmt"
+            return $? ;;
+        hook-stop)
+            _autosync_report_failure
+            # One waiting background run is enough: it commits whatever is
+            # there when it takes the lock. The marker is dropped before the
+            # commit, so later changes start a new run.
+            local pending="$_as_gitdir/rill-autosync.pending" ppid
+            ppid="$(cat "$pending" 2>/dev/null || true)"
+            if [ -n "$ppid" ] && _pid_alive "$ppid"; then
+                return 0
+            fi
+            # New process group and no inherited stdio, so the run outlives
+            # the hook process and Claude Code does not wait for it.
+            # The child writes its pid to the marker once it runs in its own
+            # group; wait for that (up to ~2s) so the hook process does not
+            # exit while the child could still be killed with its group.
+            local self="$_RILL_SELF" i=0
+            rm -f "$pending"
+            # The child re-checks the branch under the lock, so it gets the
+            # caller's RILL_PUSH_BRANCH, not the one exported above.
+            local -a envset=(env -u RILL_PUSH_BRANCH)
+            [ -n "$_as_user_branch" ] && envset=(env "RILL_PUSH_BRANCH=$_as_user_branch")
+            if command -v perl >/dev/null 2>&1; then
+                nohup "${envset[@]}" perl -e 'setpgrp(0, 0); exec @ARGV' bash "$self" autosync _bg </dev/null >/dev/null 2>&1 &
+            else
+                nohup "${envset[@]}" bash "$self" autosync _bg </dev/null >/dev/null 2>&1 &
+            fi
+            while [ ! -s "$pending" ] && [ "$i" -lt 40 ]; do
+                sleep 0.05
+                i=$((i + 1))
+            done
+            return 0 ;;
+        _bg)
+            echo "$$" > "$_as_gitdir/rill-autosync.pending"
+            # Let the other Stop hooks finish writing their logs, and keep
+            # background pushes at least _AUTOSYNC_MIN_INTERVAL apart. The
+            # run is delayed, never dropped.
+            local now last_push wait_s=2
+            now="$(date +%s)"
+            last_push="$(cat "$_as_gitdir/rill-autosync.pushed-at" 2>/dev/null || echo 0)"
+            case "$last_push" in ''|*[!0-9]*) last_push=0 ;; esac
+            if [ $((now - last_push)) -lt "$_AUTOSYNC_MIN_INTERVAL" ]; then
+                wait_s=$((_AUTOSYNC_MIN_INTERVAL - (now - last_push)))
+                [ "$wait_s" -lt 2 ] && wait_s=2
+            fi
+            sleep "$wait_s"
+            # A live holder finishes eventually and a dead one is replaced,
+            # so keep waiting rather than drop changes made after the
+            # holder's commit.
+            until _autosync_lock; do :; done
+            # Another run may have pushed while this one waited.
+            now="$(date +%s)"
+            last_push="$(cat "$_as_gitdir/rill-autosync.pushed-at" 2>/dev/null || echo 0)"
+            case "$last_push" in ''|*[!0-9]*) last_push=0 ;; esac
+            if [ $((now - last_push)) -lt "$_AUTOSYNC_MIN_INTERVAL" ]; then
+                sleep $((_AUTOSYNC_MIN_INTERVAL - (now - last_push)))
+            fi
+            rm -f "$_as_gitdir/rill-autosync.pending"
+            if _autosync_recheck; then
+                _autosync_run_locked || true
+            fi
+            _autosync_unlock
+            return 0 ;;
+        hook-start|run)
+            if ! _autosync_lock; then
+                [ "$mode" = run ] && _autosync_print_result "$fmt" busy "another run holds the lock"
+                return 0
+            fi
+            if ! _autosync_recheck; then
+                _autosync_unlock
+                [ "$mode" = run ] && _autosync_print_result "$fmt" skipped "$_as_skip"
+                return 0
+            fi
+            local rc=0
+            _autosync_run_locked || rc=$?
+            _autosync_unlock
+            if [ "$mode" = hook-start ]; then
+                _autosync_report_failure
+                return 0
+            fi
+            _autosync_print_result "$fmt"
+            return "$rc" ;;
+    esac
 }
 
 cmd_status() {
@@ -6249,6 +6658,35 @@ cmd_help() {
     # was literally "--help".) Commands not listed here fall through to the
     # full command list below.
     case "${1:-}" in
+        autosync)
+            cat <<'EOF'
+Usage: rill autosync <mode> [--json]
+
+Keeps the vault and one branch of its push remote (main, or git config
+rill.syncBranch) in step. Each run is `rill push` under a lock shared by
+every caller of the clone; the result is kept in .git/rill-autosync.last.
+
+Modes:
+  hook-stop        Claude Code Stop hook. Starts a run in the background
+                   and returns at once. Reports the previous run's failure
+                   as a systemMessage. Background pushes are kept 10s apart.
+  hook-start       Claude Code SessionStart hook. Runs and waits.
+  run [--json]     Run now and wait. Prints the result.
+  check [--json]   Has the remote branch moved (one ls-remote, nothing
+                   fetched)? Are there local changes or unpushed commits?
+  status [--json]  The last run's result.
+  pause | resume   Hold all runs while the calling process lives.
+
+Nothing runs when the checkout is not on the sync branch, unless
+RILL_PUSH_BRANCH is set. RILL_AUTOSYNC=0 turns the hook modes off. In a
+Claude Code cloud session (CLAUDE_CODE_REMOTE=true) RILL_PUSH_BRANCH
+defaults to the sync branch.
+
+Hook setup (.claude/settings.json):
+  Stop:         rill autosync hook-stop   (timeout 5)
+  SessionStart: rill autosync hook-start  (timeout 90)
+EOF
+            return 0 ;;
         book)
             cat <<'EOF'
 Usage: rill book build <id> [--out <dir>]
@@ -6363,6 +6801,7 @@ User commands — quick capture from outside Claude Code:
   i, interactive        Interactive mode (unlimited input, blank line to save)
   clip <url>            Save a web page/tweet to inbox/ for later processing
   push                  Commit all changes, rebase onto the remote, and push (never forces)
+  autosync <mode>       Keep the vault and remote main in step (hooks, GUI, jobs)
   status [n]            Show recent journal entries (default: 10)
   edit                  Open the latest journal entry in editor
   open <path>           Open a file in the Rill GUI (--highlight for emphasis)
@@ -6520,7 +6959,7 @@ if [ "$#" -ge 2 ]; then
         open)
             [ "$2" = "--help" ] && { cmd_help open; exit 0; }
             ;;
-        log|interactive|i|clip|push|status|edit|plugin|sync|index|task|activity-log|touch|mkfile|strip-entity-tags|context-map|processed|book)
+        log|interactive|i|clip|push|autosync|status|edit|plugin|sync|index|task|activity-log|touch|mkfile|strip-entity-tags|context-map|processed|book)
             case "$2" in
                 -h|--help) cmd_help "$1"; exit 0 ;;
             esac
@@ -6534,6 +6973,7 @@ case "${1:-help}" in
     interactive|i) cmd_interactive ;;
     clip)   shift; cmd_clip "$@" ;;
     push)   cmd_push ;;
+    autosync) shift; cmd_autosync "$@" ;;
     status) shift; cmd_status "$@" ;;
     edit)   cmd_edit ;;
     plugin) shift; cmd_plugin "$@" ;;
