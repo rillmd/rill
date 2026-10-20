@@ -279,6 +279,6 @@ The parent /close skill injects the following into this prompt before spawning:
 - Create `_summary.md` only through `bin/rill workspace distill summary` (never hand-write the `created` field)
 - Do not create any file under `knowledge/notes/`, `knowledge/people/`, `projects/`, or `tasks/` — only `_summary.md` under the workspace directory, plus the analysis JSON at `{analysis_file}`
 - Do not modify `_workspace.md` or `_distill.md`
-- Do not modify any deliverable's frontmatter — parent handles that in Phase 6
+- Do not modify any deliverable's frontmatter — the parent handles that in S2.6
 - Total Read budget is generous since fresh context: read all deliverables in full, read `_summary.md`, no other reads are required unless you need to resolve entity references from `knowledge/people/` etc.
 - **Do not fabricate external references.** ADR numbers, ticket IDs, external spec names, and any identifier not explicitly written in the deliverables must NOT appear in `_summary.md` or candidates unless verified by Grep in the workspace. If you are tempted to cite an ADR or ticket to strengthen a rationale but cannot verify its existence in the deliverables, write the rationale without the citation.
