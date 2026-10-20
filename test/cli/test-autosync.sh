@@ -20,6 +20,7 @@
 #   - a run that waited for the lock is re-checked (pause, branch)
 #   - the sync branch is the destination whatever the upstream says
 #   - colored hook output still yields valid JSON
+#   - pauses are per process
 #
 # Usage: bash test/cli/test-autosync.sh
 # Requires: bash, git, perl. No claude CLI, no network.
@@ -256,6 +257,27 @@ out="$(as_a run --json || true)"
 assert_true "printf '%s' '$out' | python3 -c 'import json,sys; json.load(sys.stdin)'" "run --json stays valid JSON with colored hook output"
 assert_out_contains "$out" "rejected by hook" "the hook's message is kept"
 rm -f "$WORK/a/.git/hooks/pre-push"
+
+# --- 16. two pausing processes: one ending does not lift the other's pause --
+( RILL_HOME="$WORK/a" "$RILL" autosync pause; sleep 6 ) &
+p_long=$!
+( RILL_HOME="$WORK/a" "$RILL" autosync pause; sleep 1 ) &
+p_short=$!
+wait "$p_short" || true
+echo sixteen > "$WORK/a/n16.md"
+out="$(as_a run --json)"
+assert_out_contains "$out" "paused" "the remaining pause still holds runs"
+wait "$p_long" || true
+
+# --- 17. a background run re-checks the branch it was started on ----------
+as_a run >/dev/null || true
+echo seventeen > "$WORK/a/n17.md"
+echo '{}' | RILL_HOME="$WORK/a" "$RILL" autosync hook-stop >/dev/null 2>&1
+git -C "$WORK/a" switch -q -c side
+sleep 14
+assert_true "! remote_has n17.md" "a branch switch before the background run stops it"
+git -C "$WORK/a" switch -q main
+rm -f "$WORK/a/n17.md"
 
 echo ""
 report_results

@@ -436,7 +436,7 @@ _json_str() {
     local s="$1"
     # Drop ANSI color sequences and control characters JSON would need
     # escaped (tab, newline and CR are escaped below).
-    s="$(printf '%s' "$s" | LC_ALL=C sed $'s/\x1b\\[[0-9;]*[A-Za-z]//g' | LC_ALL=C tr -d '\000-\010\013\014\016-\037')"
+    s="$(printf '%s' "$s" | LC_ALL=C sed $'s/\x1b\\[[0-9;]*[A-Za-z]//g' | LC_ALL=C tr -d '\000-\010\013\014\016-\037')" || true
     s="${s//\\/\\\\}"
     s="${s//\"/\\\"}"
     s="${s//$'\n'/\\n}"
@@ -480,15 +480,17 @@ _autosync_setup() {
         return 0
     fi
     _as_remote="$(_push_remote)"
-    local pause_pid
-    pause_pid="$(cat "$_as_gitdir/rill-autosync.pause" 2>/dev/null || true)"
-    if [ -n "$pause_pid" ]; then
-        if _pid_alive "$pause_pid"; then
+    # One marker per pausing process; markers of processes that have ended
+    # are dropped.
+    local marker
+    for marker in "$_as_gitdir"/rill-autosync.pause.d/*; do
+        [ -f "$marker" ] || continue
+        if _pid_alive "${marker##*/}"; then
             _as_skip="paused"
         else
-            rm -f "$_as_gitdir/rill-autosync.pause"
+            rm -f "$marker"
         fi
-    fi
+    done
     return 0
 }
 
@@ -670,10 +672,11 @@ cmd_autosync() {
 
     case "$mode" in
         pause)
-            echo "$PPID" > "$_as_gitdir/rill-autosync.pause"
+            mkdir -p "$_as_gitdir/rill-autosync.pause.d"
+            : > "$_as_gitdir/rill-autosync.pause.d/$PPID"
             return 0 ;;
         resume)
-            rm -f "$_as_gitdir/rill-autosync.pause"
+            rm -f "$_as_gitdir/rill-autosync.pause.d/$PPID"
             return 0 ;;
         status)
             _autosync_print_result "$fmt"
@@ -709,10 +712,14 @@ cmd_autosync() {
             # exit while the child could still be killed with its group.
             local self="$_RILL_SELF" i=0
             rm -f "$pending"
+            # The child re-checks the branch under the lock, so it gets the
+            # caller's RILL_PUSH_BRANCH, not the one exported above.
+            local -a envset=(env -u RILL_PUSH_BRANCH)
+            [ -n "$_as_user_branch" ] && envset=(env "RILL_PUSH_BRANCH=$_as_user_branch")
             if command -v perl >/dev/null 2>&1; then
-                nohup perl -e 'setpgrp(0, 0); exec @ARGV' bash "$self" autosync _bg </dev/null >/dev/null 2>&1 &
+                nohup "${envset[@]}" perl -e 'setpgrp(0, 0); exec @ARGV' bash "$self" autosync _bg </dev/null >/dev/null 2>&1 &
             else
-                nohup bash "$self" autosync _bg </dev/null >/dev/null 2>&1 &
+                nohup "${envset[@]}" bash "$self" autosync _bg </dev/null >/dev/null 2>&1 &
             fi
             while [ ! -s "$pending" ] && [ "$i" -lt 40 ]; do
                 sleep 0.05
@@ -733,10 +740,10 @@ cmd_autosync() {
                 [ "$wait_s" -lt 2 ] && wait_s=2
             fi
             sleep "$wait_s"
-            if ! _autosync_lock; then
-                rm -f "$_as_gitdir/rill-autosync.pending"
-                return 0
-            fi
+            # A live holder finishes eventually and a dead one is replaced,
+            # so keep waiting rather than drop changes made after the
+            # holder's commit.
+            until _autosync_lock; do :; done
             # Another run may have pushed while this one waited.
             now="$(date +%s)"
             last_push="$(cat "$_as_gitdir/rill-autosync.pushed-at" 2>/dev/null || echo 0)"
