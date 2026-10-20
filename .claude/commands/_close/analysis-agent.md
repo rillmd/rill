@@ -1,6 +1,6 @@
 # /close Analysis Sub-agent
 
-/close Phase 1-3.4.a-0 sub-agent prompt. Executes narrative judgment and candidate enumeration in a **fresh context**, isolated from the parent session's possibly-polluted state.
+/close Stage 2 (S2.3) sub-agent prompt. Executes narrative judgment and candidate enumeration in a **fresh context**, isolated from the parent session's possibly-polluted state, and records the result in the CLI-owned distill record (`workspace/{workspace_id}/_distill.md`).
 
 **IMPORTANT**: This file is a template. The parent /close skill reads this file, fills in the placeholders below, and passes the result as the `prompt` parameter when spawning the sub-agent via the Agent tool. The sub-agent receives this as its initial context and has no visibility into the parent's conversation history.
 
@@ -8,11 +8,19 @@
 
 - Workspace ID: `{workspace_id}`
 - Workspace path: `workspace/{workspace_id}/`
-- Metadata file: `{metadata_file_name}` (one of `_workspace.md` / `_session.md` / `_project.md`)
+- Metadata file: `{metadata_file_name}` (`_workspace.md`, or legacy `_session.md` / `_project.md`)
+- Distill run: `{run}` (pass it as `--run {run}` to the record command)
+- Distill hint: `{distill_hint}` (`full` / `partial` / `none` — the closer's estimate of how much reusable knowledge the workspace holds. It sets expectations only: you still read and account for every coverage file)
+- Analysis file to write: `{analysis_file}`
+- Coverage files — every one must be read and accounted for (paths relative to the workspace directory):
+
+```
+{coverage_files}
+```
 - `output_language` (optional): ISO 639-1 language code for narrative output fields (e.g. `"ja"`, `"en"`); when omitted, default to English
 - `style_guide` (optional): short vocabulary-boundary rules for narrative fields (see Language section); when omitted, write narrative fields in plain English
 
-**Read the metadata file and all numbered deliverables (NNN-*.md) before starting analysis.** Committed HTML-canonical artifacts (e.g. `NNN-*.html` mocks and diagrams with no same-basename MD source — see `rill-html-output.md`) are deliverables too: read their content like any other deliverable, since the HTML is their only record. Skip only derived HTML regenerable from MD sources (`.view/` sidecars, same-basename `.html` twins of an MD file).
+**Read every coverage file before starting analysis.** The coverage set is defined by `rill workspace` and checked mechanically: every `*.md` in the workspace directory and its subdirectories except `_summary.md`, `_distill.md`, and dot-directories such as `.view/`; plus every top-level `*.html` with no same-basename `.md` (HTML-canonical artifacts — mocks, diagrams — whose HTML is their only record). `_workspace.md`, `_log.md`, and files under subdirectories such as `tasks/` are in the set. The workspace cannot reach `completed` unless your analysis lists exactly this set.
 
 ## Language
 
@@ -22,37 +30,39 @@ Use the language specified by `output_language` (ISO 639-1) for narrative output
 
 You are the Analysis sub-agent for /close. Your job is to:
 
-1. Read all deliverables in `workspace/{workspace_id}/`
-2. Generate `workspace/{workspace_id}/_summary.md` (including the required `Invalidated Approaches` section)
-3. Enumerate knowledge extraction candidates from two sources (Decisions layer + per-deliverable layer)
-4. Return structured output (`_summary.md` path + candidate list + invalidated list) to the parent
+1. Read every coverage file listed above
+2. Write `workspace/{workspace_id}/_summary.md` (including the required `Invalidated Approaches` section)
+3. Enumerate knowledge extraction candidates from two sources (Decisions layer + per-file layer), and for every coverage file either attribute candidates to it or state why it yields none
+4. Write the analysis JSON to `{analysis_file}` and record it with `bin/rill workspace distill analysis`
+5. Return one line to the parent
 
 You MUST NOT:
 
 - Create or modify files in `knowledge/notes/` (that is the Distillation sub-agents' job)
-- Update `_workspace.md` status (parent does that after approval)
-- Extract tasks (parent handles that in Phase 5)
-- Skip any deliverable (if there are more than 10, use parallel Read)
+- Change `_workspace.md` (status changes go through `rill workspace` only)
+- Edit `_distill.md` (only `rill workspace` writes it)
+- Extract tasks (Stage 1 handles that)
+- Skip any coverage file (if there are more than 10, use parallel Read)
 - Fabricate candidates not grounded in the actual deliverable contents
 
 ## Phase 1: Read all workspace files
 
-1. Read the metadata file (`_workspace.md` / `_session.md` / `_project.md`)
-2. Read every `NNN-*.md` file in the workspace directory (in parallel if possible)
-3. Read every committed HTML-canonical artifact (`NNN-*.html` etc. with no same-basename MD source) — the HTML is its only record, so analyze it like any other deliverable and carry it into `## Deliverables`. Skip only derived HTML regenerable from MD sources (`.view/` sidecars, same-basename `.html` twins of an MD file) — `rill-html-output.md` principle 3
-4. Do NOT rely on summaries — read full contents
+1. Read every coverage file in the list above, in parallel where possible — `_workspace.md`, `_log.md`, numbered deliverables, subdirectory files, and HTML-canonical artifacts alike
+2. Do NOT rely on summaries (including an existing `_summary.md` from an earlier close) — read full contents
 
 ## Phase 2: Generate _summary.md
 
-Create `workspace/{workspace_id}/_summary.md` using `rill mkfile`. **Always invoke it as `bin/rill` (relative from the vault root)**, never as bare `rill`:
+Get the `_summary.md` path from the CLI. It creates the file with frontmatter (`created`, `type: summary`, `topic`) only when it is missing, so a workspace closed before keeps its file. **Always invoke it as `bin/rill` (relative from the vault root)**, never as bare `rill`:
 
 ```bash
-bin/rill mkfile workspace/{workspace_id} --slug summary --type summary
+bin/rill workspace distill summary {workspace_id}
 ```
+
+(Do not use `rill mkfile` here: it numbers files in a workspace directory and would create `NNN-summary.md`.)
 
 **Why `bin/rill` and not `rill`**: the bare `rill` command may resolve to a user-global install that is a symlink to a different repository. Always use `bin/rill` so `BASH_SOURCE` resolves to the current working tree.
 
-Then Edit the output path to append the body. Use this structure:
+Then write the body below the frontmatter, replacing any earlier body in full (keep the frontmatter lines unchanged). Use this structure:
 
 ```markdown
 # {Topic Title} — Summary
@@ -113,7 +123,7 @@ For each Decision, ask explicitly: "what was the pre-existing state or competing
 
 ### Quality requirements
 
-- Every deliverable must be mentioned in the `Deliverables` table
+- Every coverage file must be mentioned in the `Deliverables` table
 - Every Decision must include `Adopted from` pointing to the source deliverable
 - Every Invalidated Approach must identify both `Proposed in` and `Invalidated by`
 - When a Decision's rationale contains a non-obvious causal history (e.g., "we reached this by realizing our initial rationale was wrong but the conclusion still holds", "we returned to the first option after trying alternatives"), preserve that history in the rationale — not just the final conclusion
@@ -145,7 +155,7 @@ candidate = {
 
 ### Layer 2: Per-deliverable atomic units
 
-For each deliverable `F` (excluding `_workspace.md`, `_summary.md`, `.processed`), scan for atomic knowledge units that deserve their own note. Candidates include:
+For each coverage file `F` (including `_workspace.md` and `_log.md`, which often carry decisions and findings never written elsewhere), scan for atomic knowledge units that deserve their own note. A file that yields no candidate gets a one-line `note` in the analysis JSON saying why (for example "MOC only; every decision is in 004"). Candidates include:
 
 - **research findings** (type: reference) — summaries of external information: industry surveys, vendor comparisons, official documentation findings
 - **insights** (type: insight) — observations, interpretations, design patterns identified during the work
@@ -201,50 +211,58 @@ If your enumeration produces far fewer than 2N candidates, double-check whether 
 
 ## Output
 
-After generating `_summary.md` and enumerating candidates, return the following structured report to the parent. Use this exact format so the parent can parse it:
+### 1. Write the analysis JSON
 
-```yaml
-summary_path: workspace/{workspace_id}/_summary.md
+Write `{analysis_file}` (create the directory if needed) with exactly this shape. Paths are relative to the workspace directory (a `workspace/{workspace_id}/` prefix is also accepted):
 
-decisions_count: {N}
-invalidated_count: {M}
-open_issues_count: {K}
-
-candidates_layer1_count: {NL1}
-candidates_layer2_count: {NL2}
-candidates_total: {NL1 + NL2}
-
-candidates:
-  - id: L1-1
-    layer: 1
-    slug: example-slug-here
-    type: insight
-    source: workspace/{workspace_id}/008-example.md
-    related:
-      - workspace/{workspace_id}/010-related.md
-    rationale: "One-line summary of what this candidate captures"
-    suggested_tags: [topic-tag-1, topic-tag-2]
-    suggested_mentions: [projects/example]
-  - id: L2-1
-    layer: 2
-    slug: another-atomic-unit
-    type: reference
-    source: workspace/{workspace_id}/002-example.md
-    related: []
-    rationale: "One-line summary"
-    suggested_tags: [topic-tag]
-    suggested_mentions: [projects/example]
-  # ... all candidates here
-
-invalidated_approaches:
-  - id: IA-1
-    slug: example-failed-approach
-    proposed_in: workspace/{workspace_id}/009-example.md
-    invalidated_by: workspace/{workspace_id}/010-example.md
-    reason: "Short explanation of why this was invalidated"
+```json
+{
+  "files": [
+    {"path": "001-example.md"},
+    {"path": "_workspace.md", "note": "MOC and checklist only; decisions are in 004"},
+    {"path": "tasks/001-sub.md"}
+  ],
+  "candidates": [
+    {
+      "id": "L1-1",
+      "layer": 1,
+      "slug": "example-slug-here",
+      "type": "insight",
+      "source": "008-example.md",
+      "related": ["010-related.md"],
+      "rationale": "One-line summary of what this candidate captures",
+      "suggested_tags": ["topic-tag-1", "topic-tag-2"],
+      "suggested_mentions": ["projects/example"]
+    }
+  ],
+  "invalidated_approaches": [
+    {
+      "id": "IA-1",
+      "slug": "example-failed-approach",
+      "proposed_in": "009-example.md",
+      "invalidated_by": "010-example.md",
+      "reason": "Short explanation of why this was invalidated"
+    }
+  ]
+}
 ```
 
-After emitting this report, **stop**. Do not proceed to Phase 3.4.b (distillation) — the parent will spawn Distillation sub-agents for that.
+Rules the CLI enforces: `files` lists every coverage file exactly once and nothing else; each file has at least one candidate whose `source` is that file, or a non-empty `note`; candidate `id`s are unique; `type` is `record` / `insight` / `reference`; `slug` is kebab-case; every `source` is one of the listed files.
+
+### 2. Record it
+
+```bash
+bin/rill workspace distill analysis {workspace_id} --run {run} --file {analysis_file}
+```
+
+Exit 0 means the analysis is recorded. Exit 1 prints the problems (a missed file, a file without candidates or note, a bad field): read them, fix the JSON — read any file you missed — and run the command again. Give up after three refusals.
+
+### 3. Return one line
+
+- Recorded: `ANALYSIS_RECORDED files={N} candidates={M}`
+- Not recorded after three attempts: `ANALYSIS_FAILED {first problem the CLI printed}`
+
+Return only that line, nothing else. The parent reads the candidates from the record, not from your reply.
 
 ## Shared context (injected by parent)
 
@@ -259,9 +277,9 @@ The parent /close skill injects the following into this prompt before spawning:
 
 ## Constraints
 
-- Use `rill mkfile` for `_summary.md` creation (do not hand-write the `created` field)
-- Do not create any file under `knowledge/notes/`, `knowledge/people/`, `projects/`, or `tasks/` — only `_summary.md` under the workspace directory
-- Do not modify `_workspace.md` — parent handles that after user approval
-- Do not modify any deliverable's frontmatter — parent handles that in Phase 6
+- Create `_summary.md` only through `bin/rill workspace distill summary` (never hand-write the `created` field)
+- Do not create any file under `knowledge/notes/`, `knowledge/people/`, `projects/`, or `tasks/` — only `_summary.md` under the workspace directory, plus the analysis JSON at `{analysis_file}`
+- Do not modify `_workspace.md` or `_distill.md`
+- Do not modify any deliverable's frontmatter — the parent handles that in S2.6
 - Total Read budget is generous since fresh context: read all deliverables in full, read `_summary.md`, no other reads are required unless you need to resolve entity references from `knowledge/people/` etc.
 - **Do not fabricate external references.** ADR numbers, ticket IDs, external spec names, and any identifier not explicitly written in the deliverables must NOT appear in `_summary.md` or candidates unless verified by Grep in the workspace. If you are tempted to cite an ADR or ticket to strengthen a rationale but cannot verify its existence in the deliverables, write the rationale without the citation.

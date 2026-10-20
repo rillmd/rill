@@ -62,6 +62,7 @@ file_in_window() {
 active_count=0
 completed_count=0
 on_hold_count=0
+distill_pending_count=0
 active_details=""
 
 for ws_dir in "$RILL_HOME"/workspace/*/; do
@@ -128,6 +129,9 @@ for ws_dir in "$RILL_HOME"/workspace/*/; do
             ;;
         on-hold)
             on_hold_count=$((on_hold_count + 1))
+            ;;
+        distill-pending)
+            distill_pending_count=$((distill_pending_count + 1))
             ;;
     esac
 done
@@ -255,6 +259,7 @@ workspaces:
   active: ${active_count}
   completed: ${completed_count}
   on_hold: ${on_hold_count}
+  distill_pending: ${distill_pending_count}
   active_details:
 ${active_details:-    []}
 inbox:

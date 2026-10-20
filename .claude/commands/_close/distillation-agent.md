@@ -1,28 +1,24 @@
 # /close Distillation Sub-agent
 
-/close Phase 3.4.b sub-agent prompt. Converts **ONE knowledge candidate** into an atomic note in `knowledge/notes/`, with mandatory cross-deliverable verification to catch propagated errors from `_summary.md`.
+/close Stage 2 (S2.4) sub-agent prompt. Converts **ONE knowledge candidate** into an atomic note in `knowledge/notes/` (or one justified skip), with mandatory cross-deliverable verification to catch propagated errors from `_summary.md`, and records the outcome in the CLI-owned distill record.
 
-**IMPORTANT**: This file is a template. The parent /close skill reads this file, fills in the placeholders (candidate, _summary.md path, deliverable MOC, invalidated list, shared context), and passes the result as the `prompt` parameter when spawning the sub-agent via the Agent tool. Each sub-agent handles exactly one candidate. Parent spawns up to 5 in parallel.
+**IMPORTANT**: This file is a template. The parent /close skill reads this file, fills in the placeholders (candidate, deliverable MOC, invalidated list, shared context), and passes the result as the `prompt` parameter when spawning the sub-agent via the Agent tool. Each sub-agent handles exactly one candidate. The parent runs up to 5 in the foreground per batch.
 
 ## Your candidate
 
-```yaml
-{candidate_yaml}
+```json
+{candidate_json}
 ```
 
-Example of what this looks like filled in:
+Example of what this looks like filled in (`source` and `related` are relative to the workspace directory; `source_path` is the vault-relative path to use in the note's frontmatter):
 
-```yaml
-id: L1-3
-layer: 1
-slug: cli-vault-resolution-hybrid-pattern
-type: insight
-source: workspace/2026-04-06-skill-testing/008-rill-home-resolution-design.md
-related:
-  - workspace/2026-04-06-skill-testing/007-localization-tracking-report.md
-rationale: "maintain quick-capture while treating multiple vaults as first-class concepts"
-suggested_tags: [cli-design, pkm-tooling]
-suggested_mentions: [projects/rill]
+```json
+{"event": "candidate", "id": "L1-3", "layer": 1, "slug": "cli-vault-resolution-hybrid-pattern", "type": "insight",
+ "source": "008-rill-home-resolution-design.md",
+ "source_path": "workspace/2026-04-06-skill-testing/008-rill-home-resolution-design.md",
+ "related": ["007-localization-tracking-report.md"],
+ "rationale": "maintain quick-capture while treating multiple vaults as first-class concepts",
+ "suggested_tags": ["cli-design", "pkm-tooling"], "suggested_mentions": ["projects/rill"]}
 ```
 
 ## Reference material
@@ -33,6 +29,7 @@ suggested_mentions: [projects/rill]
 ### Workspace context
 
 - Workspace ID: `{workspace_id}`
+- Distill run: `{run}` (pass it as `--run {run}` to every record command)
 - `_summary.md` path: `workspace/{workspace_id}/_summary.md`
 - All deliverables in this workspace:
 
@@ -82,11 +79,11 @@ Use the language specified by `output_language` (ISO 639-1) for the narrative ou
 
 ### Step 1: Read the candidate's primary source
 
-`Read` the file at `candidate.source` in full. This is your ground truth for the candidate's content.
+`Read` the file at `candidate.source_path` in full. This is your ground truth for the candidate's content.
 
 ### Step 2: Read related deliverables if specified
 
-If `candidate.related` is non-empty, `Read` those files in full. Budget: up to 2 related files.
+If `candidate.related` is non-empty, `Read` those files (under `workspace/{workspace_id}/`) in full. Budget: up to 2 related files.
 
 ### Step 3: Read _summary.md
 
@@ -106,9 +103,9 @@ This step exists to catch errors propagated from `_summary.md`. Do not skip it.
 4. Classify what those deliverables say about your claim:
    - **Consistent** (supports or does not contradict) → OK, continue
    - **Not mentioned** → OK, continue
-   - **Contradicted** (another deliverable says the opposite) → **STOP**. Return `skipped` with `INTERMEDIATE_CONCLUSION`, include the contradicting deliverable:line
-   - **Invalidated** (later deliverable invalidates the approach) → **STOP**. Return `skipped` with `INTERMEDIATE_CONCLUSION`, reference the IA entry if applicable
-5. Also cross-check the `Invalidated Approaches` list above. If your candidate's claims overlap with any IA → **STOP** with `INTERMEDIATE_CONCLUSION`
+   - **Contradicted** (another deliverable says the opposite) → **STOP** and go to Step 7: record `skipped` with `INTERMEDIATE_CONCLUSION`, naming the contradicting deliverable:line in the reason
+   - **Invalidated** (later deliverable invalidates the approach) → **STOP** and go to Step 7: record `skipped` with `INTERMEDIATE_CONCLUSION`, referencing the IA entry if applicable
+5. Also cross-check the `Invalidated Approaches` list above. If your candidate's claims overlap with any IA → **STOP** and go to Step 7 with `INTERMEDIATE_CONCLUSION`
 
 **Budget discipline**: The verify step should consume no more than 3-5 tool calls total (Grep + up to 2 extra Reads). Do not exhaustively read every deliverable — the Analysis sub-agent already did that; your job is targeted verification.
 
@@ -122,7 +119,7 @@ Follow the procedure from `.claude/commands/_distill/knowledge-agent.md` section
 4. If a file on the same topic is found:
    - Read only the **frontmatter** (first 10 lines) of the candidate file
    - If `type` differs → **create new**, add the existing file to `related`
-   - If `type` matches and content covers the same topic → **STOP**. Return `skipped` with `EVERGREEN_DUPLICATE`, name the existing file
+   - If `type` matches and content covers the same topic → **STOP** and go to Step 7: record `skipped` with `EVERGREEN_DUPLICATE` and the existing file as `--path`
 5. If no matches → proceed to Step 6
 6. If related (but different topic) files found → note their paths for the `related` field in Step 6
 
@@ -132,7 +129,7 @@ Use `rill mkfile` to create the file with correct frontmatter. **Always invoke i
 
 ```bash
 bin/rill mkfile knowledge/notes --slug {candidate.slug} --type {candidate.type} \
-  --field "source={candidate.source}" \
+  --field "source={candidate.source_path}" \
   --field "tags=[{suggested_tags}]" \
   --field "mentions=[{suggested_mentions}]" \
   --field "related=[{related_paths_if_any}]"
@@ -156,51 +153,38 @@ Then `Edit` the created file to append the body. Body requirements:
 - Use standard Markdown links `[display](path)` — never Wiki links `[[...]]`
 - Do not repeat the frontmatter content in the body
 
-## Output — return to parent
+## Step 7: Record the outcome (MANDATORY)
 
-Return ONE of the following structured reports. Use this exact format:
+Every path through Steps 1–6 ends here — a skip decided in Step 4 or 5 included. Record exactly one outcome with the CLI. The workspace cannot complete until every candidate has one, and the CLI checks what you record (the note exists; a created note's `source` is inside this workspace; a skip has a valid label and reason). Use `bin/rill`, never bare `rill`:
 
-### Case A: Created a new note
+```bash
+# Case A — created a new note
+bin/rill workspace distill outcome {workspace_id} --run {run} --cid {candidate.id} --status created --path knowledge/notes/{slug}.md
 
-```yaml
-status: created
-candidate_id: {candidate.id}
-path: knowledge/notes/{slug}.md
-type: {candidate.type}
-verify:
-  claims_checked: {N}
-  contradictions_found: 0
-  evergreen_matches: {existing_files_referenced_in_related, if any}
+# Case B — updated an existing note (Evergreen merge; only if it adds new content)
+bin/rill workspace distill outcome {workspace_id} --run {run} --cid {candidate.id} --status updated --path knowledge/notes/{existing_slug}.md
+
+# Case C — skipped with a valid justification
+bin/rill workspace distill outcome {workspace_id} --run {run} --cid {candidate.id} --status skipped \
+  --label EVERGREEN_DUPLICATE --path knowledge/notes/{existing}.md --reason "same topic, same type, covers the same content"
+bin/rill workspace distill outcome {workspace_id} --run {run} --cid {candidate.id} --status skipped \
+  --label INTERMEDIATE_CONCLUSION --ref workspace/{workspace_id}/NNN-file.md --reason "claim X is contradicted by Y which says Z"
+bin/rill workspace distill outcome {workspace_id} --run {run} --cid {candidate.id} --status skipped \
+  --label IMPLEMENTATION_DETAIL --reason "one-line explanation"
+bin/rill workspace distill outcome {workspace_id} --run {run} --cid {candidate.id} --status skipped \
+  --label MERGED_INTO_OTHER --into {other candidate id} --reason "one-line explanation"
 ```
 
-### Case B: Updated existing note (Evergreen merge — rare, only if merging adds new content)
+Write the note first, then record the outcome, so an interruption between the two is resumed safely (a rerun finds your note in the Evergreen check). If the command exits non-zero, read its message, fix the cause (for example a missing `source` field), and run it once more. Never record `USER_DECLINED` — that label is reserved for the user's own decision in an interactive session.
 
-```yaml
-status: updated
-candidate_id: {candidate.id}
-path: knowledge/notes/{existing_slug}.md
-reason: "Merged {specific new content} into existing note"
-```
+## Output — return ONE line to the parent
 
-### Case C: Skipped with valid justification
+- `OUTCOME {candidate.id} created knowledge/notes/{slug}.md`
+- `OUTCOME {candidate.id} updated knowledge/notes/{existing_slug}.md`
+- `OUTCOME {candidate.id} skipped {LABEL}`
+- `OUTCOME_FAILED {candidate.id} {one-line reason}` — when the outcome could not be recorded
 
-```yaml
-status: skipped
-candidate_id: {candidate.id}
-justification: EVERGREEN_DUPLICATE | INTERMEDIATE_CONCLUSION | IMPLEMENTATION_DETAIL | MERGED_INTO_OTHER
-details:
-  # Depending on justification, include:
-  # For EVERGREEN_DUPLICATE:
-  existing_file: knowledge/notes/xxx.md
-  reason: "Same topic, same type, covers same content"
-  # For INTERMEDIATE_CONCLUSION:
-  contradicted_by: workspace/{id}/NNN-file.md
-  reason: "Claim X is contradicted by deliverable Y which says Z"
-  # For IMPLEMENTATION_DETAIL:
-  reason: "Rill-specific implementation (one-line explanation)"
-  # For MERGED_INTO_OTHER:
-  merged_into: {other candidate id}
-```
+Return only that line. Details live in the note and the distill record.
 
 ## Forbidden justifications
 
@@ -220,7 +204,7 @@ If you find yourself wanting to skip for one of these reasons, re-examine the ca
 
 ## Budget discipline
 
-- Total tool calls for one distillation: **~8-12** (Read source + Read related + Read _summary.md + Grep verify + Read extra deliverable + Glob evergreen + Grep evergreen + rill mkfile + Edit)
+- Total tool calls for one distillation: **~8-12** (Read source + Read related + Read _summary.md + Grep verify + Read extra deliverable + Glob evergreen + Grep evergreen + rill mkfile + Edit + outcome record)
 - Do not read more than **5 files total** from the workspace directory
 - Do not read more than **2 files total** from `knowledge/notes/` (and only frontmatter, first 10 lines each)
 
@@ -231,5 +215,5 @@ Your fresh context gives you a comfortable budget, but discipline prevents wande
 - `inbox/` files are read-only — never modify
 - Use `rill mkfile` for file creation (auto-sets `created` field)
 - Do not fabricate facts not grounded in the deliverables
-- One sub-agent = one candidate = one atomic note (or one skip)
-- Return only the structured YAML report, nothing else
+- One sub-agent = one candidate = one atomic note (or one skip) = one recorded outcome
+- Return only the one-line result, nothing else

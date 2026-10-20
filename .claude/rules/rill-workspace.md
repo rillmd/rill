@@ -13,7 +13,8 @@ paths:
 workspace/
 └── {id}/
     ├── _workspace.md   # MOC + state management
-    ├── _summary.md     # generated on completion
+    ├── _summary.md     # written by /close Stage 2 (analysis)
+    ├── _distill.md     # distill record — written only by `rill workspace`
     ├── _log.md         # session / decision history (optional)
     └── NNN-description.md  # numbered artifacts
 ```
@@ -34,7 +35,7 @@ created: 2026-02-16T17:00+09:00
 type: workspace
 id: rill-development
 name: Rill Development
-status: active              # active | completed | on-hold | pilot | planning
+status: active              # active | distill-pending | completed (written only by `rill workspace`)
 icon: "🔭"                   # one emoji, chosen at creation (GUI identity)
 origin: inbox/journal/2026-02-13-1950.md
 tags: [rill]
@@ -43,11 +44,27 @@ client: Client Name          # optional
 ---
 ```
 
-### Status Transition Boundary
+### Status Values and Transitions
 
-- **Only `/close` may set `status: completed`.** This triggers knowledge distillation via the two-layer sub-agent architecture (ADR-073). Any other skill or ad-hoc edit that writes `completed` bypasses distillation and silently loses session knowledge.
-- `/focus` and other interactive skills must never set `completed` directly — propose `/close` via AskUserQuestion instead.
-- Allowed non-`/close` transitions: `completed` → `active` (reopen), `on-hold` ↔ `active`. Safe — no distillation.
+| Value | Meaning |
+|---|---|
+| `active` | Being worked on. A workspace waiting on something stays `active` with `snooze-until: YYYY-MM-DD` and `snooze-reason` (excluded from idle handling until that date) |
+| `distill-pending` | Closed; knowledge distillation not yet verified. The set of these workspaces is the distill queue |
+| `completed` | Closed, and the distill record (`_distill.md`) passed `rill workspace verify` |
+
+Every change goes through a `rill workspace` subcommand, which refuses any other transition:
+
+| Transition | From | To | Used by |
+|---|---|---|---|
+| `close` | `active` | `distill-pending` | `/close` Stage 1 |
+| `reopen` | `distill-pending`, `completed` | `active` | `/focus` resume |
+| `complete` | `distill-pending` | `completed` | `/close` Stage 2 (interactive) or the distill job wrapper — only after `verify` passes |
+| `requeue` | `completed` | `distill-pending` | re-distillation, migration (`--backfill`) |
+| `snooze` / `unsnooze` | `active` | `active` | waiting with a date |
+
+- **Never write `status`, `closed`, `distilled`, `distill-*`, or `snooze-*` with an editor, and never edit `_distill.md`.** Only `rill workspace complete` writes `completed`, after it verifies that the analysis finished, every coverage file was accounted for, every candidate has exactly one outcome, the referenced notes exist, and `_summary.md` exists. A failed or interrupted distillation therefore leaves the workspace `distill-pending`, and the next run resumes it.
+- Every workspace is distilled; closing never skips it. `rill workspace check` (no AI) reports violations for unattended jobs.
+- Legacy `on-hold` is accepted only as the source of `close` / `reopen` until migrated; `pilot` and `planning` are retired.
 
 ## Artifact File Frontmatter
 

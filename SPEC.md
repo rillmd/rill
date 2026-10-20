@@ -213,32 +213,45 @@ Managed via `rill processed` (never hand-appended): `set` rewrites one line per 
                     /focus
                        |
                        v
-              +-----------------+
-              |     active      |  _workspace.md status: active
-              |                 |  interactively accumulate deliverables
+              +-----------------+   rill workspace snooze / unsnooze
+              |     active      |   (snooze-until + snooze-reason)
               +--------+--------+
-                       | /close
+                       | /close Stage 1  (rill workspace close)
                        v
               +-----------------+
-              |   completed     |  _summary.md generated
-              |                 |  status: completed
+              | distill-pending |   the distill queue
+              +--------+--------+
+                       | /close Stage 2 or the distill job, then
+                       | rill workspace complete (verify must pass)
+                       v
               +-----------------+
+              |    completed    |   _summary.md + verified _distill.md
+              +-----------------+
+
+  reopen:  distill-pending | completed -> active      (rill workspace reopen)
+  requeue: completed -> distill-pending               (rill workspace requeue)
 ```
 
-**State determination logic**:
-- `active`: `_workspace.md` frontmatter `status: active` (`pilot`, `planning` also treated as active)
-- `completed`: `_workspace.md` frontmatter `status: completed`
-- `on-hold`: `_workspace.md` frontmatter `status: on-hold`
+**State determination logic** (`_workspace.md` frontmatter `status`; legacy `_session.md` / `_project.md` metadata is read the same way):
+- `active`: being worked on. `snooze-until` + `snooze-reason` mark a workspace waiting until a date
+- `distill-pending`: closed; knowledge distillation not yet verified. These workspaces form the distill queue: the normal tier by `closed` time first, then `distill-queue: backfill` workspaces (those without `_summary.md` first)
+- `completed`: closed, and the latest round of `_distill.md` passed `rill workspace verify`
+- Legacy `on-hold` is accepted only as the source of `close` / `reopen` during migration; `pilot` and `planning` are retired
+
+**Who writes status**: only `rill workspace` subcommands (`lib/workspace/rill_workspace.py`). Any other transition is refused, and only `complete` writes `completed`. The CLI also writes `closed`, `distilled`, `close-kind`, `distill-hint`, and `distill-queue`.
+
+**Distill record** (`_distill.md`, written only by the CLI): one round per `close` / `requeue`, each an append-only JSONL event block — run start / end, the analysis (every coverage file with its candidates or a note), candidates, outcomes. `verify` checks the latest round: analysis-complete marker; the analysis file list equals the coverage set (every `*.md` under the workspace except `_summary.md`, `_distill.md`, and dot-directories, plus top-level `*.html` without a same-basename `.md`); exactly one outcome per candidate; created / updated / duplicate notes exist under `knowledge/notes/` and created notes carry a `source` in the workspace; valid skip labels with reasons; totals recounted; `_summary.md` present. The run lock lives in `.rill/state/distill/{id}.lock` (machine-local); a stale lock is recorded as an abandoned run before it is taken over.
 
 **Directory structure**:
 ```
 workspace/{id}/
 ├── _workspace.md            # State management + MOC (always kept up-to-date)
-├── _summary.md              # Exists only when completed
+├── _summary.md              # Written by /close Stage 2 (analysis)
+├── _distill.md              # Distill record (rill workspace only)
 ├── _log.md                  # Session history (optional)
 ├── 001-description.md       # Deliverable (immutable)
 ├── 002-description.md       # Deliverable (immutable)
-├── .processed               # Tracks distilled files via /distill single-file mode (updated on /close)
+├── .processed               # Coverage files recorded by `rill workspace complete`
 └── _organized/              # Existing organized files (if any)
 ```
 
@@ -360,7 +373,7 @@ updated: 2026-04-02T17:00+09:00    # Optional: last updated timestamp (auto-set 
 type: workspace                     # Required: fixed value
 id: rill-development                # Required: matches directory name
 name: Rill Development              # Required: display name
-status: active                      # Required: active | completed | on-hold | pilot | planning
+status: active                      # Required: active | distill-pending | completed (rill workspace only)
 origin: inbox/journal/2026-02-13-1950.md  # Optional: origin file
 tags: [rill]                        # Optional: max 3
 mentions: [projects/rill]           # Optional: typed entity references (ADR-066)

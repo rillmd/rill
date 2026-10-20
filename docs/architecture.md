@@ -58,7 +58,7 @@ Governing rule: [`.claude/rules/rill-inbox.md`](../.claude/rules/rill-inbox.md).
 
 Workspaces are where you (with Claude Code as pairing partner) do deep work. Each workspace is a directory holding an `_workspace.md` meta file plus numbered artifacts (`001-research.md`, `002-analysis.md`, …).
 
-Workspaces are **stateful**: they have `status: active | on-hold | completed`, a goal, and accumulated artifacts. They are explicitly *not* areas (ongoing responsibility zones) — every workspace has completion conditions, which `/close` enforces.
+Workspaces are **stateful**: they have `status: active | distill-pending | completed`, a goal, and accumulated artifacts. `/close` closes a workspace into `distill-pending` (the distill queue); it reaches `completed` only when `rill workspace complete` verifies the distill record, so a failed distillation never marks a workspace done. They are explicitly *not* areas (ongoing responsibility zones) — every workspace has completion conditions.
 
 Governing rule: [`.claude/rules/rill-workspace.md`](../.claude/rules/rill-workspace.md).
 

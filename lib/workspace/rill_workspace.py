@@ -1155,6 +1155,7 @@ def cmd_show(vault, args):
         "analysis_complete": rec.analysis_complete() if rec.rounds else False,
         "candidates": len(rec.candidates()) if rec.rounds else 0,
         "outcomes": len(rec.effective_outcomes()) if rec.rounds else 0,
+        "effective_outcomes": list(rec.effective_outcomes().values()) if rec.rounds else [],
         "pending": [dict(c, source_path="workspace/%s/%s" % (ws.id, c.get("source"))) for c in rec.pending_candidates()] if rec.rounds else [],
         "open_run": (rec.open_run() or {}).get("run") if rec.rounds else None,
         "no_progress_runs": rec.consecutive_no_progress(),

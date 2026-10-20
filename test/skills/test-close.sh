@@ -46,6 +46,7 @@ if [[ -z "$VAULT_DIR" ]]; then
   mkdir -p "$VAULT_DIR/.claude/skills"
   cp -r "$REPO_DIR/skills/"* "$VAULT_DIR/.claude/skills/"
   cp -r "$REPO_DIR/bin" "$VAULT_DIR/bin"
+  cp -r "$REPO_DIR/lib" "$VAULT_DIR/lib"   # rill workspace resolves lib/ next to bin/
   [[ -d "$REPO_DIR/plugins" ]] && cp -r "$REPO_DIR/plugins" "$VAULT_DIR/plugins"
   # Overlay system files from repo
   [[ -f "$REPO_DIR/taxonomy.md" ]] && cp "$REPO_DIR/taxonomy.md" "$VAULT_DIR/taxonomy.md"
@@ -86,10 +87,15 @@ if ! $SKIP_EXECUTE; then
   # Isolate rill resolution to the test vault (see lib.sh for details)
   isolate_test_vault "$VAULT_DIR"
 
+  # Stage 1: close to distill-pending; Stage 2: distill and complete.
   claude -p "/close $WS_DIR --auto-approve" \
     --output-format text \
-    --max-turns 120 \
+    --max-turns 60 \
     2>&1 | tee "$RESULTS_DIR/close-output.log"
+  claude -p "/close --distill $WS_DIR --auto-approve" \
+    --output-format text \
+    --max-turns 120 \
+    2>&1 | tee -a "$RESULTS_DIR/close-output.log"
 
   echo ""
   echo "=== /close execution complete ==="
@@ -127,6 +133,8 @@ echo ""
 echo "=== INV-03: Workspace status ==="
 WS_STATUS_AFTER=$(fm_get "$WS_DIR/_workspace.md" "status")
 assert_eq "$WS_STATUS_AFTER" "completed" "INV-03: _workspace.md status is 'completed'"
+assert_file_exists "$WS_DIR/_distill.md" "INV-03: distill record exists"
+assert_true "RILL_HOME='$VAULT_DIR' '$TEST_DIR/../bin/rill' workspace verify '$WS_DIR' >/dev/null 2>&1" "INV-03: rill workspace verify passes"
 echo ""
 
 # 4. _summary.md section structure (SM-01 to SM-05)
@@ -291,8 +299,8 @@ if [[ -f "$LOG_FILE" ]]; then
   HAS_CANDIDATES=$(grep_count 'candidates_total|Distillation candidates|Candidates enumerated|L1-[0-9]|L2-[0-9]|candidate' "$LOG_FILE")
   assert_gt "$HAS_CANDIDATES" 0 "CL-07: Analysis sub-agent enumeration output appears in log"
 
-  HAS_SELFCHECK=$(grep_count 'self-check|Atomic notes created|Uncovered|enumerated' "$LOG_FILE")
-  assert_gt "$HAS_SELFCHECK" 0 "SC-04: Self-check block appears in completion report"
+  HAS_SELFCHECK=$(grep_count 'Self-check|verify ok|Candidates: [0-9]' "$LOG_FILE")
+  assert_gt "$HAS_SELFCHECK" 0 "SC-04: Self-check (rill workspace verify) appears in completion report"
 
   HAS_VERIFY=$(grep_count 'Invalidated Approaches|cross-deliverable|IA-[0-9]' "$LOG_FILE")
   if [[ "$HAS_VERIFY" -gt 0 ]]; then
