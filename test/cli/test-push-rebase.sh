@@ -50,7 +50,7 @@ assert_out_contains() {
 }
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+[ -n "${KEEP_WORK:-}" ] || trap 'rm -rf "$WORK"' EXIT
 
 # Isolate from the user's git config (e.g. a global core.hooksPath would
 # bypass the per-clone hooks these cases install).
@@ -276,7 +276,10 @@ SHIM="$WORK/shim"; mkdir -p "$SHIM"
 cat > "$SHIM/git" <<SHIMEOF
 #!/bin/bash
 "$REAL_GIT" "\$@"; rc=\$?
-case " \$* " in *" fetch "*) [ -n "\${SHIM_WRITE:-}" ] && echo "- written during sync" >> "\$SHIM_WRITE" ;; esac
+case " \$* " in *" fetch "*)
+  [ -n "\${SHIM_WRITE:-}" ] && echo "- written during sync" >> "\$SHIM_WRITE"
+  [ -n "\${SHIM_OVERWRITE:-}" ] && echo "focus: written during sync" > "\$SHIM_OVERWRITE" ;;
+esac
 exit \$rc
 SHIMEOF
 chmod +x "$SHIM/git"
@@ -289,6 +292,22 @@ assert_eq "$rc" "0" "a push with a file written mid-sync exits 0"
 assert_true "git -C '$WORK/remote.git' show main:notes/n.md >/dev/null 2>&1" "the committed change reached the remote"
 assert_out_contains "$(cat "$WORK/a/knowledge/self/current-state.md")" "- written during sync" "the mid-sync write is still in the working tree"
 assert_eq "$(git -C "$WORK/a" stash list | wc -l | tr -d ' ')" "0" "nothing is left behind in the stash"
+
+# --- 15. a mid-sync write that conflicts with the remote stops the sync ------
+clone "$WORK/f" f
+clone "$WORK/g" g
+printf 'focus: remote edit\n' > "$WORK/f/knowledge/self/current-state.md"
+rc=0; out="$(RILL_HOME="$WORK/f" RILL_WRITER=f "$RILL" push 2>&1)" || rc=$?
+before="$(remote_head)"
+echo "local2" > "$WORK/g/n2.md"
+rc=0; out="$(PATH="$SHIM:$PATH" SHIM_OVERWRITE="$WORK/g/knowledge/self/current-state.md" \
+  RILL_HOME="$WORK/g" RILL_WRITER=g "$RILL" push 2>&1)" || rc=$?
+assert_true "[ $rc -ne 0 ]" "a mid-sync write that conflicts exits non-zero"
+assert_eq "$(remote_head)" "$before" "nothing is pushed when the stashed write cannot be put back"
+rc=0; out="$(RILL_HOME="$WORK/g" RILL_WRITER=g "$RILL" push 2>&1)" || rc=$?
+assert_true "[ $rc -ne 0 ]" "a later run refuses while conflicts are unresolved"
+assert_out_contains "$out" "unresolved conflicts" "the refusal says why"
+assert_eq "$(remote_head)" "$before" "no conflict markers reach the remote"
 
 echo ""
 report_results

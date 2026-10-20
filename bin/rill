@@ -310,6 +310,15 @@ cmd_push() {
     local writer
     writer="$(_rill_writer)"
 
+    # Unresolved conflicts (e.g. from a stashed change that could not be put
+    # back) must not be committed with their markers by `git add -A`.
+    if [ -n "$(git ls-files -u 2>/dev/null | head -n 1)" ]; then
+        echo "⚠️  There are unresolved conflicts:" >&2
+        git diff --name-only --diff-filter=U 2>/dev/null | sed 's/^/      /' >&2 || true
+        echo "   Fix those files, then git add them (and check git stash list), then rill push again. Nothing was committed or pushed." >&2
+        return 1
+    fi
+
     git add -A
     if ! git diff --cached --quiet; then
         # In a Claude Code cloud session, link the commit to the conversation
@@ -363,7 +372,7 @@ Claude-Session: https://claude.ai/code/session_${sid#cse_}"
             # failing. If it cannot be put back, git keeps it in the stash;
             # say so and stop, so it is not left there unnoticed.
             local rebase_err
-            if ! rebase_err="$(git rebase -q --autostash "$push_ref" 2>&1)"; then
+            if ! rebase_err="$(LC_ALL=C git rebase -q --autostash "$push_ref" 2>&1)"; then
                 conflicts="$(git diff --name-only --diff-filter=U 2>/dev/null || true)"
                 if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
                     git rebase --abort >/dev/null 2>&1 || true
@@ -377,7 +386,9 @@ Claude-Session: https://claude.ai/code/session_${sid#cse_}"
                 fi
                 return 1
             fi
-            if [[ "$rebase_err" == *"safe in the stash"* ]]; then
+            # The rebase exits 0 even when the autostash could not be
+            # applied; unmerged paths are the sign.
+            if [ -n "$(git ls-files -u 2>/dev/null | head -n 1)" ] || [[ "$rebase_err" == *"safe in the stash"* ]]; then
                 echo "⚠️  Changes written during the sync could not be put back and are in git stash (git stash list). Your commit was not pushed." >&2
                 return 1
             fi
