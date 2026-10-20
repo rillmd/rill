@@ -1419,8 +1419,8 @@ _plugin_enable() {
         fi
     fi
 
-    # Create Claude command links and Codex skill links. Codex links stay
-    # inside the vault, so they remain portable across machines.
+    # Create Claude command links and Codex skill stubs. Both stay inside the
+    # vault, so they remain portable across machines.
     local count=0
     if [ -d "$plugin_dir/commands" ]; then
         for cmd in "$plugin_dir"/commands/*.md; do
@@ -1440,14 +1440,8 @@ _plugin_enable() {
                 count=$((count + 1))
             fi
 
-            local skill_name="${cmd_basename%.md}"
-            local codex_skill_dir="$RILL_HOME/.agents/skills/$skill_name"
-            local codex_skill="$codex_skill_dir/SKILL.md"
-            local plugin_rel="${cmd#"$RILL_HOME"/}"
-            if [ ! -e "$codex_skill" ] && [ ! -L "$codex_skill" ]; then
-                mkdir -p "$codex_skill_dir"
-                ln -s "../../../$plugin_rel" "$codex_skill"
-                echo "  codex: $skill_name"
+            if [ -f "$target" ] && _sync_codex_command_skill "$RILL_HOME" "$target"; then
+                echo "  codex: ${cmd_basename%.md}"
             fi
         done
     fi
@@ -1496,10 +1490,14 @@ _plugin_disable() {
         count=$((count + 1))
     done
 
-
+    # Codex stubs follow their command links out. Vaults not yet updated may
+    # still hold SKILL.md links straight into the plugin; remove those too.
+    _prune_codex_command_skills "$RILL_HOME"
     local codex_link
     for codex_link in "$RILL_HOME/.agents/skills"/*/SKILL.md; do
         [ -L "$codex_link" ] || continue
+        # A linked directory is a vault-local skill; never delete inside it.
+        [ -L "$(dirname "$codex_link")" ] && continue
         local codex_target
         codex_target="$(readlink "$codex_link")"
         if [[ "$codex_target" == *"plugins/local/$name/commands/"* ]] \
@@ -3435,19 +3433,173 @@ _install_codex_container_guidance() {
     echo "$agents_rel" >> "$managed_file"
 }
 
+# Codex skills for Claude Code commands (.claude/commands/*.md, including
+# plugin command links) are generated stub files, not symlinks. Codex skips a
+# SKILL.md that is a symlink, and skips any SKILL.md without a `description`
+# in its frontmatter; command files are symlinked from plugins and usually
+# have no frontmatter at all. The stub carries name + description and points
+# Codex at the command file, so the command stays the single source of truth.
+# A `rill-generated: command` metadata key marks the stubs this code owns.
+
+_codex_yaml_quote() {
+    printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
+# Print, as a YAML scalar, the frontmatter description of a command, or its
+# H1 title (without the leading "/name —" prefix) when it has none.
+_codex_command_description() {
+    local command="$1"
+    local skill_name="$2"
+    local desc title
+    desc="$(awk '
+        { sub(/\r$/, "") }
+        NR == 1 { if ($0 != "---") exit; next }
+        $0 == "---" { exit }
+        /^description:/ { sub(/^description:[ \t]*/, ""); print; exit }
+    ' "$command")"
+    # Block scalars (description: > / |) are not worth parsing here.
+    case "$desc" in '>'*|'|'*) desc="" ;; esac
+    if [ -n "$desc" ]; then
+        # Already YAML: a quoted value is kept exactly as written.
+        case "$desc" in
+            \"*\"|\'*\') printf '%s' "$desc" ;;
+            *) _codex_yaml_quote "$desc" ;;
+        esac
+        return
+    fi
+    title="$(awk '
+        { sub(/\r$/, "") }
+        NR == 1 && $0 == "---" { fm = 1; next }
+        fm { if ($0 == "---") fm = 0; next }
+        /^# / { sub(/^# +/, ""); print; exit }
+    ' "$command")"
+    desc="${title#/"$skill_name"}"
+    desc="${desc#"${desc%%[! ]*}"}"
+    case "$desc" in "— "*|"- "*|": "*) desc="${desc#* }" ;; esac
+    [ -n "$desc" ] || desc="$title"
+    [ -n "$desc" ] || desc="Run the /$skill_name command."
+    _codex_yaml_quote "$desc"
+}
+
+_is_generated_codex_skill() {
+    local skill_file="$1"
+    if [ ! -f "$skill_file" ] || [ -L "$skill_file" ]; then
+        return 1
+    fi
+    awk '
+        NR == 1 { if ($0 != "---") exit 1; next }
+        $0 == "---" { exit 1 }
+        $0 == "  rill-generated: command" { found = 1; exit }
+        END { exit !found }
+    ' "$skill_file"
+}
+
+# Print which of the required skill frontmatter keys (name, description) a
+# SKILL.md lacks, e.g. "name and description"; print nothing if it has both.
+_skill_frontmatter_missing() {
+    awk '
+        { sub(/\r$/, "") }
+        NR == 1 { if ($0 != "---") exit; next }
+        $0 == "---" { closed = 1; exit }
+        /^name:[ \t]*[^ \t]/ { name = 1 }
+        /^description:[ \t]*[^ \t]/ { desc = 1 }
+        END {
+            if (!closed) { name = 0; desc = 0 }
+            out = name ? "" : "name"
+            if (!desc) out = out (out == "" ? "" : " and ") "description"
+            if (out != "") print out
+        }
+    ' "$1"
+}
+
+# Write (or refresh) the Codex stub for one command unless .agents/skills
+# already holds a skill this code does not own. Returns 1 when left alone.
+_sync_codex_command_skill() {
+    local vault="$1"
+    local command="$2"
+    local skill_name skill_dir skill_file desc
+    skill_name="$(basename "$command" .md)"
+    skill_dir="$vault/.agents/skills/$skill_name"
+    skill_file="$skill_dir/SKILL.md"
+    # Never write through a linked skill directory (a vault-local skill), and
+    # replace a SKILL.md link only if it is one older Rill versions made.
+    [ -L "$skill_dir" ] && return 1
+    if [ -L "$skill_file" ]; then
+        case "$(readlink "$skill_file")" in
+            *.claude/commands/*|*plugins/*/commands/*) ;;
+            *) return 1 ;;
+        esac
+    elif [ -e "$skill_file" ] && ! _is_generated_codex_skill "$skill_file"; then
+        return 1
+    fi
+    desc="$(_codex_command_description "$command" "$skill_name")"
+    mkdir -p "$skill_dir"
+    rm -f "$skill_file"
+    {
+        printf '%s\n' '---' "name: $skill_name" "description: $desc" \
+            'metadata:' '  rill-generated: command' '---' '' "# /$skill_name" ''
+        printf '%s\n' \
+            "Codex entry point for the \`/$skill_name\` command. Read" \
+            "\`.claude/commands/$skill_name.md\` (from the vault root; from this file," \
+            "\`../../../.claude/commands/$skill_name.md\`) and follow it as this" \
+            "skill's instructions. Where it refers to \`\$ARGUMENTS\`, use the text" \
+            "the user gave with this request (empty if none)." \
+            '' \
+            "Generated by \`rill update\`. Edit the command file, not this one."
+    } > "$skill_file"
+}
+
+# Remove generated stubs whose command is gone, plus legacy SKILL.md links
+# into .claude/commands/ that no longer resolve.
+_prune_codex_command_skills() {
+    local vault="$1"
+    local skill_file skill_name
+    for skill_file in "$vault"/.agents/skills/*/SKILL.md; do
+        [ -L "$(dirname "$skill_file")" ] && continue
+        skill_name="$(basename "$(dirname "$skill_file")")"
+        if _is_generated_codex_skill "$skill_file"; then
+            [ -f "$vault/.claude/commands/$skill_name.md" ] && continue
+        elif [ -L "$skill_file" ] && [ ! -e "$skill_file" ]; then
+            [[ "$(readlink "$skill_file")" == *".claude/commands/"* ]] || continue
+        else
+            continue
+        fi
+        rm -f "$skill_file"
+        rmdir "$(dirname "$skill_file")" 2>/dev/null || true
+    done
+}
+
 _ensure_codex_command_skills() {
     local vault="$1"
-    local command skill_name skill_dir skill_file
+    local skill skill_name agents_dir command
+
+    # Vault-local skills (.claude/skills/{name}/ not shipped by Rill, which
+    # projects its own as copies): mirror each with a directory symlink.
+    # Codex follows a linked skill directory, and the link keeps any bundled
+    # scripts next to SKILL.md. Clear links to skills that are gone (or lost
+    # their SKILL.md), and stale command stubs, first: a skill that moved to
+    # a command, or back, must not leave the old entry in the way.
+    for agents_dir in "$vault"/.agents/skills/*; do
+        if [ -L "$agents_dir" ] && [ ! -f "$agents_dir/SKILL.md" ] \
+            && [[ "$(readlink "$agents_dir")" == "../../.claude/skills/"* ]]; then
+            rm -f "$agents_dir"
+        fi
+    done
+    _prune_codex_command_skills "$vault"
+    for skill in "$vault"/.claude/skills/*/SKILL.md; do
+        [ -f "$skill" ] || continue
+        skill_name="$(basename "$(dirname "$skill")")"
+        agents_dir="$vault/.agents/skills/$skill_name"
+        if [ ! -e "$agents_dir" ] && [ ! -L "$agents_dir" ]; then
+            mkdir -p "$vault/.agents/skills"
+            ln -s "../../.claude/skills/$skill_name" "$agents_dir"
+        fi
+    done
+
     for command in "$vault"/.claude/commands/*.md; do
         [ -f "$command" ] || continue
-        skill_name="$(basename "$command" .md)"
-        [[ "$skill_name" == _* ]] && continue
-        skill_dir="$vault/.agents/skills/$skill_name"
-        skill_file="$skill_dir/SKILL.md"
-        if [ ! -e "$skill_file" ] && [ ! -L "$skill_file" ]; then
-            mkdir -p "$skill_dir"
-            ln -s "../../../.claude/commands/$(basename "$command")" "$skill_file"
-        fi
+        [[ "$(basename "$command")" == _* ]] && continue
+        _sync_codex_command_skill "$vault" "$command" || true
     done
 }
 
@@ -3826,7 +3978,6 @@ cmd_doctor() {
         }
     done
 
-
     local command skill_name
     for command in "$vault"/.claude/commands/*.md; do
         [ -f "$command" ] || continue
@@ -3838,6 +3989,28 @@ cmd_doctor() {
             issues=$((issues + 1))
         }
     done
+
+    # Presence is not enough: Codex silently skips a SKILL.md that is a
+    # symlink or whose frontmatter has no description. Skills may sit in
+    # grouping directories, so check every SKILL.md at any depth.
+    local skill_dir skill_md rel missing
+    for skill_dir in "$vault"/.agents/skills/*; do
+        if [ -L "$skill_dir" ] && [ ! -e "$skill_dir" ]; then
+            echo "  ✗ .agents/skills/$(basename "$skill_dir") is a broken link"
+            issues=$((issues + 1))
+        fi
+    done
+    while IFS= read -r skill_md; do
+        rel="${skill_md#"$vault"/}"
+        if [ -L "$skill_md" ]; then
+            echo "  ✗ $rel is a symlink, which Codex does not load"
+        else
+            missing="$(_skill_frontmatter_missing "$skill_md")"
+            [ -n "$missing" ] || continue
+            echo "  ✗ $rel frontmatter lacks $missing, so Codex skips it"
+        fi
+        issues=$((issues + 1))
+    done < <(find -L "$vault/.agents/skills" -name SKILL.md 2>/dev/null | sort)
 
     if [ "$issues" -eq 0 ]; then
         echo "  ✓ Codex guidance, hooks, and skills are installed"
