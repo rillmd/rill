@@ -357,7 +357,13 @@ Claude-Session: https://claude.ai/code/session_${sid#cse_}"
                 echo "⚠️  There are unpushed merge commits, which rill push does not rebase. Push them by hand (git pull --no-rebase, then git push). Nothing was pushed." >&2
                 return 1
             fi
-            if ! git rebase -q "$push_ref" >/dev/null 2>&1; then
+            # --autostash: another writer on this machine (a second session,
+            # a hook writing its log) may change a file between the commit
+            # above and the rebase. Stash it across the rebase instead of
+            # failing. If it cannot be put back, git keeps it in the stash;
+            # say so and stop, so it is not left there unnoticed.
+            local rebase_err
+            if ! rebase_err="$(git rebase -q --autostash "$push_ref" 2>&1)"; then
                 conflicts="$(git diff --name-only --diff-filter=U 2>/dev/null || true)"
                 if [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
                     git rebase --abort >/dev/null 2>&1 || true
@@ -369,6 +375,10 @@ Claude-Session: https://claude.ai/code/session_${sid#cse_}"
                 else
                     echo "⚠️  Could not rebase onto ${push_ref#refs/remotes/} (are there uncommitted changes?). Your commit is kept locally and was not pushed." >&2
                 fi
+                return 1
+            fi
+            if [[ "$rebase_err" == *"safe in the stash"* ]]; then
+                echo "⚠️  Changes written during the sync could not be put back and are in git stash (git stash list). Your commit was not pushed." >&2
                 return 1
             fi
             # Only before any push attempt: after a failed push (e.g. one of

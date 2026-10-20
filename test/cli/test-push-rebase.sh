@@ -20,6 +20,8 @@
 #   - an invalid RILL_PUSH_BRANCH is refused
 #   - git config rill.writer is the writer when RILL_WRITER is unset
 #   - a clean, up-to-date vault reports "Nothing to push."
+#   - a file written between the commit and the rebase is stashed across
+#     the rebase (--autostash) instead of failing the push
 #
 # Usage: bash test/cli/test-push-rebase.sh
 # Requires: bash, git. No claude CLI, no network.
@@ -265,6 +267,28 @@ echo "- configured" >> "$WORK/c/activity-log.md"
 rc=0; out="$(unset RILL_WRITER; RILL_HOME="$WORK/c" RILL_PUSH_BRANCH=main "$RILL" push 2>&1)" || rc=$?
 trailer="$(git -C "$WORK/remote.git" log -1 --format='%(trailers:key=Rill-Writer,valueonly)' main | tr -d '\n')"
 assert_eq "$trailer" "configured-writer" "rill.writer names the writer when RILL_WRITER is unset"
+
+# --- 14. a file written during the fetch is stashed across the rebase -------
+# A git shim writes to a tracked file right after `git fetch`, as a second
+# session or a hook writing its log could between the commit and the rebase.
+REAL_GIT="$(command -v git)"
+SHIM="$WORK/shim"; mkdir -p "$SHIM"
+cat > "$SHIM/git" <<SHIMEOF
+#!/bin/bash
+"$REAL_GIT" "\$@"; rc=\$?
+case " \$* " in *" fetch "*) [ -n "\${SHIM_WRITE:-}" ] && echo "- written during sync" >> "\$SHIM_WRITE" ;; esac
+exit \$rc
+SHIMEOF
+chmod +x "$SHIM/git"
+rc=0; out="$(push_a)" || rc=$?   # bring a up to date
+echo "- remote-side" >> "$WORK/b/activity-log.md"; rc=0; out="$(push_b)" || rc=$?
+mkdir -p "$WORK/a/notes"; echo "local" > "$WORK/a/notes/n.md"
+rc=0; out="$(PATH="$SHIM:$PATH" SHIM_WRITE="$WORK/a/knowledge/self/current-state.md" \
+  RILL_HOME="$WORK/a" RILL_WRITER=mac "$RILL" push 2>&1)" || rc=$?
+assert_eq "$rc" "0" "a push with a file written mid-sync exits 0"
+assert_true "git -C '$WORK/remote.git' show main:notes/n.md >/dev/null 2>&1" "the committed change reached the remote"
+assert_out_contains "$(cat "$WORK/a/knowledge/self/current-state.md")" "- written during sync" "the mid-sync write is still in the working tree"
+assert_eq "$(git -C "$WORK/a" stash list | wc -l | tr -d ' ')" "0" "nothing is left behind in the stash"
 
 echo ""
 report_results
