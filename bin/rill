@@ -3150,9 +3150,12 @@ Reply ONLY with:
         # unverified candidates. Both LLM paths share the same prompt and
         # the same output contract (plain text reply starting with FOUND or
         # NONE).
+        # The check's own session is not a GUI panel's, and its hooks skip
+        # autosync (same as bin/hooks/pre-commit-pii-check.sh).
         if command -v claude &>/dev/null; then
             local llm_result
-            llm_result=$(claude -p --model haiku "$pii_prompt" 2>/dev/null || echo "ERROR")
+            llm_result=$(env -u RILL_TAB -u RILL_WORKSPACE -u RILL_ORIGIN -u RILL_CLAUDE_VERSION \
+                RILL_AUTOSYNC=0 claude -p --model haiku "$pii_prompt" 2>/dev/null || echo "ERROR")
 
             if echo "$llm_result" | grep -q "^FOUND"; then
                 echo "⚠️  Phone number patterns found (LLM verified):"

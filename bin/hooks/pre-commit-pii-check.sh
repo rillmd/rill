@@ -136,8 +136,13 @@ Be strict: only flag actual contact phone numbers."
   # Prefer claude; fall back to codex when claude is absent; else show
   # unverified candidates. Both LLM paths share the same prompt and the
   # same output contract (plain text reply starting with FOUND or NONE).
+  # This hook often runs under a GUI panel's session (its Stop hook's
+  # `rill autosync`), so the panel binding is dropped: the check's own
+  # session must not be recorded as the panel's in the session ledger. Its
+  # hooks skip autosync, which would wait on the lock held by this commit.
   if command -v claude &>/dev/null; then
-    LLM_RESULT=$(claude -p --model haiku "$PII_PROMPT" 2>/dev/null || echo "ERROR")
+    LLM_RESULT=$(env -u RILL_TAB -u RILL_WORKSPACE -u RILL_ORIGIN -u RILL_CLAUDE_VERSION \
+      RILL_AUTOSYNC=0 claude -p --model haiku "$PII_PROMPT" 2>/dev/null || echo "ERROR")
 
     if echo "$LLM_RESULT" | grep -q "^FOUND"; then
       echo "⚠️  Phone number detected (LLM verified):"
