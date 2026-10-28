@@ -170,6 +170,56 @@ rc="$(run_hook)"
 assert_eq "$rc" "0" "ISO dates do not match the phone patterns"
 
 echo ""
+echo "=== LLM check does not inherit a GUI panel's binding ==="
+# A commit made under a GUI panel's session (its Stop hook's autosync) runs
+# this hook with the panel's RILL_TAB / RILL_WORKSPACE / RILL_ORIGIN. The
+# check's own `claude -p` must not carry them (its session would be recorded
+# as the panel's), and its hooks must skip autosync. A stub claude records
+# what it was given and answers NONE.
+FAKEBIN="$WORK/fakebin"
+mkdir -p "$FAKEBIN"
+cat > "$FAKEBIN/claude" <<EOF
+#!/bin/sh
+{
+  printf 'RILL_TAB=%s\n' "\${RILL_TAB-unset}"
+  printf 'RILL_WORKSPACE=%s\n' "\${RILL_WORKSPACE-unset}"
+  printf 'RILL_ORIGIN=%s\n' "\${RILL_ORIGIN-unset}"
+  printf 'RILL_CLAUDE_VERSION=%s\n' "\${RILL_CLAUDE_VERSION-unset}"
+  printf 'RILL_AUTOSYNC=%s\n' "\${RILL_AUTOSYNC-unset}"
+} > "$WORK/claude-env.txt"
+echo NONE
+EOF
+chmod +x "$FAKEBIN/claude"
+panel_env() {
+  env RILL_TAB="workspace/demo" RILL_WORKSPACE="workspace/demo" RILL_ORIGIN="gui" \
+    RILL_CLAUDE_VERSION="9.9.9" RILL_AUTOSYNC=1 PATH="$FAKEBIN:/usr/bin:/bin" "$@"
+}
+
+reset_tree
+echo "TEL: 090-1234-5678" > "$VAULT/knowledge/notes/contact-note.md"
+stage
+rm -f "$WORK/claude-env.txt"
+rc=0
+(cd "$VAULT" && panel_env bash "$HOOK") > "$WORK/out.txt" 2>&1 || rc=$?
+assert_eq "$rc" "0" "phone candidate judged NONE by the LLM passes"
+assert_file_exists "$WORK/claude-env.txt" "the hook invoked claude for the phone candidate"
+assert_file_contains "$WORK/claude-env.txt" "RILL_TAB=unset" "hook: RILL_TAB is not passed to claude"
+assert_file_contains "$WORK/claude-env.txt" "RILL_WORKSPACE=unset" "hook: RILL_WORKSPACE is not passed to claude"
+assert_file_contains "$WORK/claude-env.txt" "RILL_ORIGIN=unset" "hook: RILL_ORIGIN is not passed to claude"
+assert_file_contains "$WORK/claude-env.txt" "RILL_CLAUDE_VERSION=unset" "hook: RILL_CLAUDE_VERSION is not passed to claude"
+assert_file_contains "$WORK/claude-env.txt" "RILL_AUTOSYNC=0" "hook: claude runs with autosync off"
+
+rm -f "$WORK/claude-env.txt"
+rc=0
+panel_env RILL_HOME="$VAULT" "$RILL" crypt doctor > "$WORK/out.txt" 2>&1 || rc=$?
+assert_file_exists "$WORK/claude-env.txt" "crypt doctor invoked claude for the phone candidate"
+assert_file_contains "$WORK/claude-env.txt" "RILL_TAB=unset" "crypt doctor: RILL_TAB is not passed to claude"
+assert_file_contains "$WORK/claude-env.txt" "RILL_WORKSPACE=unset" "crypt doctor: RILL_WORKSPACE is not passed to claude"
+assert_file_contains "$WORK/claude-env.txt" "RILL_ORIGIN=unset" "crypt doctor: RILL_ORIGIN is not passed to claude"
+assert_file_contains "$WORK/claude-env.txt" "RILL_AUTOSYNC=0" "crypt doctor: claude runs with autosync off"
+reset_tree
+
+echo ""
 echo "=== rill crypt hook (standalone install) ==="
 rc=0
 RILL_HOME="$VAULT" "$RILL" crypt hook > "$WORK/out.txt" 2>&1 || rc=$?
