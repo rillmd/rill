@@ -60,10 +60,137 @@ done
 agents_bytes="$(wc -c < "$VAULT/AGENTS.md" | tr -d ' ')"
 test "$agents_bytes" -lt 4096
 
+# --- Command skills: Codex skips a symlinked SKILL.md and any SKILL.md whose
+# frontmatter has no description, so each command gets a generated stub file
+# that carries name + description and points back at the command. ---
 printf '%s\n' '---' 'description: Personal test workflow' '---' '# Personal' \
   > "$VAULT/.claude/commands/personal-test.md"
+printf '%s\n' '# /bare-test — Bare "quoted" command' '' 'Body.' \
+  > "$VAULT/.claude/commands/bare-test.md"
+# Legacy layout: a SKILL.md link into .claude/commands/ must become a stub,
+# and must not write through the link into the command file.
+mkdir -p "$VAULT/.agents/skills/bare-test"
+ln -s ../../../.claude/commands/bare-test.md "$VAULT/.agents/skills/bare-test/SKILL.md"
+# Vault-local skill (not shipped by Rill) with a bundled script.
+mkdir -p "$VAULT/.claude/skills/local-test/scripts"
+printf '%s\n' '---' 'name: local-test' 'description: Local test skill' '---' '# Local' \
+  > "$VAULT/.claude/skills/local-test/SKILL.md"
+touch "$VAULT/.claude/skills/local-test/scripts/run.sh"
 "$RILL_BIN" update --vault codex-test >/dev/null
-test -L "$VAULT/.agents/skills/personal-test/SKILL.md"
+
+stub="$VAULT/.agents/skills/personal-test/SKILL.md"
+test -f "$stub" && ! test -L "$stub"
+grep -Fxq 'name: personal-test' "$stub"
+grep -Fxq 'description: "Personal test workflow"' "$stub"
+grep -Fxq '  rill-generated: command' "$stub"
+grep -Fq '.claude/commands/personal-test.md' "$stub"
+
+stub="$VAULT/.agents/skills/bare-test/SKILL.md"
+test -f "$stub" && ! test -L "$stub"
+grep -Fxq 'name: bare-test' "$stub"
+grep -Fxq 'description: "Bare \"quoted\" command"' "$stub"
+head -1 "$VAULT/.claude/commands/bare-test.md" | grep -Fxq '# /bare-test — Bare "quoted" command'
+
+test -L "$VAULT/.agents/skills/local-test"
+test -f "$VAULT/.agents/skills/local-test/scripts/run.sh"
+
+# Stubs are refreshed in place, and removed once their command is gone.
+printf '%s\n' '---' 'description: Personal test workflow v2' '---' '# Personal' \
+  > "$VAULT/.claude/commands/personal-test.md"
+rm "$VAULT/.claude/commands/bare-test.md"
+rm -r "$VAULT/.claude/skills/local-test"
+"$RILL_BIN" update --vault codex-test >/dev/null
+grep -Fxq 'description: "Personal test workflow v2"' "$VAULT/.agents/skills/personal-test/SKILL.md"
+test ! -e "$VAULT/.agents/skills/bare-test"
+test ! -e "$VAULT/.agents/skills/local-test" && test ! -L "$VAULT/.agents/skills/local-test"
+
+# A hand-written skill under .agents/skills is never overwritten.
+printf '%s\n' '---' 'description: Personal test workflow' '---' '# Personal' \
+  > "$VAULT/.claude/commands/own-test.md"
+mkdir -p "$VAULT/.agents/skills/own-test"
+printf '%s\n' '---' 'name: own-test' 'description: Hand written' '---' 'Mine.' \
+  > "$VAULT/.agents/skills/own-test/SKILL.md"
+"$RILL_BIN" update --vault codex-test >/dev/null
+grep -Fxq 'description: Hand written' "$VAULT/.agents/skills/own-test/SKILL.md"
+rm -r "$VAULT/.claude/commands/own-test.md" "$VAULT/.agents/skills/own-test"
+
+# A vault-local skill whose SKILL.md is itself a link, sharing its name with
+# a command, is left alone (no write through the directory link).
+printf '%s\n' '---' 'name: shared-test' 'description: Linked own skill' '---' \
+  > "$TMP_ROOT/shared-test.md"
+mkdir -p "$VAULT/.claude/skills/shared-test"
+ln -s "$TMP_ROOT/shared-test.md" "$VAULT/.claude/skills/shared-test/SKILL.md"
+printf '%s\n' '# /shared-test — Shared' > "$VAULT/.claude/commands/shared-test.md"
+"$RILL_BIN" update --vault codex-test >/dev/null
+test -L "$VAULT/.claude/skills/shared-test/SKILL.md"
+grep -Fxq 'description: Linked own skill' "$TMP_ROOT/shared-test.md"
+rm -r "$VAULT/.claude/skills/shared-test" "$VAULT/.claude/commands/shared-test.md"
+
+# A heading that starts and ends with a quote is text, not a YAML value.
+printf '%s\n' '# /quote-test — "Build" and "test"' > "$VAULT/.claude/commands/quote-test.md"
+"$RILL_BIN" update --vault codex-test >/dev/null
+grep -Fxq 'description: "\"Build\" and \"test\""' "$VAULT/.agents/skills/quote-test/SKILL.md"
+
+# A command moved to .claude/skills/ gets its link in a single update.
+rm "$VAULT/.claude/commands/quote-test.md"
+mkdir -p "$VAULT/.claude/skills/quote-test"
+printf '%s\n' '---' 'name: quote-test' 'description: Moved' '---' \
+  > "$VAULT/.claude/skills/quote-test/SKILL.md"
+"$RILL_BIN" update --vault codex-test >/dev/null
+test -L "$VAULT/.agents/skills/quote-test"
+grep -Fxq 'description: Moved' "$VAULT/.agents/skills/quote-test/SKILL.md"
+rm -r "$VAULT/.claude/skills/quote-test"
+"$RILL_BIN" update --vault codex-test >/dev/null
+test ! -e "$VAULT/.agents/skills/quote-test" && test ! -L "$VAULT/.agents/skills/quote-test"
+
+# A skill that lost its SKILL.md (scripts left behind) and became a command
+# gets a stub in place of the stale directory link.
+mkdir -p "$VAULT/.claude/skills/moved-test/scripts"
+printf '%s\n' '---' 'name: moved-test' 'description: Was a skill' '---' \
+  > "$VAULT/.claude/skills/moved-test/SKILL.md"
+touch "$VAULT/.claude/skills/moved-test/scripts/run.sh"
+"$RILL_BIN" update --vault codex-test >/dev/null
+test -L "$VAULT/.agents/skills/moved-test"
+rm "$VAULT/.claude/skills/moved-test/SKILL.md"
+printf '%s\n' '# /moved-test — Now a command' > "$VAULT/.claude/commands/moved-test.md"
+"$RILL_BIN" update --vault codex-test >/dev/null
+test -d "$VAULT/.agents/skills/moved-test" && ! test -L "$VAULT/.agents/skills/moved-test"
+grep -Fxq 'description: "Now a command"' "$VAULT/.agents/skills/moved-test/SKILL.md"
+test -f "$VAULT/.claude/skills/moved-test/scripts/run.sh"
+rm -r "$VAULT/.claude/skills/moved-test" "$VAULT/.claude/commands/moved-test.md"
+"$RILL_BIN" update --vault codex-test >/dev/null
+
+# Skills grouped in a subdirectory are valid for Codex; doctor accepts them
+# (the final doctor run below) and checks the nested SKILL.md files.
+mkdir -p "$VAULT/.agents/skills/group-test/nested-ok"
+printf '%s\n' '---' 'name: nested-ok' 'description: Grouped skill' '---' \
+  > "$VAULT/.agents/skills/group-test/nested-ok/SKILL.md"
+
+# --- doctor reports skills Codex cannot load ---
+mkdir -p "$VAULT/.agents/skills/no-frontmatter" "$VAULT/.agents/skills/no-description" \
+  "$VAULT/.agents/skills/linked"
+printf '%s\n' '# No frontmatter' > "$VAULT/.agents/skills/no-frontmatter/SKILL.md"
+printf '%s\n' '---' 'name: no-description' '---' 'Body.' \
+  > "$VAULT/.agents/skills/no-description/SKILL.md"
+printf '%s\n' '---' 'name: linked' 'description: Valid but linked' '---' \
+  > "$TMP_ROOT/linked.md"
+ln -s "$TMP_ROOT/linked.md" "$VAULT/.agents/skills/linked/SKILL.md"
+mkdir -p "$VAULT/.agents/skills/group-test/nested-bad"
+printf '%s\n' '# Nested, no frontmatter' > "$VAULT/.agents/skills/group-test/nested-bad/SKILL.md"
+if doctor_out="$(cd "$VAULT" && "$RILL_BIN" doctor codex)"; then
+  echo "doctor codex passed despite unloadable skills" >&2
+  exit 1
+fi
+grep -Fq '.agents/skills/no-frontmatter/SKILL.md frontmatter lacks name and description' <<<"$doctor_out"
+grep -Fq '.agents/skills/no-description/SKILL.md frontmatter lacks description' <<<"$doctor_out"
+grep -Fq '.agents/skills/linked/SKILL.md is a symlink' <<<"$doctor_out"
+grep -Fq '.agents/skills/group-test/nested-bad/SKILL.md frontmatter lacks' <<<"$doctor_out"
+if grep -Fq 'nested-ok' <<<"$doctor_out" || grep -Fq 'group-test is' <<<"$doctor_out"; then
+  echo "doctor codex flagged a valid grouped skill" >&2
+  exit 1
+fi
+rm -r "$VAULT/.agents/skills/no-frontmatter" "$VAULT/.agents/skills/no-description" \
+  "$VAULT/.agents/skills/linked" "$VAULT/.agents/skills/group-test/nested-bad"
 
 # Deny rules must survive reprojection on `rill update` too.
 test -f "$VAULT/.codex/rules/rill-deny.rules"
