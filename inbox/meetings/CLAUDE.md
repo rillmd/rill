@@ -6,6 +6,8 @@ Meeting note input. source-type: meeting.
 
 `YYYY-MM-DD-description.md` (e.g., `2026-02-16-sunrise-hotel-meeting.md`)
 
+A note written in the Rill app is named `YYYY-MM-DD-HHmmss.md`, the time it was created, with its title in the `title` frontmatter field.
+
 ## Raw Frontmatter (original file)
 
 ```yaml
@@ -34,14 +36,16 @@ Structured summary, decisions, key points...
 
 ## Characteristics
 
-- **`participants`**: List of meeting attendees (required)
-- **`original-source`**: Import origin (Google Meet, Zoom, handwritten notes, etc.)
+- **`participants`**: List of meeting attendees (required in the organized version; `/distill` keeps it from the original when present and otherwise extracts it from the text)
+- **`original-source`**: Import origin (Google Meet, Zoom, handwritten notes, `Rill GUI note` for a note written in the Rill app, etc.)
 - The `_organized/` version contains a structured summary, decisions, and key points
 - `/distill` automatically updates key facts in knowledge/people/ and knowledge/orgs/
 
 ## Immutability Principle
 
 Original files are read-only. Only `_organized/` creation is allowed.
+
+A note written in the Rill app stays outside the inbox, as a draft in `.rill/state/drafts/`, until it is finished. Once it is here it follows the same rule.
 
 ## Contact Information Handling
 
