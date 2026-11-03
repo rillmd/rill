@@ -137,7 +137,7 @@ echo ""
 
 # 1. Inbox + knowledge/notes immutability — /eval is read-only on note bodies
 echo "=== INV-01: Inbox + knowledge/notes immutability (/eval is read-only) ==="
-bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE" || true
+run_assertion bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE"
 echo ""
 
 # 2. Deep Path result file emitted

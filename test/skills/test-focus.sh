@@ -160,7 +160,7 @@ if [[ "$SCENARIO" == *A* ]]; then
 
     # WM-04 extended: tags are in taxonomy
     if [[ -n "$WM_TAGS" ]]; then
-      bash "$ASSERTIONS_DIR/check-taxonomy.sh" "$NEW_WS_FILE" taxonomy.md || true
+      run_assertion bash "$ASSERTIONS_DIR/check-taxonomy.sh" "$NEW_WS_FILE" taxonomy.md
     fi
 
     # WM-05 to WM-08: Required sections
@@ -280,7 +280,7 @@ echo ""
 
 # INV-01: Inbox immutability
 echo "=== INV-01: Inbox immutability ==="
-bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE" || true
+run_assertion bash "$ASSERTIONS_DIR/check-no-mutation.sh" "$HASH_FILE"
 echo ""
 
 # Existing knowledge file immutability
@@ -325,7 +325,7 @@ cat > "$RESULTS_DIR/summary.json" <<EOF
 }
 EOF
 
-report_results || true
+report_results
 
 echo ""
 echo "Vault preserved at: $VAULT_DIR"

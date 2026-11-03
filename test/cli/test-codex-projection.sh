@@ -63,7 +63,69 @@ test "$agents_bytes" -lt 4096
 printf '%s\n' '---' 'description: Personal test workflow' '---' '# Personal' \
   > "$VAULT/.claude/commands/personal-test.md"
 "$RILL_BIN" update --vault codex-test >/dev/null
-test -L "$VAULT/.agents/skills/personal-test/SKILL.md"
+test -f "$VAULT/.agents/skills/personal-test/SKILL.md"
+test ! -L "$VAULT/.agents/skills/personal-test/SKILL.md"
+grep -q "^name: personal-test$" "$VAULT/.agents/skills/personal-test/SKILL.md"
+
+# Personal native skill resources remain next to the single editable source.
+mkdir -p "$VAULT/.claude/skills/personal-native/assets"
+printf '%s\n' '---' 'name: personal-native' 'description: Use for native testing' '---' \
+  '[asset](assets/example.txt)' > "$VAULT/.claude/skills/personal-native/SKILL.md"
+printf '%s\n' 'resource sentinel' > "$VAULT/.claude/skills/personal-native/assets/example.txt"
+mkdir -p "$VAULT/.agents/skills/personal-owned"
+printf '%s\n' '---' 'name: personal-owned' 'description: User maintained' '---' \
+  'Do not overwrite' > "$VAULT/.agents/skills/personal-owned/SKILL.md"
+cp "$VAULT/.agents/skills/personal-owned/SKILL.md" "$TMP_ROOT/owned-before"
+"$RILL_BIN" update --vault codex-test >/dev/null
+cmp "$TMP_ROOT/owned-before" "$VAULT/.agents/skills/personal-owned/SKILL.md"
+grep -q '.claude/skills/personal-native/SKILL.md' "$VAULT/.agents/skills/personal-native/SKILL.md"
+grep -q 'resource sentinel' "$VAULT/.claude/skills/personal-native/assets/example.txt"
+
+# Plugin commands without Codex metadata receive a wrapper immediately.
+mkdir -p "$VAULT/plugins/local/foundation/commands/assets"
+printf '%s\n' '# Fixture workflow' '[asset](assets/example.txt)' \
+  > "$VAULT/plugins/local/foundation/commands/foundation-command.md"
+printf '%s\n' 'plugin sentinel' > "$VAULT/plugins/local/foundation/commands/assets/example.txt"
+printf '%s\n' 'foundation' >> "$VAULT/plugins/.installed"
+(cd "$VAULT" && "$RILL_BIN" plugin enable foundation >/dev/null)
+PLUGIN_SKILL="$VAULT/.agents/skills/foundation-command/SKILL.md"
+test -f "$PLUGIN_SKILL"
+test ! -L "$PLUGIN_SKILL"
+grep -q '^name: foundation-command$' "$PLUGIN_SKILL"
+grep -q 'plugins/local/foundation/commands/foundation-command.md' "$PLUGIN_SKILL"
+(cd "$VAULT" && "$RILL_BIN" plugin disable foundation >/dev/null)
+test ! -e "$PLUGIN_SKILL"
+test -f "$VAULT/plugins/local/foundation/commands/assets/example.txt"
+
+# Doctor must reject a discoverable skill with missing required metadata.
+mkdir -p "$VAULT/.agents/skills/invalid-fixture"
+printf '%s\n' '# Missing frontmatter' > "$VAULT/.agents/skills/invalid-fixture/SKILL.md"
+if (cd "$VAULT" && "$RILL_BIN" doctor codex) > "$TMP_ROOT/doctor-invalid.log" 2>&1; then
+  echo "doctor accepted invalid skill metadata" >&2
+  exit 1
+fi
+grep -q 'Invalid skill:' "$TMP_ROOT/doctor-invalid.log"
+# This is a test-owned fixture, restored to valid form for the final doctor.
+printf '%s\n' '---' 'name: invalid-fixture' 'description: Repaired fixture' '---' \
+  > "$VAULT/.agents/skills/invalid-fixture/SKILL.md"
+
+# Legacy command names unsupported by Codex must not abort unrelated updates
+# or leave plugin lifecycle state half-written. Doctor still reports the gap.
+printf '%s\n' '# Preserve this command' > "$VAULT/.claude/commands/unsupported_name.md"
+"$RILL_BIN" update --vault codex-test > "$TMP_ROOT/unsupported-update.log" 2>&1
+grep -q 'unsupported skill name: unsupported_name' "$TMP_ROOT/unsupported-update.log"
+grep -q 'Preserve this command' "$VAULT/.claude/commands/unsupported_name.md"
+(cd "$VAULT" && "$RILL_BIN" plugin enable foundation >/dev/null 2>&1)
+grep -qx foundation "$VAULT/plugins/.enabled"
+(cd "$VAULT" && "$RILL_BIN" plugin disable foundation >/dev/null 2>&1)
+if grep -qx foundation "$VAULT/plugins/.enabled"; then exit 1; fi
+if (cd "$VAULT" && "$RILL_BIN" doctor codex) > "$TMP_ROOT/unsupported-doctor.log" 2>&1; then
+  echo "doctor failed to report unsupported command projection" >&2
+  exit 1
+fi
+grep -q 'command /unsupported_name has no Codex skill' "$TMP_ROOT/unsupported-doctor.log"
+mv "$VAULT/.claude/commands/unsupported_name.md" "$VAULT/.claude/commands/supported-name.md"
+"$RILL_BIN" update --vault codex-test >/dev/null
 
 # Deny rules must survive reprojection on `rill update` too.
 test -f "$VAULT/.codex/rules/rill-deny.rules"
